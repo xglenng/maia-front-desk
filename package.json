@@ -1,0 +1,40 @@
+{
+  "name": "ai-tattoo-receptionist",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx packages/db/src/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test packages/booking/src/__tests__/*.test.ts packages/compliance/__tests__/*.test.ts packages/consent/__tests__/*.test.ts packages/auth/__tests__/*.test.ts packages/porting/__tests__/*.test.ts packages/onboarding/__tests__/*.test.ts packages/inbox/__tests__/*.test.ts packages/waivers/__tests__/*.test.ts packages/channels/__tests__/*.test.ts",
+    "auth:setup": "tsx scripts/auth-setup.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^1.0.0",
+    "ai": "^4.0.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "^15.0.0",
+    "pg": "^8.13.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.0",
+    "stripe": "^18.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "jsondiffpatch": "^0.7.6",
+    "postcss": "^8.5.28"
+  }
+}

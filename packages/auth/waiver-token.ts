@@ -1,0 +1,5 @@
+import {createHmac,timingSafeEqual} from 'node:crypto';
+export type WaiverAccess={organizationId:string;appointmentId:string;clientId:string;waiverTemplateId:string;expires:number};
+function key(){const v=process.env.WAIVER_SIGNING_SECRET;if(!v||v.length<32)throw new Error('Configure WAIVER_SIGNING_SECRET with at least 32 random characters.');return v;}
+export function signWaiver(value:WaiverAccess){const body=Buffer.from(JSON.stringify(value)).toString('base64url');return body+'.'+createHmac('sha256',key()).update(body).digest('base64url');}
+export function readWaiver(raw:string):WaiverAccess|null{try{const [body,sig]=raw.split('.');const expected=createHmac('sha256',key()).update(body).digest();const actual=Buffer.from(sig,'base64url');if(actual.length!==expected.length||!timingSafeEqual(actual,expected))return null;const v=JSON.parse(Buffer.from(body,'base64url').toString());return v.expires>Date.now()&&['organizationId','appointmentId','clientId','waiverTemplateId'].every(k=>typeof v[k]==='string')?v:null;}catch{return null;}}

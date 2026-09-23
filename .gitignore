@@ -1,0 +1,8 @@
+node_modules
+.next
+.env
+.env.local
+.DS_Store
+packages/db/drizzle
+.env.prod
+.env.mock
