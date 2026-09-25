@@ -172,18 +172,33 @@ async function debugMetaToken(accessToken: string) {
 
 
 
-async function metaAccountReachable(accountId: string, accessToken: string) {
+// async function metaAccountReachable(accountId: string, accessToken: string) {
 
+//   const url = new URL(`${graphBase()}/${encodeURIComponent(accountId)}`);
+
+//   url.searchParams.set("fields", "id,name,username");
+
+//   url.searchParams.set("access_token", accessToken);
+
+//   await graphJson<{ id: string }>(url);
+
+//   return true;
+
+// }
+
+async function metaAccountReachable(
+  accountId: string,
+  accessToken: string,
+  provider: SocialProvider,
+) {
   const url = new URL(`${graphBase()}/${encodeURIComponent(accountId)}`);
-
-  url.searchParams.set("fields", "id,name,username");
-
+  url.searchParams.set(
+    "fields",
+    provider === "FACEBOOK" ? "id,name" : "id,name,username",
+  );
   url.searchParams.set("access_token", accessToken);
-
   await graphJson<{ id: string }>(url);
-
   return true;
-
 }
 
 
@@ -233,8 +248,7 @@ export async function inspectMetaConnection(input: { provider: SocialProvider; e
     const missingScopes = required.filter(scope => !scopes.includes(scope));
 
     const [accountReachable, subscribed] = await Promise.all([
-
-      metaAccountReachable(input.externalAccountId, input.accessToken),
+      metaAccountReachable(input.externalAccountId, input.accessToken, input.provider),
 
       metaPageSubscribed(input.pageId, input.accessToken),
 
@@ -276,19 +290,31 @@ export function isMetaAuthError(error: unknown) {
 
 }
 
-
-
-export async function getSocialProfile(externalUserId: string, accessToken: string) {
-
+export async function getSocialProfile(
+  externalUserId: string,
+  accessToken: string,
+  provider: SocialProvider,
+) {
   const url = new URL(`${graphBase()}/${encodeURIComponent(externalUserId)}`);
-
-  url.searchParams.set("fields", "name,username");
-
+  url.searchParams.set(
+    "fields",
+    provider === "FACEBOOK" ? "id,name" : "id,name,username",
+  );
   url.searchParams.set("access_token", accessToken);
-
   return graphJson<{ id: string; name?: string; username?: string }>(url);
-
 }
+
+// export async function getSocialProfile(externalUserId: string, accessToken: string) {
+
+//   const url = new URL(`${graphBase()}/${encodeURIComponent(externalUserId)}`);
+
+//   url.searchParams.set("fields", "name,username");
+
+//   url.searchParams.set("access_token", accessToken);
+
+//   return graphJson<{ id: string; name?: string; username?: string }>(url);
+
+// }
 
 
 
