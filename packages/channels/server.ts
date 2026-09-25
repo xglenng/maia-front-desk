@@ -18,7 +18,7 @@ export async function processSocialInbound(event: SocialInboundEvent, origin: st
   let client;
   if (identity) [client] = await db.select().from(clients).where(and(eq(clients.id, identity.clientId), eq(clients.organizationId, connection.organizationId))).limit(1);
   if (!client) {
-    const profile = process.env.META_MESSAGING_MODE === "mock" ? { id: event.externalUserId, name: event.profileName || `Test ${event.externalUserId}`, username: event.username || event.externalUserId } : : await getSocialProfile(event.externalUserId, accessToken, event.provider);
+    const profile = process.env.META_MESSAGING_MODE === "mock" ? { id: event.externalUserId, name: event.profileName || `Test ${event.externalUserId}`, username: event.username || event.externalUserId } :  await getSocialProfile(event.externalUserId, accessToken, event.provider);
     const parts = (profile.name || profile.username || `${event.provider} client`).trim().split(/\s+/);
     [client] = await db.insert(clients).values({ organizationId: connection.organizationId, firstName: parts[0] || "Social", lastName: parts.slice(1).join(" ") || null, smsOptIn: false, notes: `${event.provider} contact ${profile.username ? `@${profile.username}` : event.externalUserId}` }).returning();
     [identity] = await db.insert(clientChannelIdentities).values({ organizationId: connection.organizationId, clientId: client.id, connectionId: connection.id, provider: event.provider, externalUserId: event.externalUserId, username: profile.username ?? null, profileName: profile.name ?? null }).returning();
