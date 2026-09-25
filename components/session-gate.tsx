@@ -8,7 +8,11 @@ export function useSession() { return useContext(SessionContext); }
 
 export default function SessionGate({ children }: { children: ReactNode }) {
   const path = usePathname();
-  const publicPage = path === '/login' || path === '/waiver' || path.startsWith('/legal/');
+  const publicPage =
+  path === '/login' ||
+  path === '/signup' ||
+  path === '/waiver' ||
+  path.startsWith('/legal/');
   const ownerPage = path === '/settings' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
   const [user, setUser] = useState<SessionUser | null>(null);
   useEffect(() => {
