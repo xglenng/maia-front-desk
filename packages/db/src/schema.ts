@@ -41,7 +41,8 @@ export const artists = pgTable("artists", {
   bookingEnabled: boolean("booking_enabled").default(true).notNull(),
   minimumPriceCents: integer("minimum_price_cents").default(15000).notNull(),
   hourlyRateCents: integer("hourly_rate_cents").default(20000).notNull(),
-  aiMode: text("ai_mode").default("ASSISTED").notNull()
+  aiMode: text("ai_mode").default("ASSISTED").notNull(),
+  responseLength: text("response_length").$type<"SHORT" | "STANDARD" | "DETAILED">().default("SHORT").notNull()
 });
 
 export const authOauthStates=pgTable('auth_oauth_states',{

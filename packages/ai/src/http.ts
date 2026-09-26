@@ -75,7 +75,7 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
 
     const { rules } = await getArtistContext(ctx);
     const serviceCatalog = await getServiceCatalog(ctx);
-    const system = buildSystemPrompt({ artistName: artist.displayName, hourlyRateCents: artist.hourlyRateCents, minimumPriceCents: artist.minimumPriceCents, rules: rules.map(r => r.rule), services: serviceCatalog.map(s => `${s.name}: ${s.durationMinutes} minutes, ${s.pricingType}${s.basePriceCents ? `, base $${(s.basePriceCents / 100).toFixed(2)}` : ''}`), smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel });
+    const system = buildSystemPrompt({ artistName: artist.displayName, hourlyRateCents: artist.hourlyRateCents, minimumPriceCents: artist.minimumPriceCents, rules: rules.map(r => r.rule), services: serviceCatalog.map(s => `${s.name}: ${s.durationMinutes} minutes, ${s.pricingType}${s.basePriceCents ? `, base $${(s.basePriceCents / 100).toFixed(2)}` : ''}`), smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel, responseLength: artist.responseLength });
 
     const history = await db.select({ role: messages.role, content: messages.content })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
