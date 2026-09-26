@@ -15,8 +15,8 @@ async function seed() {
   const [client, sarah, jake, emily] = seededClients;
 
   await db.insert(services).values([
-    { organizationId: org.id, artistId: artist.id, name: 'Tattoo Session', durationMinutes: 120, pricingType: 'HOURLY', hourlyRateCents: 20000 },
-    { organizationId: org.id, artistId: artist.id, name: 'Small Tattoo', durationMinutes: 60, pricingType: 'FLAT', basePriceCents: 15000 },
+    { organizationId: org.id, artistId: artist.id, serviceType: 'TATTOO', name: 'Tattoo Session', durationMinutes: 120, pricingType: 'HOURLY', hourlyRateCents: 20000 },
+    { organizationId: org.id, artistId: artist.id, serviceType: 'TATTOO', name: 'Small Tattoo', durationMinutes: 60, pricingType: 'FLAT', basePriceCents: 15000 },
   ]);
 
   await db.insert(availabilityRules).values([

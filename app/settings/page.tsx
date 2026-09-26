@@ -62,6 +62,7 @@ export default function SettingsPage() {
       <a href="/onboarding" style={{...card,borderColor:'#b98b7f'}}><strong>Guided studio activation</strong><p>Follow one production checklist from business profile through tested go-live.</p></a>
       <a href="/compliance" style={card}><strong>Legal pages</strong><p>Business information, Privacy Policy, and Terms required for SMS registration.</p></a>
       <a href="/settings/consent-forms" style={card}><strong>SMS consent workflow</strong><p>Configure client-initiated texting with YES confirmation or a compliant form-based opt-in.</p></a>
+      <a href="/settings/services" style={card}><strong>Services &amp; Pricing</strong><p>Configure the services, durations, and prices Maia can share with clients.</p></a>
       <a href="/compliance/registration" style={card}><strong>SMS campaign registration</strong><p>Campaign use case, opt-in flow, sample messages, and registration readiness.</p></a>
       <a href="/twilio" style={card}><strong>Twilio phone setup and porting</strong><p>Provision a temporary number or move an artist&apos;s existing business number into the app.</p></a>
       <a href="/waivers" style={card}><strong>Waiver providers and delivery</strong><p>Connect Jotform or another provider, map consent forms, and send the correct waiver to clients.</p></a>

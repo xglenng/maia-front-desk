@@ -18,6 +18,7 @@ export default function AiTestPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -91,10 +92,28 @@ export default function AiTestPage() {
     }
   }
 
-  function resetConversation() {
-    setConversationId('');
-    setMessages([]);
-    setActivities([{ label: 'Sandbox reset', detail: 'The next message will start a fresh conversation.', kind: 'info' }]);
+  async function resetConversation() {
+    if (!organizationId || !artistId || !clientId || sending || resetting) return;
+    setResetting(true);
+    setError('');
+    try {
+      const response = await fetch('/api/ai/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId, artistId, clientId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? 'Failed to start a fresh conversation');
+      setConversationId(data.conversation.id);
+      setMessages(data.messages ?? []);
+      setActivities([{ label: 'Sandbox reset', detail: data.conversation.id, kind: 'info' }]);
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : 'Failed to start a fresh conversation';
+      setError(detail);
+      setActivities(prev => [...prev, { label: 'Reset failed', detail, kind: 'error' }]);
+    } finally {
+      setResetting(false);
+    }
   }
 
   return (
@@ -118,7 +137,7 @@ export default function AiTestPage() {
               Mode: <strong>{selectedArtist?.aiMode ?? '—'}</strong> · AI: <strong>{process.env.NEXT_PUBLIC_AI_PROVIDER ?? 'server configured'}</strong>
             </div>
           </div>
-          <button onClick={resetConversation} style={secondaryButton}>Reset conversation</button>
+          <button onClick={resetConversation} disabled={loading || sending || resetting} style={secondaryButton}>{resetting ? 'Starting fresh…' : 'Reset conversation'}</button>
         </section>
 
         {error && <div style={{ background: '#fff0f0', border: '1px solid #e2aaaa', borderRadius: 10, padding: 12, marginBottom: 18, color: '#8b1e1e' }}>{error}</div>}
@@ -131,8 +150,8 @@ export default function AiTestPage() {
               {messages.map(m => <div key={m.id} style={{ display: 'flex', justifyContent: m.senderType === 'CLIENT' ? 'flex-end' : 'flex-start', marginBottom: 12 }}><div style={{ maxWidth: '78%', padding: '11px 14px', borderRadius: 14, background: m.senderType === 'CLIENT' ? '#171717' : '#e8e8e8', color: m.senderType === 'CLIENT' ? '#fff' : '#171717', whiteSpace: 'pre-wrap' }}>{m.content}<div style={{ fontSize: 10, opacity: .55, marginTop: 5 }}>{m.senderType === 'CLIENT' ? 'CLIENT' : 'AI'} · {new Date(m.createdAt).toLocaleTimeString()}</div></div></div>)}
             </div>
             <form onSubmit={sendMessage} style={{ display: 'flex', gap: 10, padding: 14, borderTop: '1px solid #ddd' }}>
-              <input value={input} onChange={e => setInput(e.target.value)} placeholder="Type a client message…" disabled={sending || loading} style={{ ...inputStyle, flex: 1 }} />
-              <button type="submit" disabled={sending || !input.trim()} style={primaryButton}>{sending ? 'Sending…' : 'Send'}</button>
+              <input value={input} onChange={e => setInput(e.target.value)} placeholder="Type a client message…" disabled={sending || loading || resetting} style={{ ...inputStyle, flex: 1 }} />
+              <button type="submit" disabled={sending || resetting || !input.trim()} style={primaryButton}>{sending ? 'Sending…' : 'Send'}</button>
             </form>
           </section>
 

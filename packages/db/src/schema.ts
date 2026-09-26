@@ -117,16 +117,41 @@ export const smsConsentEvidence = pgTable("sms_consent_evidence", {
 
 export const services = pgTable("services", {
   id: uuid("id").defaultRandom().primaryKey(),
-  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
-  artistId: uuid("artist_id").references(() => artists.id).notNull(),
+
+  organizationId: uuid("organization_id")
+    .references(() => organizations.id)
+    .notNull(),
+
+  artistId: uuid("artist_id")
+    .references(() => artists.id)
+    .notNull(),
+
+  serviceType: text("service_type").notNull(),
+  category: text("category"),
+
   name: text("name").notNull(),
+  description: text("description"),
+
   durationMinutes: integer("duration_minutes").notNull(),
+
   pricingType: text("pricing_type").notNull(),
   basePriceCents: integer("base_price_cents"),
   hourlyRateCents: integer("hourly_rate_cents"),
-  requiresConsultation: boolean("requires_consultation").default(false).notNull(),
-  requiresArtistApproval: boolean("requires_artist_approval").default(false).notNull(),
-  active: boolean("active").default(true).notNull()
+  startingAt: boolean("starting_at").default(false).notNull(),
+
+  requiresConsultation: boolean("requires_consultation")
+    .default(false)
+    .notNull(),
+
+  requiresArtistApproval: boolean("requires_artist_approval")
+    .default(false)
+    .notNull(),
+
+  active: boolean("active").default(true).notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
 export const bookingInquiries = pgTable("booking_inquiries", {

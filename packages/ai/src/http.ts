@@ -65,17 +65,25 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
     if (process.env.AI_PROVIDER === 'mock' || !process.env.OPENAI_API_KEY) {
       const text = input.message.toLowerCase();
       const reply = text.includes('price') || text.includes('cost')
-        ? `I can help with that. ${artist.displayName}'s rate is $${(artist.hourlyRateCents / 100).toFixed(0)}/hour, with a $${(artist.minimumPriceCents / 100).toFixed(0)} minimum. Tell me the placement, approximate size, style, and whether you want color or black and gray.`
+        ? 'Which service are you asking about? I need the service details to answer accurately.'
         : text.includes('book') || text.includes('appointment')
-          ? 'Absolutely. Tell me your preferred day, approximate tattoo duration, placement, and size and I can check available times.'
-          : 'Thanks! Tell me the placement, approximate size, style, color vs. black and gray, and send any reference images. I’ll use that to determine the next booking step.';
+          ? 'Which service would you like to book, and what timing works for you?'
+          : 'Which service are you interested in, and what would you like help with?';
       const message = await sendMessage(ctx, reply);
       return NextResponse.json({ reply, conversationId: conversation.id, messageId: message.id, mode: 'mock' });
     }
 
     const { rules } = await getArtistContext(ctx);
     const serviceCatalog = await getServiceCatalog(ctx);
-    const system = buildSystemPrompt({ artistName: artist.displayName, hourlyRateCents: artist.hourlyRateCents, minimumPriceCents: artist.minimumPriceCents, rules: rules.map(r => r.rule), services: serviceCatalog.map(s => `${s.name}: ${s.durationMinutes} minutes, ${s.pricingType}${s.basePriceCents ? `, base $${(s.basePriceCents / 100).toFixed(2)}` : ''}`), smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel, responseLength: artist.responseLength });
+    const system = buildSystemPrompt({ artistName: artist.displayName, hourlyRateCents: artist.hourlyRateCents, minimumPriceCents: artist.minimumPriceCents, rules: rules.map(r => r.rule), services: serviceCatalog.map(service => {
+      const pricing = [
+        `${service.durationMinutes} minutes`,
+        service.pricingType,
+        service.basePriceCents != null ? `base $${(service.basePriceCents / 100).toFixed(2)}${service.startingAt ? ' starting at' : ''}` : null,
+        service.hourlyRateCents != null ? `hourly $${(service.hourlyRateCents / 100).toFixed(2)}` : null
+      ].filter(Boolean).join(', ');
+      return `${service.serviceType ? `${service.serviceType} - ` : ''}${service.name}${service.description ? ` (${service.description})` : ''}: ${pricing}`;
+    }), smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel, responseLength: artist.responseLength });
 
     const history = await db.select({ role: messages.role, content: messages.content })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
@@ -88,7 +96,7 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
       maxSteps: 6,
       tools: {
         getClient: tool({ description: 'Get the current client profile.', parameters: z.object({}), execute: async () => getClient(ctx) }),
-        getServices: tool({ description: 'List active tattoo services for this artist.', parameters: z.object({}), execute: async () => getServiceCatalog(ctx) }),
+        getServices: tool({ description: 'List active services offered by this provider.', parameters: z.object({}), execute: async () => getServiceCatalog(ctx) }),
         getAvailableSlots: tool({ description: 'Check real availability. Never invent times; only present returned slots.', parameters: z.object({ durationMinutes: z.number().int().positive().max(1440), from: z.string(), to: z.string() }), execute: async (args) => getSlots(ctx, args) }),
         createBookingHold: tool({ description: 'Create a temporary 10-minute hold after the client has selected a returned slot.', parameters: z.object({ serviceId: z.string().uuid(), start: z.string(), depositCents: z.number().int().nonnegative().optional(), priceCents: z.number().int().nonnegative().optional() }), execute: async (args) => createBookingHold(ctx, args) }),
         createDepositLink: tool({ description: 'Create the real Stripe deposit checkout link for a valid booking hold.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => createDepositLink(ctx, args.appointmentId) }),

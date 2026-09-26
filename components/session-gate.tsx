@@ -13,7 +13,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path === '/signup' ||
   path === '/waiver' ||
   path.startsWith('/legal/');
-  const ownerPage = path === '/settings' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
+  const ownerPage = path === '/settings' || path === '/settings/services' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
   const [user, setUser] = useState<SessionUser | null>(null);
   useEffect(() => {
     if (publicPage) return;
