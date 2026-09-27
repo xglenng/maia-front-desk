@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type Artist = { id: string; organizationId: string; displayName: string; aiMode: string; };
 type Client = { id: string; organizationId: string; firstName: string; lastName: string; email?: string | null; };
@@ -14,6 +14,8 @@ export default function AiTestPage() {
   const [clientId, setClientId] = useState('');
   const [organizationId, setOrganizationId] = useState('');
   const [conversationId, setConversationId] = useState('');
+  const conversationIdRef = useRef('');
+  const conversationRequestRef = useRef(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [input, setInput] = useState('');
@@ -24,6 +26,11 @@ export default function AiTestPage() {
 
   const selectedArtist = useMemo(() => artists.find(a => a.id === artistId), [artists, artistId]);
   const selectedClient = useMemo(() => clients.find(c => c.id === clientId), [clients, clientId]);
+
+  function setActiveConversationId(id: string) {
+    conversationIdRef.current = id;
+    setConversationId(id);
+  }
 
   useEffect(() => {
     fetch('/api/dashboard')
@@ -45,45 +52,70 @@ export default function AiTestPage() {
 
   useEffect(() => {
     if (!organizationId || !artistId || !clientId) return;
-    loadConversation();
+    setActiveConversationId('');
+    setMessages([]);
+    void loadConversation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId, artistId, clientId]);
 
-  async function loadConversation() {
+  async function loadConversation(requestedConversationId?: string) {
+    const requestId = ++conversationRequestRef.current;
     setError('');
     const params = new URLSearchParams({ organizationId, artistId, clientId });
-    if (conversationId) params.set('conversationId', conversationId);
+    if (requestedConversationId) params.set('conversationId', requestedConversationId);
     const response = await fetch(`/api/ai/conversation?${params}`);
     const data = await response.json();
+    if (requestId !== conversationRequestRef.current) return;
     if (!response.ok) return setError(data.error ?? 'Failed to load conversation');
-    setConversationId(data.conversation?.id ?? '');
+    if (!data.conversation) {
+      const createResponse = await fetch('/api/ai/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId, artistId, clientId }),
+      });
+      const created = await createResponse.json();
+      if (requestId !== conversationRequestRef.current) return;
+      if (!createResponse.ok) return setError(created.error ?? 'Failed to create conversation');
+      setActiveConversationId(created.conversation.id);
+      setMessages(created.messages ?? []);
+      setActivities([{ label: 'New conversation', detail: created.conversation.id, kind: 'info' }]);
+      return;
+    }
+    setActiveConversationId(data.conversation.id);
     setMessages(data.messages ?? []);
-    setActivities(data.conversation ? [{ label: 'Conversation loaded', detail: data.conversation.id, kind: 'ok' }] : [{ label: 'New conversation', detail: 'Send a message to start it', kind: 'info' }]);
+    setActivities([{ label: 'Conversation loaded', detail: data.conversation.id, kind: 'ok' }]);
   }
 
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
     const text = input.trim();
     if (!text || !organizationId || !artistId || !clientId || sending) return;
+    const activeConversationId = conversationIdRef.current;
+    if (!activeConversationId) {
+      setError('Wait for the conversation to finish loading before sending a message.');
+      return;
+    }
     setSending(true);
     setError('');
-    setActivities(prev => [...prev, { label: 'Sending client message', kind: 'pending' }]);
+    setActivities(prev => [...prev, { label: 'Sending client message', detail: activeConversationId, kind: 'pending' }]);
     try {
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, organizationId, artistId, clientId, conversationId: conversationId || undefined }),
+        body: JSON.stringify({ message: text, organizationId, artistId, clientId, conversationId: activeConversationId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'AI request failed');
-      setConversationId(data.conversationId);
+      setActiveConversationId(data.conversationId);
       setInput('');
       setActivities(prev => [
         ...prev.filter(a => a.kind !== 'pending'),
-        ...(data.toolCalls ?? []).map((name: string) => ({ label: name, kind: 'ok' as const })),
+        { label: 'Client message sent', detail: activeConversationId, kind: 'ok' },
+        ...(data.toolCalls ?? []).map((name: string) => ({ label: 'AI tool call', detail: name, kind: 'ok' as const })),
+        ...(data.toolResults ?? []).map((name: string) => ({ label: 'AI tool result', detail: name, kind: 'ok' as const })),
         { label: `AI response · ${data.mode}`, detail: data.messageId, kind: 'ok' },
       ]);
-      await loadConversation();
+      await loadConversation(data.conversationId);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'AI request failed');
       setActivities(prev => [...prev.filter(a => a.kind !== 'pending'), { label: 'Request failed', detail: e instanceof Error ? e.message : 'Unknown error', kind: 'error' }]);
@@ -94,6 +126,7 @@ export default function AiTestPage() {
 
   async function resetConversation() {
     if (!organizationId || !artistId || !clientId || sending || resetting) return;
+    conversationRequestRef.current += 1;
     setResetting(true);
     setError('');
     try {
@@ -104,9 +137,9 @@ export default function AiTestPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Failed to start a fresh conversation');
-      setConversationId(data.conversation.id);
+      setActiveConversationId(data.conversation.id);
       setMessages(data.messages ?? []);
-      setActivities([{ label: 'Sandbox reset', detail: data.conversation.id, kind: 'info' }]);
+      setActivities([{ label: 'Conversation reset', detail: data.conversation.id, kind: 'info' }]);
     } catch (e) {
       const detail = e instanceof Error ? e.message : 'Failed to start a fresh conversation';
       setError(detail);
@@ -128,10 +161,10 @@ export default function AiTestPage() {
         <section style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 18, marginBottom: 18 }}>
           <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 14, padding: 14, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <label style={{ display: 'grid', gap: 5, minWidth: 190, fontSize: 12, fontWeight: 700 }}>ARTIST
-              <select value={artistId} onChange={e => setArtistId(e.target.value)} disabled={loading} style={selectStyle}>{artists.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)}</select>
+              <select value={artistId} onChange={e => setArtistId(e.target.value)} disabled={loading || sending || resetting} style={selectStyle}>{artists.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)}</select>
             </label>
             <label style={{ display: 'grid', gap: 5, minWidth: 190, fontSize: 12, fontWeight: 700 }}>TEST CLIENT
-              <select value={clientId} onChange={e => setClientId(e.target.value)} disabled={loading} style={selectStyle}>{clients.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}</select>
+              <select value={clientId} onChange={e => setClientId(e.target.value)} disabled={loading || sending || resetting} style={selectStyle}>{clients.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}</select>
             </label>
             <div style={{ marginLeft: 'auto', alignSelf: 'end', fontSize: 12, color: '#666' }}>
               Mode: <strong>{selectedArtist?.aiMode ?? '—'}</strong> · AI: <strong>{process.env.NEXT_PUBLIC_AI_PROVIDER ?? 'server configured'}</strong>

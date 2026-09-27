@@ -106,7 +106,14 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
     });
     const reply = result.text || 'I’m going to have the artist take a look at this.';
     const message = await sendMessage(ctx, reply);
-    return NextResponse.json({ reply, conversationId: conversation.id, messageId: message.id, mode: 'live', toolCalls: result.steps.flatMap(step => step.toolCalls ?? []).map(call => call.toolName) });
+    return NextResponse.json({
+      reply,
+      conversationId: conversation.id,
+      messageId: message.id,
+      mode: 'live',
+      toolCalls: result.steps.flatMap(step => step.toolCalls ?? []).map(call => call.toolName),
+      toolResults: result.steps.flatMap(step => step.toolResults ?? []).map(toolResult => toolResult.toolName),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'AI receptionist failed';
     return NextResponse.json({ error: message }, { status: 500 });
