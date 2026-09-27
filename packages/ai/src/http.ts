@@ -5,7 +5,7 @@ import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { db } from '@db/index';
-import { artistConsentForms, artists, businessRules, clients, conversations, messages, organizations } from '@db/schema';
+import { artistConsentForms, artists, businessRules, clients, conversations, messages, organizations, schedulingConnections } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
 import { createBookingHold, createDepositLink, escalate, getArtistContext, getClient, getServiceCatalog, getSlots, getWaiverLink, sendMessage, type AgentContext } from '@ai/tools';
 import { shouldRunAi } from '@/packages/inbox/state';
@@ -75,6 +75,12 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
 
     const { rules } = await getArtistContext(ctx);
     const serviceCatalog = await getServiceCatalog(ctx);
+    const [[organization], [connection]] = await Promise.all([
+      db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, input.organizationId)).limit(1),
+      db.select({ locationTimezone: schedulingConnections.locationTimezone }).from(schedulingConnections).where(and(eq(schedulingConnections.organizationId, input.organizationId), eq(schedulingConnections.artistId, input.artistId))).limit(1),
+    ]);
+    const providerTimezone = connection?.locationTimezone || organization?.timezone || 'UTC';
+    const currentDateTime = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'long' }).format(new Date());
     const system = buildSystemPrompt({ artistName: artist.displayName, hourlyRateCents: artist.hourlyRateCents, minimumPriceCents: artist.minimumPriceCents, rules: rules.map(r => r.rule), services: serviceCatalog.map(service => {
       const pricing = [
         `${service.durationMinutes} minutes`,
@@ -83,7 +89,7 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
         service.hourlyRateCents != null ? `hourly $${(service.hourlyRateCents / 100).toFixed(2)}` : null
       ].filter(Boolean).join(', ');
       return `[SERVICE_ID: ${service.id}] ${service.serviceType ? `${service.serviceType} - ` : ''}${service.name}${service.description ? ` (${service.description})` : ''}: ${pricing}`;
-    }), smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel, responseLength: artist.responseLength });
+    }), currentDateTime, providerTimezone, smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel, responseLength: artist.responseLength });
 
     const history = await db.select({ role: messages.role, content: messages.content })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);

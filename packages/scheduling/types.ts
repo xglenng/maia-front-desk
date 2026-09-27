@@ -14,12 +14,12 @@ export type AvailabilityRequest = {
   durationMinutes: number;
   from: string;
   to: string;
+  now?: Date;
 };
 
 export type ProviderAvailabilityInput = AvailabilityRequest & {
   organizationId: string;
   artistId: string;
-  now?: Date;
   locationTimezone?: string;
   connection?: typeof schedulingConnections.$inferSelect;
   mapping?: typeof serviceProviderMappings.$inferSelect;

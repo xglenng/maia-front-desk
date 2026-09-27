@@ -32,7 +32,7 @@ export async function getServiceCatalog(ctx: AgentContext) {
 }
 
 export async function getSlots(ctx: AgentContext, input: { serviceId?: string; durationMinutes: number; from: string; to: string }) {
-  return getSchedulingAvailability(ctx.organizationId, ctx.artistId, input);
+  return getSchedulingAvailability(ctx.organizationId, ctx.artistId, { ...input, now: new Date() });
 }
 
 async function requireOngoingSmsConsent(ctx: AgentContext) {
