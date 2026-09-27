@@ -31,6 +31,14 @@ test('provider failure stays distinct from a genuine empty availability result',
   assert.equal(failure.result.slots.length, 0);
 });
 
+test('availability result statuses preserve provider errors and no availability', async () => {
+  const noAvailability = await invokeSchedulingProvider({ key: 'SQUARE', getAvailability: async () => ({ status: 'NO_AVAILABILITY', slots: [] }) }, {} as ProviderAvailabilityInput);
+  const providerError = await invokeSchedulingProvider({ key: 'SQUARE', getAvailability: async () => ({ status: 'PROVIDER_ERROR', slots: [], message: 'Could not verify' }) }, {} as ProviderAvailabilityInput);
+  assert.equal(noAvailability.result.status, 'NO_AVAILABILITY');
+  assert.equal(providerError.result.status, 'PROVIDER_ERROR');
+  assert.notEqual(providerError.result.status, noAvailability.result.status);
+});
+
 test('Square availability translation returns only matching mapped slots', () => {
   const slots = translateSquareAvailability([
     { start_at: '2026-09-27T16:00:00Z', location_id: 'loc-a', appointment_segments: [{ service_variation_id: 'var-a', team_member_id: 'team-a', duration_minutes: 30 }] },
