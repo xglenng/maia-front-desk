@@ -81,3 +81,56 @@ test('Square catalog int64 versions remain exact decimal strings', async () => {
   assert.equal(services[0].durationMinutes, 30);
   assert.equal(squareInt64String(Number('9223372036854775807')), null);
 });
+
+test('Square service discovery requests appointment items and variations', async () => {
+  let requestBody: Record<string, unknown> = {};
+  const fetcher: typeof fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ objects: [] }), { status: 200 });
+  };
+  const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
+  await client.listServiceVariations();
+  assert.deepEqual(requestBody.object_types, ['ITEM', 'ITEM_VARIATION']);
+});
+
+test('Square service discovery includes appointment variations and excludes retail variations', async () => {
+  const catalog = {
+    objects: [
+      { id: 'appointment-item', type: 'ITEM', item_data: { name: 'Lobes', product_type: 'APPOINTMENTS_SERVICE', variations: [{ id: 'appointment-variation' }] } },
+      { id: 'appointment-variation', type: 'ITEM_VARIATION', version: 11, item_variation_data: { item_id: 'appointment-item', name: 'Standard', service_duration: 1_800_000 } },
+      { id: 'retail-item', type: 'ITEM', item_data: { name: 'Aftercare', product_type: 'REGULAR', variations: [{ id: 'retail-variation' }] } },
+      { id: 'retail-variation', type: 'ITEM_VARIATION', version: 12, item_variation_data: { item_id: 'retail-item', name: 'Bottle', service_duration: 1_800_000 } },
+    ],
+  };
+  const fetcher: typeof fetch = async () => new Response(JSON.stringify(catalog), { status: 200 });
+  const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
+  assert.deepEqual(await client.listServiceVariations(), [{ id: 'appointment-variation', version: '11', name: 'Lobes · Standard', durationMinutes: 30 }]);
+});
+
+test('Square service discovery associates directly returned variations by item_id', async () => {
+  const catalog = {
+    objects: [
+      { id: 'appointment-item', type: 'ITEM', item_data: { name: 'Lobes', product_type: 'APPOINTMENTS_SERVICE' } },
+      { id: 'appointment-variation', type: 'ITEM_VARIATION', item_variation_data: { item_id: 'appointment-item', name: 'Standard', service_duration: 1_800_000 } },
+    ],
+  };
+  const fetcher: typeof fetch = async () => new Response(JSON.stringify(catalog), { status: 200 });
+  const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
+  assert.equal((await client.listServiceVariations())[0].id, 'appointment-variation');
+});
+
+test('Square service discovery preserves catalog pagination', async () => {
+  const requestBodies: Record<string, unknown>[] = [];
+  const fetcher: typeof fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    requestBodies.push(body);
+    const response = requestBodies.length === 1
+      ? { objects: [{ id: 'appointment-item', type: 'ITEM', item_data: { name: 'Lobes', product_type: 'APPOINTMENTS_SERVICE', variations: [{ id: 'appointment-variation' }] } }], cursor: 'next-page' }
+      : { objects: [{ id: 'appointment-variation', type: 'ITEM_VARIATION', item_variation_data: { item_id: 'appointment-item', name: 'Standard', service_duration: 1_800_000 } }] };
+    return new Response(JSON.stringify(response), { status: 200 });
+  };
+  const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
+  assert.equal((await client.listServiceVariations())[0].id, 'appointment-variation');
+  assert.equal(requestBodies.length, 2);
+  assert.equal(requestBodies[1].cursor, 'next-page');
+});

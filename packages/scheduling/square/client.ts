@@ -78,26 +78,30 @@ export class SquareApiClient {
   }
 
   async listServiceVariations(): Promise<SquareServiceVariation[]> {
-    const objects: SquareCatalogObject[] = [];
+    const items = new Map<string, SquareCatalogObject>();
+    const variations = new Map<string, SquareCatalogObject>();
     let cursor: string | undefined;
     do {
       const body = await this.request<{ objects?: SquareCatalogObject[]; related_objects?: SquareCatalogObject[]; cursor?: string }>('/v2/catalog/search', {
         method: 'POST',
-        body: JSON.stringify({ object_types: ['ITEM'], include_related_objects: true, ...(cursor ? { cursor } : {}) }),
+        body: JSON.stringify({ object_types: ['ITEM', 'ITEM_VARIATION'], include_related_objects: true, ...(cursor ? { cursor } : {}) }),
       });
-      objects.push(...(body.objects || []), ...(body.related_objects || []));
+      for (const object of [...(body.objects || []), ...(body.related_objects || [])]) {
+        if (object.type === 'ITEM') items.set(object.id, object);
+        if (object.type === 'ITEM_VARIATION') variations.set(object.id, object);
+      }
       cursor = body.cursor;
     } while (cursor);
 
-    const byId = new Map(objects.map(object => [object.id, object]));
-    const variations: SquareServiceVariation[] = [];
-    for (const item of objects) {
+    const services: SquareServiceVariation[] = [];
+    for (const item of items.values()) {
       if (item.type !== 'ITEM' || item.item_data?.product_type !== 'APPOINTMENTS_SERVICE') continue;
-      for (const reference of item.item_data.variations || []) {
-        const variation = byId.get(reference.id);
+      const referencedVariationIds = new Set((item.item_data.variations || []).map(reference => reference.id));
+      for (const variation of variations.values()) {
+        if (variation.item_variation_data?.item_id !== item.id && !referencedVariationIds.has(variation.id)) continue;
         if (variation?.type !== 'ITEM_VARIATION' || !variation.item_variation_data) continue;
         const durationMs = safeSquareNumber(variation.item_variation_data.service_duration);
-        variations.push({
+        services.push({
           id: variation.id,
           version: squareInt64String(variation.version),
           name: [item.item_data.name, variation.item_variation_data.name].filter(Boolean).join(' · ') || variation.id,
@@ -105,7 +109,7 @@ export class SquareApiClient {
         });
       }
     }
-    return variations;
+    return services;
   }
 
   async searchAvailability(input: {
