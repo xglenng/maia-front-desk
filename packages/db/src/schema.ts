@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, timestamp, boolean, integer, date, jsonb
+  pgTable, uuid, text, timestamp, boolean, integer, date, jsonb, bigint, index, uniqueIndex
 } from "drizzle-orm/pg-core";
 
 export const organizations = pgTable("organizations", {
@@ -318,6 +318,45 @@ export const calendarConnections = pgTable("calendar_connections", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
+
+export const schedulingConnections = pgTable("scheduling_connections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  artistId: uuid("artist_id").references(() => artists.id).notNull(),
+  provider: text("provider").notNull(),
+  externalAccountId: text("external_account_id").notNull(),
+  accountName: text("account_name"),
+  accessTokenEncrypted: text("access_token_encrypted").notNull(),
+  refreshTokenEncrypted: text("refresh_token_encrypted"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  locationId: text("location_id"),
+  locationTimezone: text("location_timezone"),
+  teamMemberId: text("team_member_id"),
+  status: text("status").default("CONNECTED").notNull(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+}, table => ({
+  artistUnique: uniqueIndex("scheduling_connections_organization_artist_uidx").on(table.organizationId, table.artistId),
+  tenantStatus: index("scheduling_connections_tenant_status_idx").on(table.organizationId, table.status)
+}));
+
+export const serviceProviderMappings = pgTable("service_provider_mappings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  artistId: uuid("artist_id").references(() => artists.id).notNull(),
+  schedulingConnectionId: uuid("scheduling_connection_id").references(() => schedulingConnections.id, { onDelete: "cascade" }).notNull(),
+  serviceId: uuid("service_id").references(() => services.id).notNull(),
+  locationId: text("location_id").notNull(),
+  externalServiceVariationId: text("external_service_variation_id").notNull(),
+  externalServiceVariationVersion: bigint("external_service_variation_version", { mode: "bigint" }),
+  externalTeamMemberId: text("external_team_member_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+}, table => ({
+  locationMappingUnique: uniqueIndex("service_provider_mappings_connection_service_location_uidx").on(table.schedulingConnectionId, table.serviceId, table.locationId),
+  tenantService: index("service_provider_mappings_tenant_service_idx").on(table.organizationId, table.artistId, table.serviceId)
+}));
 
 export const payments = pgTable("payments", {
   id: uuid("id").defaultRandom().primaryKey(),

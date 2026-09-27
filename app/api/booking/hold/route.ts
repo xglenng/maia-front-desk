@@ -4,6 +4,7 @@ import { and, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, artists, clients, services } from '@db/schema';
 import { z } from 'zod';
+import { usesInternalScheduling } from '@/packages/scheduling/service';
 
 const schema = z.object({
   organizationId: z.string().uuid(),
@@ -26,6 +27,9 @@ async function handlePOST(request: NextRequest) {
   const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.artistId, input.artistId), eq(services.organizationId, input.organizationId), eq(services.active, true)));
   if (!artist || !client || !service) return NextResponse.json({ error: 'Invalid artist, client, or service' }, { status: 404 });
   if (!artist.bookingEnabled) return NextResponse.json({ error: 'Artist booking is disabled' }, { status: 409 });
+  if (!await usesInternalScheduling(input.organizationId, input.artistId)) {
+    return NextResponse.json({ error: 'Booking through the connected scheduling provider is not enabled yet.' }, { status: 409 });
+  }
 
   const endsAt = new Date(input.startsAt.getTime() + service.durationMinutes * 60_000);
   const now = new Date();

@@ -1,8 +1,8 @@
 import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
-import { appointments, artistConsentForms, artists, availabilityRules, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, services, waiverTemplates } from '@db/schema';
-import { getAvailableSlots } from '@booking/index';
+import { appointments, artistConsentForms, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, services, waiverTemplates } from '@db/schema';
+import { getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
 import { createDepositCheckout } from '@integrations/index';
 import { signWaiver } from '@/packages/auth/waiver-token';
 import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
@@ -31,18 +31,8 @@ export async function getServiceCatalog(ctx: AgentContext) {
   return db.select().from(services).where(and(eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
 }
 
-export async function getSlots(ctx: AgentContext, input: { durationMinutes: number; from: string; to: string }) {
-  const from = new Date(input.from);
-  const to = new Date(input.to);
-  if (to <= from) throw new Error('The availability window must end after it starts.');
-  const rules = await db.select().from(availabilityRules).where(and(eq(availabilityRules.organizationId, ctx.organizationId), eq(availabilityRules.artistId, ctx.artistId), eq(availabilityRules.active, true)));
-  const now = new Date();
-  const busyRows = await db.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt }).from(appointments).where(and(
-    eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId), lt(appointments.startsAt, to), gte(appointments.endsAt, from),
-    or(eq(appointments.status, 'CONFIRMED'), eq(appointments.status, 'COMPLETED'), and(or(eq(appointments.status, 'TENTATIVE'), eq(appointments.status, 'AI_HOLD')), or(isNull(appointments.holdExpiresAt), gte(appointments.holdExpiresAt, now))))
-  ));
-  const slots = getAvailableSlots(rules, busyRows, { from, to, durationMinutes: input.durationMinutes, slotIntervalMinutes: 30 });
-  return slots.slice(0, 20).map(slot => ({ start: slot.startsAt.toISOString(), end: slot.endsAt.toISOString() }));
+export async function getSlots(ctx: AgentContext, input: { serviceId?: string; durationMinutes: number; from: string; to: string }) {
+  return getSchedulingAvailability(ctx.organizationId, ctx.artistId, input);
 }
 
 async function requireOngoingSmsConsent(ctx: AgentContext) {
@@ -56,6 +46,9 @@ async function requireOngoingSmsConsent(ctx: AgentContext) {
 
 export async function createBookingHold(ctx: AgentContext, input: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) {
   await requireOngoingSmsConsent(ctx);
+  if (!await usesInternalScheduling(ctx.organizationId, ctx.artistId)) {
+    throw new Error('Booking through the connected scheduling provider is not enabled yet. The artist will follow up.');
+  }
   const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
   if (!service) throw new Error('Service not found');
   const startsAt = new Date(input.start);

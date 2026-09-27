@@ -1,0 +1,133 @@
+import { and, eq } from 'drizzle-orm';
+import { db } from '@db/index';
+import { organizations, schedulingConnections, services, serviceProviderMappings } from '@db/schema';
+import { InternalSchedulingProvider } from './internal';
+import { SquareSchedulingProvider } from './square/provider';
+import type { AvailabilityRequest, AvailabilityResult, ProviderAvailabilityInput, SchedulingProvider } from './types';
+
+const providers = new Map<string, SchedulingProvider>([
+  ['SQUARE', new SquareSchedulingProvider()],
+]);
+const internalProvider = new InternalSchedulingProvider();
+
+export function resolveSchedulingProvider(provider: string | null, status: string | null) {
+  if (!provider || status === 'DISCONNECTED') return { kind: 'INTERNAL' as const, implementation: internalProvider };
+  if (status !== 'CONNECTED') return { kind: 'ERROR' as const };
+  const implementation = providers.get(provider);
+  return implementation ? { kind: 'EXTERNAL' as const, implementation } : { kind: 'ERROR' as const };
+}
+
+export function providerMappingMatches(
+  mapping: { organizationId: string; artistId: string; schedulingConnectionId: string; serviceId: string; locationId: string },
+  scope: { organizationId: string; artistId: string; schedulingConnectionId: string; serviceId: string; locationId: string },
+) {
+  return mapping.organizationId === scope.organizationId
+    && mapping.artistId === scope.artistId
+    && mapping.schedulingConnectionId === scope.schedulingConnectionId
+    && mapping.serviceId === scope.serviceId
+    && mapping.locationId === scope.locationId;
+}
+
+export async function invokeSchedulingProvider(provider: SchedulingProvider, input: ProviderAvailabilityInput) {
+  try {
+    return { result: await provider.getAvailability(input), error: null as unknown };
+  } catch (error) {
+    return {
+      result: { status: 'PROVIDER_ERROR', slots: [], message: 'Scheduling could not be verified right now. The studio will follow up.' } as AvailabilityResult,
+      error,
+    };
+  }
+}
+
+function logResolution(input: { organizationId: string; artistId: string; serviceId?: string; provider: string; queried: boolean; mappingFound: boolean; status: AvailabilityResult['status']; slotCount: number }) {
+  console.info(JSON.stringify({ event: 'scheduling_availability', ...input }));
+}
+
+export async function getSchedulingAvailability(
+  organizationId: string,
+  artistId: string,
+  input: AvailabilityRequest,
+): Promise<AvailabilityResult> {
+  try {
+    return await resolveSchedulingAvailability(organizationId, artistId, input);
+  } catch {
+    console.error(JSON.stringify({ event: 'scheduling_resolution_failure', organizationId, artistId, serviceId: input.serviceId }));
+    return { status: 'PROVIDER_ERROR', slots: [], message: 'Scheduling could not be verified right now. The studio will follow up.' };
+  }
+}
+
+async function resolveSchedulingAvailability(
+  organizationId: string,
+  artistId: string,
+  input: AvailabilityRequest,
+): Promise<AvailabilityResult> {
+  const [connection] = await db.select().from(schedulingConnections).where(and(
+    eq(schedulingConnections.organizationId, organizationId),
+    eq(schedulingConnections.artistId, artistId),
+  )).limit(1);
+  const resolution = resolveSchedulingProvider(connection?.provider ?? null, connection?.status ?? null);
+
+  if (resolution.kind === 'INTERNAL') {
+    const result = await resolution.implementation.getAvailability({ ...input, organizationId, artistId });
+    logResolution({ organizationId, artistId, serviceId: input.serviceId, provider: 'INTERNAL', queried: true, mappingFound: false, status: result.status, slotCount: result.slots.length });
+    return result;
+  }
+  if (resolution.kind === 'ERROR' || !connection) {
+    const result: AvailabilityResult = { status: 'PROVIDER_ERROR', slots: [], message: 'Scheduling could not be verified right now. The studio will follow up.' };
+    logResolution({ organizationId, artistId, serviceId: input.serviceId, provider: connection?.provider ?? 'UNKNOWN', queried: false, mappingFound: false, status: result.status, slotCount: 0 });
+    return result;
+  }
+  if (!connection.locationId) {
+    const result: AvailabilityResult = { status: 'NOT_CONFIGURED', slots: [], message: 'Scheduling for this provider is not fully configured yet.' };
+    logResolution({ organizationId, artistId, serviceId: input.serviceId, provider: connection.provider, queried: false, mappingFound: false, status: result.status, slotCount: 0 });
+    return result;
+  }
+  if (!input.serviceId) {
+    const result: AvailabilityResult = { status: 'SERVICE_NOT_MAPPED', slots: [], message: 'This service is not configured for online availability yet.' };
+    logResolution({ organizationId, artistId, provider: connection.provider, queried: false, mappingFound: false, status: result.status, slotCount: 0 });
+    return result;
+  }
+
+  const [[service], [mapping], [organization]] = await Promise.all([
+    db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.organizationId, organizationId), eq(services.artistId, artistId), eq(services.active, true))).limit(1),
+    db.select().from(serviceProviderMappings).where(and(
+      eq(serviceProviderMappings.organizationId, organizationId),
+      eq(serviceProviderMappings.artistId, artistId),
+      eq(serviceProviderMappings.schedulingConnectionId, connection.id),
+      eq(serviceProviderMappings.serviceId, input.serviceId),
+      eq(serviceProviderMappings.locationId, connection.locationId),
+    )).limit(1),
+    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, organizationId)).limit(1),
+  ]);
+  const mappingScope = { organizationId, artistId, schedulingConnectionId: connection.id, serviceId: input.serviceId, locationId: connection.locationId };
+  if (!service || !mapping || !providerMappingMatches(mapping, mappingScope)) {
+    const result: AvailabilityResult = { status: 'SERVICE_NOT_MAPPED', slots: [], message: 'This service is not configured for online availability yet.' };
+    logResolution({ organizationId, artistId, serviceId: input.serviceId, provider: connection.provider, queried: false, mappingFound: false, status: result.status, slotCount: 0 });
+    return result;
+  }
+
+  const execution = await invokeSchedulingProvider(resolution.implementation, {
+      ...input,
+      organizationId,
+      artistId,
+      connection,
+      mapping,
+      service,
+      locationTimezone: connection.locationTimezone || organization?.timezone || 'UTC',
+  });
+  if (execution.error) {
+    const error = execution.error;
+    const providerCode = error instanceof Error && 'codes' in error ? String((error as Error & { codes: string[] }).codes.join(',')) : 'UNKNOWN';
+    console.error(JSON.stringify({ event: 'scheduling_provider_failure', provider: connection.provider, organizationId, artistId, serviceId: input.serviceId, providerCode }));
+  }
+  logResolution({ organizationId, artistId, serviceId: input.serviceId, provider: connection.provider, queried: true, mappingFound: true, status: execution.result.status, slotCount: execution.result.slots.length });
+  return execution.result;
+}
+
+export async function usesInternalScheduling(organizationId: string, artistId: string) {
+  const [connection] = await db.select({ provider: schedulingConnections.provider, status: schedulingConnections.status })
+    .from(schedulingConnections)
+    .where(and(eq(schedulingConnections.organizationId, organizationId), eq(schedulingConnections.artistId, artistId)))
+    .limit(1);
+  return resolveSchedulingProvider(connection?.provider ?? null, connection?.status ?? null).kind === 'INTERNAL';
+}

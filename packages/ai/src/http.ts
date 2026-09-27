@@ -82,7 +82,7 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
         service.basePriceCents != null ? `base $${(service.basePriceCents / 100).toFixed(2)}${service.startingAt ? ' starting at' : ''}` : null,
         service.hourlyRateCents != null ? `hourly $${(service.hourlyRateCents / 100).toFixed(2)}` : null
       ].filter(Boolean).join(', ');
-      return `${service.serviceType ? `${service.serviceType} - ` : ''}${service.name}${service.description ? ` (${service.description})` : ''}: ${pricing}`;
+      return `[SERVICE_ID: ${service.id}] ${service.serviceType ? `${service.serviceType} - ` : ''}${service.name}${service.description ? ` (${service.description})` : ''}: ${pricing}`;
     }), smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel, responseLength: artist.responseLength });
 
     const history = await db.select({ role: messages.role, content: messages.content })
@@ -97,8 +97,8 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
       tools: {
         getClient: tool({ description: 'Get the current client profile.', parameters: z.object({}), execute: async () => getClient(ctx) }),
         getServices: tool({ description: 'List active services offered by this provider.', parameters: z.object({}), execute: async () => getServiceCatalog(ctx) }),
-        getAvailableSlots: tool({ description: 'Check real availability. Never invent times; only present returned slots.', parameters: z.object({ durationMinutes: z.number().int().positive().max(1440), from: z.string(), to: z.string() }), execute: async (args) => getSlots(ctx, args) }),
-        createBookingHold: tool({ description: 'Create a temporary 10-minute hold after the client has selected a returned slot.', parameters: z.object({ serviceId: z.string().uuid(), start: z.string(), depositCents: z.number().int().nonnegative().optional(), priceCents: z.number().int().nonnegative().optional() }), execute: async (args) => createBookingHold(ctx, args) }),
+        getAvailableSlots: tool({ description: 'Check availability for the configured scheduling provider. Pass the Maia service ID when one is known. Only say there are no available times when status is NO_AVAILABILITY; on NOT_CONFIGURED, SERVICE_NOT_MAPPED, or PROVIDER_ERROR, explain that availability cannot be verified and do not claim there are no appointments.', parameters: z.object({ serviceId: z.string().uuid().optional(), durationMinutes: z.number().int().positive().max(1440), from: z.string(), to: z.string() }), execute: async (args) => getSlots(ctx, args) }),
+        createBookingHold: tool({ description: 'Create a temporary 10-minute hold only when Maia internal scheduling is active and after the client has selected a returned slot. External booking creation is not enabled.', parameters: z.object({ serviceId: z.string().uuid(), start: z.string(), depositCents: z.number().int().nonnegative().optional(), priceCents: z.number().int().nonnegative().optional() }), execute: async (args) => createBookingHold(ctx, args) }),
         createDepositLink: tool({ description: 'Create the real Stripe deposit checkout link for a valid booking hold.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => createDepositLink(ctx, args.appointmentId) }),
         getWaiverLink: tool({ description: 'Get the current waiver signing URL for an appointment.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => getWaiverLink(ctx, args.appointmentId) }),
         escalateToArtist: tool({ description: 'Escalate uncertain, medical, legal, unusual, or artist-approval-required questions.', parameters: z.object({ reason: z.string().min(1) }), execute: async (args) => escalate(ctx, args.reason) }),
