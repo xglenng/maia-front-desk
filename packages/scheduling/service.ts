@@ -3,6 +3,7 @@ import { db } from '@db/index';
 import { organizations, schedulingConnections, services, serviceProviderMappings } from '@db/schema';
 import { InternalSchedulingProvider } from './internal';
 import { SquareSchedulingProvider } from './square/provider';
+import { SquareApiError, type SquareErrorDetail } from './square/client';
 import type { AvailabilityRequest, AvailabilityResult, ProviderAvailabilityInput, SchedulingProvider } from './types';
 
 const providers = new Map<string, SchedulingProvider>([
@@ -41,6 +42,21 @@ export async function invokeSchedulingProvider(provider: SchedulingProvider, inp
 
 function logResolution(input: { organizationId: string; artistId: string; serviceId?: string; provider: string; queried: boolean; mappingFound: boolean; status: AvailabilityResult['status']; slotCount: number }) {
   console.info(JSON.stringify({ event: 'scheduling_availability', ...input }));
+}
+
+export function sanitizeSquareErrorDetails(errors: SquareErrorDetail[]) {
+  return errors.map(error => ({
+    ...(error.category ? { category: error.category } : {}),
+    ...(error.code ? { code: error.code } : {}),
+    ...(error.field ? { field: error.field } : {}),
+    ...(error.detail ? { detail: redactSquareSecrets(error.detail) } : {}),
+  }));
+}
+
+function redactSquareSecrets(value: string) {
+  return value
+    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/\b(access[_-]?token|refresh[_-]?token|authorization|oauth[_-]?code)\s*[:=]\s*[^,\s;]+/gi, '$1=[REDACTED]');
 }
 
 export async function getSchedulingAvailability(
@@ -118,7 +134,18 @@ async function resolveSchedulingAvailability(
   if (execution.error) {
     const error = execution.error;
     const providerCode = error instanceof Error && 'codes' in error ? String((error as Error & { codes: string[] }).codes.join(',')) : 'UNKNOWN';
-    console.error(JSON.stringify({ event: 'scheduling_provider_failure', provider: connection.provider, organizationId, artistId, serviceId: input.serviceId, providerCode }));
+    console.error(JSON.stringify({
+      event: 'scheduling_provider_failure',
+      provider: connection.provider,
+      organizationId,
+      artistId,
+      serviceId: input.serviceId,
+      providerCode,
+      ...(error instanceof SquareApiError ? {
+        squareStatus: error.status,
+        squareErrors: sanitizeSquareErrorDetails(error.errors),
+      } : {}),
+    }));
   }
   logResolution({ organizationId, artistId, serviceId: input.serviceId, provider: connection.provider, queried: true, mappingFound: true, status: execution.result.status, slotCount: execution.result.slots.length });
   return execution.result;

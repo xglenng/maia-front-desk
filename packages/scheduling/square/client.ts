@@ -2,13 +2,19 @@ import { isLosslessNumber, parse, parseLosslessNumber } from 'lossless-json';
 import { squareApiVersion, squareBaseUrl } from './config';
 
 export class SquareApiError extends Error {
-  constructor(readonly status: number, readonly codes: string[]) {
+  readonly errors: SquareErrorDetail[];
+  readonly codes: string[];
+
+  constructor(readonly status: number, errors: SquareErrorDetail[] | string[]) {
     super('Square API request failed.');
     this.name = 'SquareApiError';
+    this.errors = errors.map(error => typeof error === 'string' ? { code: error } : error);
+    this.codes = this.errors.map(error => error.code || 'UNKNOWN');
   }
 }
 
-type SquareErrorBody = { errors?: Array<{ code?: string }> };
+export type SquareErrorDetail = { category?: string; code?: string; detail?: string; field?: string };
+type SquareErrorBody = { errors?: unknown };
 type SquareLocation = { id: string; name: string; status?: string; timezone?: string };
 type SquareTeamMember = { id: string; given_name?: string; family_name?: string; status?: string };
 type SquareJsonInt64 = number | bigint | string | ReturnType<typeof parseLosslessNumber>;
@@ -51,7 +57,7 @@ export class SquareApiClient {
       body = {};
     }
     const parsedBody = body as SquareErrorBody;
-    if (!response.ok) throw new SquareApiError(response.status, parsedBody.errors?.map(error => error.code || 'UNKNOWN') || []);
+    if (!response.ok) throw new SquareApiError(response.status, squareErrorDetails(parsedBody));
     return body as T;
   }
 
@@ -130,6 +136,20 @@ export class SquareApiClient {
       } } }),
     });
   }
+}
+
+function squareErrorDetails(body: unknown): SquareErrorDetail[] {
+  if (!body || typeof body !== 'object' || !Array.isArray((body as SquareErrorBody).errors)) return [];
+  return ((body as SquareErrorBody).errors as unknown[]).map(error => {
+    if (!error || typeof error !== 'object') return {};
+    const value = error as Record<string, unknown>;
+    return {
+      ...(typeof value.category === 'string' ? { category: value.category } : {}),
+      ...(typeof value.code === 'string' ? { code: value.code } : {}),
+      ...(typeof value.detail === 'string' ? { detail: value.detail } : {}),
+      ...(typeof value.field === 'string' ? { field: value.field } : {}),
+    };
+  });
 }
 
 export function squareInt64String(value: SquareJsonInt64 | undefined): string | null {

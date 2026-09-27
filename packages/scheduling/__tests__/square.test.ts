@@ -66,10 +66,35 @@ test('Square availability search sends the location, service variation, team mem
   assert.deepEqual(query.filter.segment_filters, [{ service_variation_id: 'variation-a', team_member_id_filter: { any: ['team-a'] } }]);
 });
 
-test('Square API failures preserve status and provider error codes', async () => {
-  const fetcher: typeof fetch = async () => new Response(JSON.stringify({ errors: [{ code: 'INTERNAL_SERVER_ERROR' }] }), { status: 500 });
+test('Square API failures preserve status and structured error metadata', async () => {
+  const fetcher: typeof fetch = async () => new Response(JSON.stringify({ errors: [{ category: 'INVALID_REQUEST_ERROR', code: 'INVALID_VALUE', detail: 'The service variation is invalid.', field: 'query.filter' }] }), { status: 400 });
   const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
-  await assert.rejects(client.listLocations(), (error: unknown) => error instanceof SquareApiError && error.status === 500 && error.codes.includes('INTERNAL_SERVER_ERROR'));
+  await assert.rejects(client.listLocations(), (error: unknown) => error instanceof SquareApiError
+    && error.status === 400
+    && error.codes.includes('INVALID_VALUE')
+    && error.errors[0]?.category === 'INVALID_REQUEST_ERROR'
+    && error.errors[0]?.detail === 'The service variation is invalid.'
+    && error.errors[0]?.field === 'query.filter');
+});
+
+test('Square API failures preserve multiple errors', async () => {
+  const fetcher: typeof fetch = async () => new Response(JSON.stringify({ errors: [
+    { category: 'INVALID_REQUEST_ERROR', code: 'INVALID_VALUE', detail: 'Bad value', field: 'start_at' },
+    { category: 'AUTHENTICATION_ERROR', code: 'ACCESS_TOKEN_EXPIRED', detail: 'Token expired' },
+  ] }), { status: 401 });
+  const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
+  await assert.rejects(client.listLocations(), (error: unknown) => error instanceof SquareApiError
+    && error.errors.length === 2
+    && error.codes.join(',') === 'INVALID_VALUE,ACCESS_TOKEN_EXPIRED'
+    && error.errors[1]?.category === 'AUTHENTICATION_ERROR');
+});
+
+test('malformed Square API error bodies remain safe', async () => {
+  for (const body of ['not json', 'null', JSON.stringify({ errors: 'not-an-array' }), JSON.stringify({ errors: [null, 'bad'] })]) {
+    const fetcher: typeof fetch = async () => new Response(body, { status: 502 });
+    const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
+    await assert.rejects(client.listLocations(), (error: unknown) => error instanceof SquareApiError && error.status === 502 && Array.isArray(error.errors));
+  }
 });
 
 test('Square catalog int64 versions remain exact decimal strings', async () => {
