@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SquareApiClient, SquareApiError, squareInt64String } from '../square/client';
 import { squareOAuthSession, squareReadScopes } from '../square/config';
-import { addLocalDays, buildSquareSearchWindows, parseSchedulingDate } from '../square/time';
+import { addLocalDays, buildSquareSearchWindows, parseSchedulingDate, resolveSquareDateWindow } from '../square/time';
 
 test('Square requests use read-only scopes', () => {
   assert.deepEqual(squareReadScopes, [
@@ -46,6 +46,29 @@ test('Square date-only windows preserve America/Denver UTC boundaries', () => {
 test('Square date-only parser does not roll explicit past dates into a future year', () => {
   const reference = new Date('2026-09-27T18:00:00Z');
   assert.equal(parseSchedulingDate('September 20th', 'America/Denver', reference).toISOString(), '2026-09-20T06:00:00.000Z');
+});
+
+test('Square date-only requests classify future, today, and past dates in America/Denver', () => {
+  const now = new Date('2026-09-27T21:06:00Z');
+  assert.equal(resolveSquareDateWindow('September 30th', 'September 30th', 'America/Denver', now).status, 'FUTURE');
+  assert.equal(resolveSquareDateWindow('September 27th', 'September 27th', 'America/Denver', now).status, 'TODAY');
+  assert.equal(resolveSquareDateWindow('September 26th', 'September 26th', 'America/Denver', now).status, 'PAST');
+  assert.equal(resolveSquareDateWindow('September 30, 2025', 'September 30, 2025', 'America/Denver', now).status, 'PAST');
+});
+
+test('Square future date window starts after the injected current instant', () => {
+  const now = new Date('2026-09-27T21:06:00Z');
+  const window = resolveSquareDateWindow('September 30th', 'September 30th', 'America/Denver', now);
+  const [squareWindow] = buildSquareSearchWindows(window.from, window.to, { preserveStart: true });
+  assert.equal(squareWindow.startAt.toISOString(), '2026-09-30T06:00:00.000Z');
+  assert.ok(squareWindow.startAt > now);
+});
+
+test('Square today window starts at now and ends at the next local midnight', () => {
+  const now = new Date('2026-09-27T21:06:00Z');
+  const window = resolveSquareDateWindow('September 27th', 'September 27th', 'America/Denver', now);
+  assert.equal(window.from.toISOString(), now.toISOString());
+  assert.equal(window.to.toISOString(), '2026-09-28T06:00:00.000Z');
 });
 
 test('Square local calendar day boundaries handle DST in America/Denver', () => {

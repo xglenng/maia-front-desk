@@ -71,6 +71,29 @@ export function addLocalDays(value: Date, days: number, timeZone: string) {
   return parseSchedulingDate(localDateString(calendar, 'UTC'), timeZone, value);
 }
 
+export type SquareDateWindow = {
+  status: 'PAST' | 'TODAY' | 'FUTURE';
+  from: Date;
+  to: Date;
+};
+
+export function resolveSquareDateWindow(fromValue: string, toValue: string, timeZone: string, now: Date): SquareDateWindow {
+  let from = parseSchedulingDate(fromValue, timeZone, now);
+  let to = parseSchedulingDate(toValue, timeZone, now);
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) throw new RangeError('Invalid availability range.');
+  if (isSchedulingDateOnly(fromValue) && isSchedulingDateOnly(toValue) && sameLocalCalendarDate(from, to, timeZone)) {
+    to = addLocalDays(from, 1, timeZone);
+  }
+  const requestedDate = localDateString(from, timeZone);
+  const currentDate = localDateString(now, timeZone);
+  if (requestedDate < currentDate) return { status: 'PAST', from, to };
+  if (requestedDate === currentDate) {
+    from = new Date(Math.max(from.getTime(), now.getTime()));
+    return { status: 'TODAY', from, to };
+  }
+  return { status: 'FUTURE', from, to };
+}
+
 export function buildSquareSearchWindows(from: Date, to: Date, options: { preserveStart?: boolean } = {}) {
   if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from) throw new RangeError('Invalid availability range.');
   const ranges: Array<{ startAt: Date; endAt: Date }> = [];

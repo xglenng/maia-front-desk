@@ -1,6 +1,6 @@
 import { SquareApiClient, type SquareAvailability } from './client';
 import { squareAccessToken } from './credentials';
-import { addLocalDays, buildSquareSearchWindows, inRequestedWindow, isSchedulingDateOnly, parseSchedulingDate, sameLocalCalendarDate } from './time';
+import { buildSquareSearchWindows, inRequestedWindow, resolveSquareDateWindow } from './time';
 import type { AvailabilityResult, AvailabilitySlot, ProviderAvailabilityInput, SchedulingProvider } from '../types';
 
 export function translateSquareAvailability(
@@ -31,18 +31,9 @@ export class SquareSchedulingProvider implements SchedulingProvider {
     if (!input.connection || !input.mapping || !input.service || !input.locationTimezone) {
       return { status: 'NOT_CONFIGURED', slots: [], message: 'Square scheduling is not fully configured yet.' };
     }
-    let from = parseSchedulingDate(input.from, input.locationTimezone);
-    let to = parseSchedulingDate(input.to, input.locationTimezone);
-    if (isSchedulingDateOnly(input.from) && isSchedulingDateOnly(input.to) && sameLocalCalendarDate(from, to, input.locationTimezone)) {
-      to = addLocalDays(from, 1, input.locationTimezone);
-    }
-    const now = new Date();
-    if (from.getTime() < now.getTime()) {
-      if (!sameLocalCalendarDate(from, now, input.locationTimezone)) {
-        return { status: 'PROVIDER_ERROR', slots: [], message: 'The requested date is in the past.' };
-      }
-      from = now;
-    }
+    const window = resolveSquareDateWindow(input.from, input.to, input.locationTimezone, input.now ?? new Date());
+    if (window.status === 'PAST') return { status: 'PROVIDER_ERROR', slots: [], message: 'The requested date is in the past.' };
+    const { from, to } = window;
     if (to <= from) return { status: 'PROVIDER_ERROR', slots: [], message: 'The requested availability window has elapsed.' };
     const windows = buildSquareSearchWindows(from, to, { preserveStart: true });
     const client = new SquareApiClient(await squareAccessToken(input.connection));
