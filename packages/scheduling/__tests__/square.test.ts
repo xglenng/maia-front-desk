@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SquareApiClient, SquareApiError, squareInt64String } from '../square/client';
 import { squareOAuthSession, squareReadScopes } from '../square/config';
-import { buildSquareSearchWindows, parseSchedulingDate } from '../square/time';
+import { addLocalDays, buildSquareSearchWindows, parseSchedulingDate } from '../square/time';
 
 test('Square requests use read-only scopes', () => {
   assert.deepEqual(squareReadScopes, [
@@ -28,6 +28,39 @@ test('Square OAuth uses the supported session behavior per environment', () => {
 test('Square local date times are interpreted in the selected location timezone', () => {
   assert.equal(parseSchedulingDate('2026-01-15T09:00:00', 'America/Los_Angeles').toISOString(), '2026-01-15T17:00:00.000Z');
   assert.equal(parseSchedulingDate('2026-01-15T09:00:00-08:00', 'America/New_York').toISOString(), '2026-01-15T17:00:00.000Z');
+});
+
+test('Square date-only September 30 resolves in the upcoming America/Denver year', () => {
+  const reference = new Date('2026-09-27T18:00:00Z');
+  const start = parseSchedulingDate('September 30th', 'America/Denver', reference);
+  assert.equal(start.toISOString(), '2026-09-30T06:00:00.000Z');
+});
+
+test('Square date-only windows preserve America/Denver UTC boundaries', () => {
+  const from = parseSchedulingDate('2026-09-30', 'America/Denver');
+  const to = addLocalDays(from, 1, 'America/Denver');
+  assert.equal(from.toISOString(), '2026-09-30T06:00:00.000Z');
+  assert.equal(to.toISOString(), '2026-10-01T06:00:00.000Z');
+});
+
+test('Square date-only parser does not roll explicit past dates into a future year', () => {
+  const reference = new Date('2026-09-27T18:00:00Z');
+  assert.equal(parseSchedulingDate('September 20th', 'America/Denver', reference).toISOString(), '2026-09-20T06:00:00.000Z');
+});
+
+test('Square local calendar day boundaries handle DST in America/Denver', () => {
+  const from = parseSchedulingDate('2026-11-01', 'America/Denver');
+  const to = addLocalDays(from, 1, 'America/Denver');
+  assert.equal(from.toISOString(), '2026-11-01T06:00:00.000Z');
+  assert.equal(to.toISOString(), '2026-11-02T07:00:00.000Z');
+});
+
+test('Square search windows can preserve a today start while extending short windows', () => {
+  const from = new Date('2026-09-27T18:00:00Z');
+  const to = new Date('2026-09-28T06:00:00Z');
+  const [window] = buildSquareSearchWindows(from, to, { preserveStart: true });
+  assert.equal(window.startAt.toISOString(), from.toISOString());
+  assert.equal(window.endAt.toISOString(), '2026-09-28T18:00:00.000Z');
 });
 
 test('Square search windows satisfy 24-hour minimum and 31-day maximum', () => {

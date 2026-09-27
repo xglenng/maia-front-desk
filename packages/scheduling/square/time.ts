@@ -2,6 +2,35 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const MAX_RANGE_MS = 31 * DAY_MS;
 
+const MONTHS = new Map([
+  ['january', 1], ['jan', 1], ['february', 2], ['feb', 2], ['march', 3], ['mar', 3],
+  ['april', 4], ['apr', 4], ['may', 5], ['june', 6], ['jun', 6], ['july', 7], ['jul', 7],
+  ['august', 8], ['aug', 8], ['september', 9], ['sep', 9], ['sept', 9], ['october', 10], ['oct', 10],
+  ['november', 11], ['nov', 11], ['december', 12], ['dec', 12],
+]);
+
+function localDateParts(value: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  return Object.fromEntries(formatter.formatToParts(value).map(part => [part.type, part.value]));
+}
+
+function localDateString(value: Date, timeZone: string) {
+  const parts = localDateParts(value, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function dateOnlyValue(value: string, timeZone: string, referenceDate: Date) {
+  const normalized = value.trim().replace(/(\d)(st|nd|rd|th)\b/gi, '$1').replace(/,/g, '');
+  const iso = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return normalized;
+  const natural = normalized.match(/^([A-Za-z]+)\s+(\d{1,2})(?:\s+(\d{4}))?$/);
+  if (!natural) return null;
+  const month = MONTHS.get(natural[1].toLowerCase());
+  if (!month) return null;
+  const year = natural[3] || localDateParts(referenceDate, timeZone).year;
+  return `${year}-${String(month).padStart(2, '0')}-${String(Number(natural[2])).padStart(2, '0')}`;
+}
+
 function localDateTimeToUtc(value: string, timeZone: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/);
   if (!match) return new Date(Number.NaN);
@@ -22,16 +51,31 @@ function localDateTimeToUtc(value: string, timeZone: string) {
   return new Date(candidate);
 }
 
-export function parseSchedulingDate(value: string, timeZone: string) {
+export function parseSchedulingDate(value: string, timeZone: string, referenceDate = new Date()) {
   if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)) return new Date(value);
-  return localDateTimeToUtc(value, timeZone);
+  const dateOnly = dateOnlyValue(value, timeZone, referenceDate);
+  return localDateTimeToUtc(dateOnly || value, timeZone);
 }
 
-export function buildSquareSearchWindows(from: Date, to: Date) {
+export function isSchedulingDateOnly(value: string) {
+  return !/[T ]\d{2}:\d{2}/.test(value) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+}
+
+export function sameLocalCalendarDate(first: Date, second: Date, timeZone: string) {
+  return localDateString(first, timeZone) === localDateString(second, timeZone);
+}
+
+export function addLocalDays(value: Date, days: number, timeZone: string) {
+  const parts = localDateParts(value, timeZone);
+  const calendar = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + days));
+  return parseSchedulingDate(localDateString(calendar, 'UTC'), timeZone, value);
+}
+
+export function buildSquareSearchWindows(from: Date, to: Date, options: { preserveStart?: boolean } = {}) {
   if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from) throw new RangeError('Invalid availability range.');
   const ranges: Array<{ startAt: Date; endAt: Date }> = [];
   if (to.getTime() - from.getTime() < DAY_MS) {
-    return [{ startAt: new Date(to.getTime() - DAY_MS), endAt: new Date(to) }];
+    return [{ startAt: options.preserveStart ? new Date(from) : new Date(to.getTime() - DAY_MS), endAt: new Date(options.preserveStart ? Math.max(to.getTime(), from.getTime() + DAY_MS) : to.getTime()) }];
   }
   let cursor = from.getTime();
   const finish = to.getTime();
