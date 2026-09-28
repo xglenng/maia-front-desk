@@ -1,10 +1,11 @@
 import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
-import { appointments, artistConsentForms, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, schedulingConnections, services, waiverTemplates } from '@db/schema';
+import { appointments, artistConsentForms, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
 import { createSchedulingBooking, getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
+import { SquareApiClient } from '@/packages/scheduling/square/client';
+import { squareAccessToken } from '@/packages/scheduling/square/credentials';
 import { presentAvailabilitySlot } from '@/packages/scheduling/presentation';
-import { createDepositCheckout } from '@integrations/index';
 import { signWaiver } from '@/packages/auth/waiver-token';
 import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
 
@@ -110,17 +111,108 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
 }
 
 export async function createDepositLink(ctx: AgentContext, appointmentId: string) {
-  await requireOngoingSmsConsent(ctx);
-  const [row] = await db.select({ appointment: appointments, client: clients }).from(appointments).innerJoin(clients, eq(appointments.clientId, clients.id)).where(and(eq(appointments.id, appointmentId), eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId)));
-  if (!row || row.appointment.clientId !== ctx.clientId) throw new Error('Appointment not found');
-  const { appointment, client } = row;
-  if (appointment.status !== 'AI_HOLD' && appointment.status !== 'TENTATIVE') throw new Error('Appointment is not awaiting a deposit.');
-  if (!appointment.depositCents || appointment.depositCents <= 0) throw new Error('No deposit is configured for this appointment.');
-  if (appointment.holdExpiresAt && appointment.holdExpiresAt < new Date()) throw new Error('Booking hold has expired.');
-  const session = await createDepositCheckout({ appointmentId, organizationId: ctx.organizationId, amountCents: appointment.depositCents, customerEmail: client.email,
-    successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/?payment=success&appointment=${appointmentId}`,
-    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/?payment=cancelled&appointment=${appointmentId}` });
-  return { checkoutUrl: session.url, appointmentId, expiresAt: appointment.holdExpiresAt?.toISOString() ?? null };
+  const [appointment] = await db.select()
+    .from(appointments)
+    .where(and(
+      eq(appointments.id, appointmentId),
+      eq(appointments.organizationId, ctx.organizationId),
+      eq(appointments.artistId, ctx.artistId),
+      eq(appointments.clientId, ctx.clientId),
+    ))
+    .limit(1);
+
+  if (!appointment) throw new Error('Appointment not found.');
+
+  if (!appointment.depositCents || appointment.depositCents <= 0) {
+    throw new Error('No deposit is configured for this appointment.');
+  }
+
+  if (appointment.depositStatus === 'PAID') {
+    throw new Error('The deposit for this appointment has already been paid.');
+  }
+
+  const [service] = appointment.serviceId
+    ? await db.select()
+        .from(services)
+        .where(and(
+          eq(services.id, appointment.serviceId),
+          eq(services.organizationId, ctx.organizationId),
+          eq(services.artistId, ctx.artistId),
+        ))
+        .limit(1)
+    : [];
+
+  if (service?.paymentProvider && service.paymentProvider !== 'SQUARE') {
+    throw new Error(`Payment provider ${service.paymentProvider} is not supported yet.`);
+  }
+
+  const [connection] = await db.select()
+    .from(schedulingConnections)
+    .where(and(
+      eq(schedulingConnections.organizationId, ctx.organizationId),
+      eq(schedulingConnections.artistId, ctx.artistId),
+      eq(schedulingConnections.provider, 'SQUARE'),
+      eq(schedulingConnections.status, 'CONNECTED'),
+    ))
+    .limit(1);
+
+  if (!connection?.locationId) {
+    throw new Error('Square payments are not fully configured. Reconnect Square and select a location.');
+  }
+
+  // Reuse an existing pending Square checkout when one has already been
+  // created for this appointment. This avoids generating duplicate links
+  // when the AI retries the tool.
+  const [existingPayment] = await db.select()
+    .from(payments)
+    .where(and(
+      eq(payments.organizationId, ctx.organizationId),
+      eq(payments.appointmentId, appointment.id),
+      eq(payments.provider, 'square'),
+      eq(payments.status, 'PENDING'),
+    ))
+    .orderBy(desc(payments.createdAt))
+    .limit(1);
+
+  if (existingPayment?.providerPaymentIntentId) {
+    return {
+      provider: 'SQUARE',
+      url: existingPayment.providerPaymentIntentId,
+      amountCents: appointment.depositCents,
+      appointmentId: appointment.id,
+    };
+  }
+
+  const client = new SquareApiClient(await squareAccessToken(connection));
+
+  const link = await client.createPaymentLink({
+    idempotencyKey: `maia-deposit-${appointment.id}`,
+    locationId: connection.locationId,
+    amountCents: appointment.depositCents,
+    description: `${service?.name || 'Appointment'} deposit`,
+    appointmentId: appointment.id,
+  });
+
+  await db.insert(payments).values({
+    organizationId: ctx.organizationId,
+    appointmentId: appointment.id,
+    provider: 'square',
+    providerCheckoutSessionId: link.orderId,
+    // Temporary reuse of this nullable text field for the hosted checkout
+    // URL. We'll replace this with explicit Square columns when we add the
+    // webhook/payment-provider abstraction.
+    providerPaymentIntentId: link.url,
+    amountCents: appointment.depositCents,
+    status: 'PENDING',
+    currency: 'usd',
+  });
+
+  return {
+    provider: 'SQUARE',
+    url: link.url,
+    amountCents: appointment.depositCents,
+    appointmentId: appointment.id,
+  };
 }
 
 export async function getWaiverLink(ctx: AgentContext, appointmentId: string) {

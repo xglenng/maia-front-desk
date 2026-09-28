@@ -157,6 +157,52 @@ export class SquareApiClient {
     return body.customer.id;
   }
 
+  async createPaymentLink(input: {
+    idempotencyKey: string;
+    locationId: string;
+    amountCents: number;
+    description: string;
+    appointmentId: string;
+  }) {
+    if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) {
+      throw new Error('Square payment amount must be a positive integer.');
+    }
+
+    const body = await this.request<{
+      payment_link?: {
+        id?: string;
+        order_id?: string;
+        url?: string;
+      };
+    }>('/v2/online-checkout/payment-links', {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: input.idempotencyKey,
+        description: `Maia deposit for appointment ${input.appointmentId}`,
+        quick_pay: {
+          name: input.description,
+          price_money: {
+            amount: input.amountCents,
+            currency: 'USD',
+          },
+          location_id: input.locationId,
+        },
+      }),
+    });
+
+    const link = body.payment_link;
+
+    if (!link?.id || !link.order_id || !link.url) {
+      throw new Error('Square payment link creation returned an incomplete response.');
+    }
+
+    return {
+      id: link.id,
+      orderId: link.order_id,
+      url: link.url,
+    };
+  }
+
   async createBooking(input: { idempotencyKey: string; locationId: string; customerId: string; startAt: string; durationMinutes: number; serviceVariationId: string; serviceVariationVersion: string; teamMemberId: string }) {
     const body = await this.request<{ booking?: { id?: string; start_at?: string; status?: string } }>('/v2/bookings', {
       method: 'POST',

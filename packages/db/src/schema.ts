@@ -140,6 +140,14 @@ export const services = pgTable("services", {
   hourlyRateCents: integer("hourly_rate_cents"),
   startingAt: boolean("starting_at").default(false).notNull(),
 
+  // Deposit policy is authoritative server-side configuration.
+  // NONE = no deposit, FIXED = depositAmountCents,
+  // PERCENT = depositPercent of the configured service price.
+  depositType: text("deposit_type").default("NONE").notNull(),
+  depositAmountCents: integer("deposit_amount_cents"),
+  depositPercent: integer("deposit_percent"),
+  paymentProvider: text("payment_provider").default("SQUARE").notNull(),
+
   requiresConsultation: boolean("requires_consultation")
     .default(false)
     .notNull(),
