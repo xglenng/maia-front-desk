@@ -62,13 +62,61 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
   if (!Number.isFinite(startsAt.getTime())) throw new Error('Invalid appointment start time.');
   const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60_000);
   const now = new Date();
+
+  // Financial amounts come from the configured Maia service.
+  const priceCents = service.basePriceCents ?? null;
+
+  let depositCents: number | null = null;
+
+  switch (service.depositType) {
+    case 'FIXED':
+      if (
+        service.depositAmountCents != null &&
+        Number.isSafeInteger(service.depositAmountCents) &&
+        service.depositAmountCents > 0
+      ) {
+        depositCents = service.depositAmountCents;
+      }
+      break;
+
+    case 'PERCENT':
+      if (
+        priceCents != null &&
+        priceCents > 0 &&
+        service.depositPercent != null &&
+        Number.isSafeInteger(service.depositPercent) &&
+        service.depositPercent > 0 &&
+        service.depositPercent <= 100
+      ) {
+        depositCents = Math.round(priceCents * service.depositPercent / 100);
+      }
+      break;
+
+    case 'NONE':
+    default:
+      depositCents = null;
+      break;
+  }
+
+  const depositRequired = depositCents != null && depositCents > 0;
+
   if (!internalScheduling) {
     const existing = await db.select().from(appointments).where(and(
       eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId),
       eq(appointments.clientId, ctx.clientId), eq(appointments.serviceId, service.id), eq(appointments.startsAt, startsAt),
       eq(appointments.schedulingProvider, 'SQUARE'),
     )).limit(1);
-    if (existing[0]?.providerBookingId) return { appointmentId: existing[0].id, start: existing[0].startsAt.toISOString(), end: existing[0].endsAt.toISOString(), providerBookingId: existing[0].providerBookingId, status: existing[0].status };
+    if (existing[0]?.providerBookingId) {
+      return {
+        appointmentId: existing[0].id,
+        start: existing[0].startsAt.toISOString(),
+        end: existing[0].endsAt.toISOString(),
+        providerBookingId: existing[0].providerBookingId,
+        status: existing[0].status,
+        depositRequired: Boolean(existing[0].depositCents && existing[0].depositCents > 0),
+        depositCents: existing[0].depositCents ?? 0,
+      };
+    }
     const idempotencyKey = crypto.createHash('sha256').update([ctx.organizationId, ctx.artistId, ctx.clientId, service.id, startsAt.toISOString()].join(':')).digest('hex');
     const result = await createSchedulingBooking(ctx.organizationId, ctx.artistId, { serviceId: service.id, clientId: ctx.clientId, start: startsAt.toISOString(), idempotencyKey });
     if (result.status !== 'BOOKED') throw new Error(result.message);
@@ -77,10 +125,10 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
       return tx.insert(appointments).values({
         organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, serviceId: service.id,
         startsAt: new Date(result.start), endsAt: new Date(result.end),
-        status: input.depositCents && input.depositCents > 0 ? 'TENTATIVE' : 'CONFIRMED',
-        priceCents: input.priceCents ?? service.basePriceCents ?? null,
-        depositCents: input.depositCents ?? null,
-        depositStatus: input.depositCents && input.depositCents > 0 ? 'PENDING' : 'WAIVED',
+        status: depositRequired ? 'TENTATIVE' : 'CONFIRMED',
+        priceCents,
+        depositCents,
+        depositStatus: depositRequired ? 'PENDING' : 'WAIVED',
         holdExpiresAt: null, schedulingProvider: result.provider, providerBookingId: result.providerBookingId,
         notes: 'Created by AI receptionist through connected scheduling provider.'
       }).returning();
@@ -103,11 +151,19 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
   const holdExpiresAt = new Date(now.getTime() + 10 * 60_000);
   const [appointment] = await db.insert(appointments).values({
     organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, serviceId: service.id,
-    startsAt, endsAt, status: 'AI_HOLD', priceCents: input.priceCents ?? service.basePriceCents ?? null,
-    depositCents: input.depositCents ?? null, depositStatus: 'PENDING', holdExpiresAt,
+    startsAt, endsAt, status: 'AI_HOLD', priceCents,
+    depositCents, depositStatus: depositRequired ? 'PENDING' : 'WAIVED', holdExpiresAt,
     notes: 'Created by AI receptionist booking tool.'
   }).returning();
-  return { appointmentId: appointment.id, start: startsAt.toISOString(), end: endsAt.toISOString(), expiresAt: holdExpiresAt.toISOString() };
+  return {
+    appointmentId: appointment.id,
+    start: startsAt.toISOString(),
+    end: endsAt.toISOString(),
+    expiresAt: holdExpiresAt.toISOString(),
+    status: appointment.status,
+    depositRequired,
+    depositCents: depositCents ?? 0,
+  };
 }
 
 export async function createDepositLink(ctx: AgentContext, appointmentId: string) {
