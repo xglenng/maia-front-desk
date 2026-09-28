@@ -2,7 +2,7 @@ import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
 import { appointments, artistConsentForms, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, schedulingConnections, services, waiverTemplates } from '@db/schema';
-import { getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
+import { createSchedulingBooking, getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
 import { presentAvailabilitySlot } from '@/packages/scheduling/presentation';
 import { createDepositCheckout } from '@integrations/index';
 import { signWaiver } from '@/packages/auth/waiver-token';
@@ -54,14 +54,35 @@ async function requireOngoingSmsConsent(ctx: AgentContext) {
 
 export async function createBookingHold(ctx: AgentContext, input: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) {
   await requireOngoingSmsConsent(ctx);
-  if (!await usesInternalScheduling(ctx.organizationId, ctx.artistId)) {
-    throw new Error('Booking through the connected scheduling provider is not enabled yet. The artist will follow up.');
-  }
+  const internalScheduling = await usesInternalScheduling(ctx.organizationId, ctx.artistId);
   const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
   if (!service) throw new Error('Service not found');
   const startsAt = new Date(input.start);
+  if (!Number.isFinite(startsAt.getTime())) throw new Error('Invalid appointment start time.');
   const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60_000);
   const now = new Date();
+  if (!internalScheduling) {
+    const existing = await db.select().from(appointments).where(and(
+      eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId),
+      eq(appointments.clientId, ctx.clientId), eq(appointments.serviceId, service.id), eq(appointments.startsAt, startsAt),
+      eq(appointments.schedulingProvider, 'SQUARE'),
+    )).limit(1);
+    if (existing[0]?.providerBookingId) return { appointmentId: existing[0].id, start: existing[0].startsAt.toISOString(), end: existing[0].endsAt.toISOString(), providerBookingId: existing[0].providerBookingId, status: existing[0].status };
+    const idempotencyKey = crypto.createHash('sha256').update([ctx.organizationId, ctx.artistId, ctx.clientId, service.id, startsAt.toISOString()].join(':')).digest('hex');
+    const result = await createSchedulingBooking(ctx.organizationId, ctx.artistId, { serviceId: service.id, clientId: ctx.clientId, start: startsAt.toISOString(), idempotencyKey });
+    if (result.status !== 'BOOKED') throw new Error(result.message);
+    const [appointment] = await db.transaction(async tx => {
+      await tx.update(clients).set({ providerCustomerId: result.providerCustomerId, updatedAt: new Date() }).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
+      return tx.insert(appointments).values({
+        organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, serviceId: service.id,
+        startsAt: new Date(result.start), endsAt: new Date(result.end), status: 'TENTATIVE',
+        priceCents: input.priceCents ?? service.basePriceCents ?? null, depositCents: input.depositCents ?? null, depositStatus: 'PENDING',
+        holdExpiresAt: null, schedulingProvider: result.provider, providerBookingId: result.providerBookingId,
+        notes: 'Created by AI receptionist through connected scheduling provider.'
+      }).returning();
+    });
+    return { appointmentId: appointment.id, start: result.start, end: result.end, providerBookingId: result.providerBookingId, status: appointment.status };
+  }
   const conflicts = await db.select({ id: appointments.id }).from(appointments).where(and(
     eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId), lt(appointments.startsAt, endsAt), gte(appointments.endsAt, startsAt),
     or(eq(appointments.status, 'CONFIRMED'), eq(appointments.status, 'COMPLETED'), and(or(eq(appointments.status, 'TENTATIVE'), eq(appointments.status, 'AI_HOLD')), or(isNull(appointments.holdExpiresAt), gte(appointments.holdExpiresAt, now))))
