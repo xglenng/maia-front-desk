@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { db } from '@db/index';
 import { artistConsentForms, artists, businessRules, clients, conversations, messages, organizations, schedulingConnections } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
-import { createBookingHold, createDepositLink, escalate, getArtistContext, getClient, getServiceCatalog, getSlots, getWaiverLink, sendMessage, type AgentContext } from '@ai/tools';
+import { createBookingHold, createDepositLink, escalate, getArtistContext, getClient, getClientAppointments, getServiceCatalog, getSlots, getWaiverLink, sendMessage, type AgentContext } from '@ai/tools';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { hasBookingCommitmentIntent, smsConfirmationText } from '@/packages/consent';
 
@@ -103,6 +103,11 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
       tools: {
         getClient: tool({ description: 'Get the current client profile.', parameters: z.object({}), execute: async () => getClient(ctx) }),
         getServices: tool({ description: 'List active services offered by this provider.', parameters: z.object({}), execute: async () => getServiceCatalog(ctx) }),
+        getClientAppointments: tool({
+          description: 'Retrieve this client\'s existing upcoming appointments. Use this before answering questions about an existing booking, appointment time, booking status, deposit amount, deposit status, waiver, or when the client asks for a deposit or payment link again. Do not search availability or create another booking when the client is referring to an existing appointment. Use the returned appointmentId with createDepositLink or getWaiverLink.',
+          parameters: z.object({}),
+          execute: async () => getClientAppointments(ctx),
+        }),
         getAvailableSlots: tool({ description: 'Always use this before answering an availability or scheduling question when enough timing information exists. Check the full local date window when only a date is given. Pass the exact Maia SERVICE_ID and configured duration when the service is known. Results include canonical UTC start/end values plus localStart/localEnd display values in the configured timezone; use localStart/localEnd when describing times and retain start/end for booking. Preserve result status: AVAILABLE has returned slots, NO_AVAILABILITY means no matching times, NOT_CONFIGURED means availability is not configured, SERVICE_NOT_MAPPED means online availability for this service is not configured, and PROVIDER_ERROR means availability could not be verified. Never convert configuration or provider errors into NO_AVAILABILITY.', parameters: z.object({ serviceId: z.string().uuid().optional(), durationMinutes: z.number().int().positive().max(1440), from: z.string(), to: z.string() }), execute: async (args) => getSlots(ctx, args) }),
         createBookingHold: tool({ description: 'Create a booking only after the client selects a specific returned availability slot. For internal scheduling this creates a temporary hold; for a connected provider it creates the provider booking using the canonical UTC slot. Never invent or reconstruct the start time. Inspect the returned depositRequired value. If depositRequired is false, the booking is complete and you must NOT call createDepositLink. If depositRequired is true, use createDepositLink to collect the required deposit.', parameters: z.object({ serviceId: z.string().uuid(), start: z.string(), depositCents: z.number().int().nonnegative().optional(), priceCents: z.number().int().nonnegative().optional() }), execute: async (args) => createBookingHold(ctx, args) }),
         createDepositLink: tool({ description: 'Create the real Square-hosted deposit payment link only when createBookingHold returned depositRequired=true. Send the returned url to the client as their secure deposit payment link. Never call this tool when depositRequired=false or depositCents is zero.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => createDepositLink(ctx, args.appointmentId) }),

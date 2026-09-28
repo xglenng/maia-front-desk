@@ -22,6 +22,81 @@ export async function getClient(ctx: AgentContext) {
   return client;
 }
 
+export async function getClientAppointments(ctx: AgentContext) {
+  const [organization, connection] = await Promise.all([
+    db.select({ timezone: organizations.timezone })
+      .from(organizations)
+      .where(eq(organizations.id, ctx.organizationId))
+      .limit(1),
+    db.select({ locationTimezone: schedulingConnections.locationTimezone })
+      .from(schedulingConnections)
+      .where(and(
+        eq(schedulingConnections.organizationId, ctx.organizationId),
+        eq(schedulingConnections.artistId, ctx.artistId),
+      ))
+      .limit(1),
+  ]);
+
+  const timeZone =
+    connection[0]?.locationTimezone ||
+    organization[0]?.timezone ||
+    'UTC';
+
+  const rows = await db.select({
+    id: appointments.id,
+    serviceName: services.name,
+    startsAt: appointments.startsAt,
+    endsAt: appointments.endsAt,
+    status: appointments.status,
+    priceCents: appointments.priceCents,
+    depositCents: appointments.depositCents,
+    depositStatus: appointments.depositStatus,
+    schedulingProvider: appointments.schedulingProvider,
+    providerBookingId: appointments.providerBookingId,
+  })
+    .from(appointments)
+    .leftJoin(services, eq(appointments.serviceId, services.id))
+    .where(and(
+      eq(appointments.organizationId, ctx.organizationId),
+      eq(appointments.artistId, ctx.artistId),
+      eq(appointments.clientId, ctx.clientId),
+      gte(appointments.endsAt, new Date()),
+    ))
+    .orderBy(appointments.startsAt)
+    .limit(10);
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+
+  return rows.map(appointment => ({
+    appointmentId: appointment.id,
+    service: appointment.serviceName || 'Appointment',
+    startsAt: appointment.startsAt.toISOString(),
+    endsAt: appointment.endsAt.toISOString(),
+    localStart: formatter.format(appointment.startsAt),
+    status: appointment.status,
+    priceCents: appointment.priceCents,
+    depositRequired: Boolean(
+      appointment.depositCents &&
+      appointment.depositCents > 0 &&
+      appointment.depositStatus !== 'PAID' &&
+      appointment.depositStatus !== 'WAIVED'
+    ),
+    depositCents: appointment.depositCents ?? 0,
+    depositStatus: appointment.depositStatus,
+    schedulingProvider: appointment.schedulingProvider,
+    providerBookingId: appointment.providerBookingId,
+  }));
+}
+
 export async function getArtistContext(ctx: AgentContext) {
   const [artist] = await db.select().from(artists).where(and(eq(artists.id, ctx.artistId), eq(artists.organizationId, ctx.organizationId)));
   if (!artist) throw new Error('Artist not found');
