@@ -106,11 +106,28 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
         getClientAppointments: tool({
           description: 'Retrieve this client\'s existing upcoming appointments. Use this before answering questions about an existing booking, appointment time, booking status, deposit amount, deposit status, waiver, or when the client asks for a deposit or payment link again. Do not search availability or create another booking when the client is referring to an existing appointment. Use the returned appointmentId with createDepositLink or getWaiverLink.',
           parameters: z.object({}),
-          execute: async () => getClientAppointments(ctx),
+          execute: async () => {
+            const result = await getClientAppointments(ctx);
+            console.log(JSON.stringify({
+              event: 'ai_get_client_appointments',
+              conversationId: ctx.conversationId,
+              clientId: ctx.clientId,
+              appointments: result,
+            }));
+            return result;
+          },
         }),
         getAvailableSlots: tool({ description: 'Always use this before answering an availability or scheduling question when enough timing information exists. Check the full local date window when only a date is given. Pass the exact Maia SERVICE_ID and configured duration when the service is known. Results include canonical UTC start/end values plus localStart/localEnd display values in the configured timezone; use localStart/localEnd when describing times and retain start/end for booking. Preserve result status: AVAILABLE has returned slots, NO_AVAILABILITY means no matching times, NOT_CONFIGURED means availability is not configured, SERVICE_NOT_MAPPED means online availability for this service is not configured, and PROVIDER_ERROR means availability could not be verified. Never convert configuration or provider errors into NO_AVAILABILITY.', parameters: z.object({ serviceId: z.string().uuid().optional(), durationMinutes: z.number().int().positive().max(1440), from: z.string(), to: z.string() }), execute: async (args) => getSlots(ctx, args) }),
         createBookingHold: tool({ description: 'Create a booking only after the client selects a specific returned availability slot. For internal scheduling this creates a temporary hold; for a connected provider it creates the provider booking using the canonical UTC slot. Never invent or reconstruct the start time. Inspect the returned depositRequired value. If depositRequired is false, the booking is complete and you must NOT call createDepositLink. If depositRequired is true, use createDepositLink to collect the required deposit.', parameters: z.object({ serviceId: z.string().uuid(), start: z.string(), depositCents: z.number().int().nonnegative().optional(), priceCents: z.number().int().nonnegative().optional() }), execute: async (args) => createBookingHold(ctx, args) }),
-        createDepositLink: tool({ description: 'Create the real Square-hosted deposit payment link only when createBookingHold returned depositRequired=true. Send the returned url to the client as their secure deposit payment link. Never call this tool when depositRequired=false or depositCents is zero.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => createDepositLink(ctx, args.appointmentId) }),
+        createDepositLink: tool({ description: 'Create the real Square-hosted deposit payment link only when createBookingHold returned depositRequired=true. Send the returned url to the client as their secure deposit payment link. Never call this tool when depositRequired=false or depositCents is zero.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => {
+          console.log(JSON.stringify({
+            event: 'ai_create_deposit_link',
+            conversationId: ctx.conversationId,
+            clientId: ctx.clientId,
+            appointmentId: args.appointmentId,
+          }));
+          return createDepositLink(ctx, args.appointmentId);
+        } }),
         getWaiverLink: tool({ description: 'Get the current waiver signing URL for an appointment.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => getWaiverLink(ctx, args.appointmentId) }),
         escalateToArtist: tool({ description: 'Escalate uncertain, medical, legal, unusual, or artist-approval-required questions.', parameters: z.object({ reason: z.string().min(1) }), execute: async (args) => escalate(ctx, args.reason) }),
       },
