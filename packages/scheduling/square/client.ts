@@ -32,6 +32,18 @@ export type SquareAvailability = {
   appointment_segments?: Array<{ service_variation_id?: string; team_member_id?: string; duration_minutes?: number }>;
 };
 
+function summarizeSquareAvailability(value: SquareAvailability) {
+  return {
+    start_at: value.start_at,
+    location_id: value.location_id,
+    appointment_segments: (value.appointment_segments || []).map(segment => ({
+      service_variation_id: segment.service_variation_id,
+      team_member_id: segment.team_member_id,
+      duration_minutes: segment.duration_minutes,
+    })),
+  };
+}
+
 export class SquareApiClient {
   constructor(
     private readonly accessToken: string,
@@ -127,14 +139,30 @@ export class SquareApiClient {
   }) {
     const segmentFilter: Record<string, unknown> = { service_variation_id: input.serviceVariationId };
     if (input.teamMemberId) segmentFilter.team_member_id_filter = { any: [input.teamMemberId] };
-    return this.request<{ availabilities?: SquareAvailability[] }>('/v2/bookings/availability/search', {
+    const request = {
       method: 'POST',
       body: JSON.stringify({ query: { filter: {
         start_at_range: { start_at: input.startAt, end_at: input.endAt },
         location_id: input.locationId,
         segment_filters: [segmentFilter],
       } } }),
-    });
+    } satisfies RequestInit;
+    console.info(JSON.stringify({
+      event: 'square_availability_search_request',
+      locationId: input.locationId,
+      serviceVariationId: input.serviceVariationId,
+      teamMemberId: input.teamMemberId || null,
+      startAt: input.startAt,
+      endAt: input.endAt,
+    }));
+    const result = await this.request<{ availabilities?: SquareAvailability[] }>('/v2/bookings/availability/search', request);
+    const availabilities = result.availabilities || [];
+    console.info(JSON.stringify({
+      event: 'square_availability_search_response',
+      rawAvailabilityCount: availabilities.length,
+      availabilities: availabilities.map(summarizeSquareAvailability),
+    }));
+    return result;
   }
 }
 

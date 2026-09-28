@@ -122,6 +122,32 @@ test('Square availability search sends the location, service variation, team mem
   assert.deepEqual(query.filter.segment_filters, [{ service_variation_id: 'variation-a', team_member_id_filter: { any: ['team-a'] } }]);
 });
 
+test('Square availability diagnostics expose safe request and response summaries only', async () => {
+  const accessToken = 'access-token-secret';
+  const logs: string[] = [];
+  const originalInfo = console.info;
+  console.info = (...args: unknown[]) => logs.push(args.map(String).join(' '));
+  try {
+    const fetcher: typeof fetch = async () => new Response(JSON.stringify({ availabilities: [{
+      start_at: '2026-09-30T16:00:00Z',
+      location_id: 'loc-a',
+      appointment_segments: [{ service_variation_id: 'variation-a', team_member_id: 'team-a', duration_minutes: 30 }],
+      secret: accessToken,
+    }] }), { status: 200 });
+    const client = new SquareApiClient(accessToken, fetcher, 'https://square.invalid');
+    await client.searchAvailability({ locationId: 'loc-a', serviceVariationId: 'variation-a', teamMemberId: 'team-a', startAt: '2026-09-30T16:00:00Z', endAt: '2026-10-01T06:00:00Z' });
+  } finally {
+    console.info = originalInfo;
+  }
+  const serialized = logs.join('\n');
+  assert.match(serialized, /square_availability_search_request/);
+  assert.match(serialized, /square_availability_search_response/);
+  assert.match(serialized, /"rawAvailabilityCount":1/);
+  assert.match(serialized, /service_variation_id/);
+  assert.equal(serialized.includes(accessToken), false);
+  assert.equal(serialized.includes('Authorization'), false);
+});
+
 test('Square API failures preserve status and structured error metadata', async () => {
   const fetcher: typeof fetch = async () => new Response(JSON.stringify({ errors: [{ category: 'INVALID_REQUEST_ERROR', code: 'INVALID_VALUE', detail: 'The service variation is invalid.', field: 'query.filter' }] }), { status: 400 });
   const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
