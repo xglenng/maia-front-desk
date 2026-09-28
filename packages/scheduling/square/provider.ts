@@ -1,4 +1,4 @@
-import { SquareApiClient, type SquareAvailability } from './client';
+import { SquareApiClient, squareSafeNumber, type SquareAvailability } from './client';
 import { squareAccessToken } from './credentials';
 import { buildSquareSearchWindows, inRequestedWindow, resolveSquareDateWindow } from './time';
 import type { AvailabilityResult, AvailabilitySlot, ProviderAvailabilityInput, SchedulingProvider } from '../types';
@@ -16,7 +16,7 @@ export function translateSquareAvailability(
     if (!segment || (selection.teamMemberId && segment.team_member_id !== selection.teamMemberId)) continue;
     const start = new Date(availability.start_at);
     if (!Number.isFinite(start.getTime()) || !inRequestedWindow(start, from, to)) continue;
-    const durationMinutes = segment.duration_minutes || selection.durationMinutes;
+    const durationMinutes = squareSafeNumber(segment.duration_minutes) || selection.durationMinutes;
     if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue;
     const end = new Date(start.getTime() + durationMinutes * 60_000);
     slots.set(start.toISOString(), { start: start.toISOString(), end: end.toISOString() });

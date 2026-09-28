@@ -17,7 +17,7 @@ export type SquareErrorDetail = { category?: string; code?: string; detail?: str
 type SquareErrorBody = { errors?: unknown };
 type SquareLocation = { id: string; name: string; status?: string; timezone?: string };
 type SquareTeamMember = { id: string; given_name?: string; family_name?: string; status?: string };
-type SquareJsonInt64 = number | bigint | string | ReturnType<typeof parseLosslessNumber>;
+export type SquareJsonInt64 = number | bigint | string | ReturnType<typeof parseLosslessNumber>;
 type SquareCatalogObject = {
   id: string;
   type: string;
@@ -29,7 +29,7 @@ export type SquareServiceVariation = { id: string; version: string | null; name:
 export type SquareAvailability = {
   start_at?: string;
   location_id?: string;
-  appointment_segments?: Array<{ service_variation_id?: string; team_member_id?: string; duration_minutes?: number }>;
+  appointment_segments?: Array<{ service_variation_id?: string; team_member_id?: string; duration_minutes?: SquareJsonInt64 }>;
 };
 
 function summarizeSquareAvailability(value: SquareAvailability) {
@@ -118,7 +118,7 @@ export class SquareApiClient {
       for (const variation of variations.values()) {
         if (variation.item_variation_data?.item_id !== item.id && !referencedVariationIds.has(variation.id)) continue;
         if (variation?.type !== 'ITEM_VARIATION' || !variation.item_variation_data) continue;
-        const durationMs = safeSquareNumber(variation.item_variation_data.service_duration);
+        const durationMs = squareSafeNumber(variation.item_variation_data.service_duration);
         services.push({
           id: variation.id,
           version: squareInt64String(variation.version),
@@ -191,7 +191,7 @@ export function squareInt64String(value: SquareJsonInt64 | undefined): string | 
   return Number.isSafeInteger(value) && value >= 0 ? String(value) : null;
 }
 
-function safeSquareNumber(value: SquareJsonInt64 | undefined): number | null {
+export function squareSafeNumber(value: SquareJsonInt64 | undefined): number | null {
   const decimal = squareInt64String(value);
   if (decimal == null) return null;
   const bigintValue = BigInt(decimal);

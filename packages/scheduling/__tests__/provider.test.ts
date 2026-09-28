@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { parse, parseLosslessNumber } from 'lossless-json';
 import { invokeSchedulingProvider, providerMappingMatches, resolveSchedulingProvider, sanitizeSquareErrorDetails } from '../service';
-import { SquareApiError } from '../square/client';
+import { SquareApiError, squareSafeNumber, type SquareJsonInt64 } from '../square/client';
 import { translateSquareAvailability } from '../square/provider';
 import type { ProviderAvailabilityInput, SchedulingProvider } from '../types';
 
@@ -69,4 +70,19 @@ test('Square availability translation returns only matching mapped slots', () =>
     { start_at: '2026-09-27T18:00:00Z', location_id: 'loc-a', appointment_segments: [{ service_variation_id: 'var-other', team_member_id: 'team-a', duration_minutes: 30 }] },
   ], { locationId: 'loc-a', serviceVariationId: 'var-a', teamMemberId: 'team-a', durationMinutes: 25 }, new Date('2026-09-27T00:00:00Z'), new Date('2026-09-28T00:00:00Z'));
   assert.deepEqual(slots, [{ start: '2026-09-27T16:00:00.000Z', end: '2026-09-27T16:30:00.000Z' }]);
+});
+
+test('Square availability translation converts lossless duration minutes', () => {
+  const durationMinutes = parse('30', null, { parseNumber: parseLosslessNumber }) as SquareJsonInt64;
+  const slots = translateSquareAvailability([
+    { start_at: '2026-09-27T16:00:00Z', location_id: 'loc-a', appointment_segments: [{ service_variation_id: 'var-a', team_member_id: 'team-a', duration_minutes: durationMinutes }] },
+  ], { locationId: 'loc-a', serviceVariationId: 'var-a', teamMemberId: 'team-a', durationMinutes: 25 }, new Date('2026-09-27T00:00:00Z'), new Date('2026-09-28T00:00:00Z'));
+  assert.deepEqual(slots, [{ start: '2026-09-27T16:00:00.000Z', end: '2026-09-27T16:30:00.000Z' }]);
+});
+
+test('Square duration conversion rejects unsafe and invalid values', () => {
+  assert.equal(squareSafeNumber(30), 30);
+  assert.equal(squareSafeNumber(-1), null);
+  assert.equal(squareSafeNumber(Number.MAX_SAFE_INTEGER + 1), null);
+  assert.equal(squareSafeNumber('not-a-number'), null);
 });
