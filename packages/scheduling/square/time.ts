@@ -14,7 +14,7 @@ function localDateParts(value: Date, timeZone: string) {
   return Object.fromEntries(formatter.formatToParts(value).map(part => [part.type, part.value]));
 }
 
-function localDateString(value: Date, timeZone: string) {
+export function localDateString(value: Date, timeZone: string) {
   const parts = localDateParts(value, timeZone);
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
@@ -31,7 +31,7 @@ function dateOnlyValue(value: string, timeZone: string, referenceDate: Date) {
   return `${year}-${String(month).padStart(2, '0')}-${String(Number(natural[2])).padStart(2, '0')}`;
 }
 
-function localDateTimeToUtc(value: string, timeZone: string) {
+export function localDateTimeToUtc(value: string, timeZone: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/);
   if (!match) return new Date(Number.NaN);
   const [, year, month, day, hour = '0', minute = '0', second = '0', millis = '0'] = match;

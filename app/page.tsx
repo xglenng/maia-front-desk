@@ -19,15 +19,38 @@ export default function Home() {
   const user = useSession();
   const [view, setView] = useState<"Overview" | "Calendar" | "Inbox" | "Clients">("Overview");
   const [aiEnabled, setAiEnabled] = useState(true);
-  const [selectedDay, setSelectedDay] = useState(2);
+  const [selectedDay, setSelectedDay] = useState(() => {
+    const day = new Date().getDay();
+    return day === 0 ? 6 : day - 1;
+  });
+  const [weekOffset, setWeekOffset] = useState(0);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const weekDates = useMemo(() => {
+    const now = new Date();
+    const monday = new Date(now);
+    const day = now.getDay();
+    const daysFromMonday = day === 0 ? 6 : day - 1;
+
+    monday.setHours(12, 0, 0, 0);
+    monday.setDate(monday.getDate() - daysFromMonday + weekOffset * 7);
+
+    return days.map((_, index) => {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + index);
+      return date;
+    });
+  }, [weekOffset]);
+
   const selectedDate = useMemo(() => {
-    const d = new Date(2026, 8, 14 + selectedDay);
-    return d.toISOString().slice(0, 10);
-  }, [selectedDay]);
+    const d = weekDates[selectedDay];
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, [selectedDay, weekDates]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,9 +64,19 @@ export default function Home() {
   }, [selectedDate]);
 
   const dateLabel = useMemo(() => {
-    const date = new Date(2026, 8, 16 + selectedDay - 2);
-    return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-  }, [selectedDay]);
+    return weekDates[selectedDay].toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  }, [selectedDay, weekDates]);
+
+  function goToToday() {
+    const now = new Date();
+    const day = now.getDay();
+    setWeekOffset(0);
+    setSelectedDay(day === 0 ? 6 : day - 1);
+  }
 
   return (
     <div className="app-shell">
@@ -76,7 +109,16 @@ export default function Home() {
 
         {loading && !data ? <div className="content"><div className="panel"><h2>Loading dashboard…</h2><p>Reading live data from PostgreSQL.</p></div></div> : error ? <div className="content"><div className="panel"><h2>Dashboard unavailable</h2><p>{error}</p><p>Make sure PostgreSQL is running and run <code>npm run db:seed</code>.</p></div></div> : data ? <>
           {view === "Overview" && <Overview data={data} onNavigate={setView} />}
-          {view === "Calendar" && <CalendarView data={data} selectedDay={selectedDay} setSelectedDay={setSelectedDay} dateLabel={formatDate(data.date)} />}
+          {view === "Calendar" && <CalendarView
+              data={data}
+              selectedDay={selectedDay}
+              setSelectedDay={setSelectedDay}
+              weekDates={weekDates}
+              onPreviousWeek={() => setWeekOffset(value => value - 1)}
+              onToday={goToToday}
+              onNextWeek={() => setWeekOffset(value => value + 1)}
+              dateLabel={dateLabel}
+            />}
           {view === "Inbox" && <Inbox conversations={data.conversations} />}
           {view === "Clients" && <Clients clients={data.clients} />}
         </> : null}
@@ -129,8 +171,73 @@ function formatRelative(value: string) { const mins = Math.max(0, Math.round((Da
 
 function Funnel({ label, value, width }: { label: string; value: string; width: string }) { return <div className="funnel-row"><div className="funnel-label"><span>{label}</span><strong>{value}</strong></div><div className="bar-track"><div className="bar" style={{ width }} /></div></div>; }
 
-function CalendarView({ data, selectedDay, setSelectedDay, dateLabel }: { data: DashboardData; selectedDay: number; setSelectedDay: (n: number) => void; dateLabel: string }) {
-  return <div className="content"><div className="calendar-toolbar"><div><h2>{dateLabel}</h2><p>Live appointments from PostgreSQL</p></div><div className="toolbar-actions"><button className="secondary-btn">‹</button><button className="secondary-btn">Today</button><button className="secondary-btn">›</button><button className="primary-btn">+ Appointment</button></div></div><div className="week-tabs">{days.map((day, i) => <button key={day} onClick={() => setSelectedDay(i)} className={selectedDay === i ? "day-tab selected" : "day-tab"}><span>{day}</span><strong>{14 + i}</strong></button>)}</div><div className="calendar-panel"><div className="calendar-grid"><div className="time-column">{["10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM", "6 PM"].map(t => <span key={t}>{t}</span>)}</div><div className="day-column">{data.appointments.map((a, i) => <div key={a.id} className={`calendar-card card-${i % 3}`}><strong>{formatTime(a.startsAt)} · {a.client}</strong><span>{a.service}</span><small>{a.status}</small></div>)}</div></div></div></div>;
+function CalendarView({
+  data,
+  selectedDay,
+  setSelectedDay,
+  weekDates,
+  onPreviousWeek,
+  onToday,
+  onNextWeek,
+  dateLabel,
+}: {
+  data: DashboardData;
+  selectedDay: number;
+  setSelectedDay: (n: number) => void;
+  weekDates: Date[];
+  onPreviousWeek: () => void;
+  onToday: () => void;
+  onNextWeek: () => void;
+  dateLabel: string;
+}) {
+  return <div className="content">
+    <div className="calendar-toolbar">
+      <div>
+        <h2>{dateLabel}</h2>
+        <p>Live appointments from PostgreSQL</p>
+      </div>
+      <div className="toolbar-actions">
+        <button className="secondary-btn" onClick={onPreviousWeek}>‹</button>
+        <button className="secondary-btn" onClick={onToday}>Today</button>
+        <button className="secondary-btn" onClick={onNextWeek}>›</button>
+        <button className="primary-btn">+ Appointment</button>
+      </div>
+    </div>
+
+    <div className="week-tabs">
+      {days.map((day, i) =>
+        <button
+          key={day}
+          onClick={() => setSelectedDay(i)}
+          className={selectedDay === i ? "day-tab selected" : "day-tab"}
+        >
+          <span>{day}</span>
+          <strong>{weekDates[i].getDate()}</strong>
+        </button>
+      )}
+    </div>
+
+    <div className="calendar-panel">
+      <div className="calendar-grid">
+        <div className="time-column">
+          {["9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM"].map(t =>
+            <span key={t}>{t}</span>
+          )}
+        </div>
+        <div className="day-column">
+          {data.appointments.length
+            ? data.appointments.map((a, i) =>
+                <div key={a.id} className={`calendar-card card-${i % 3}`}>
+                  <strong>{formatTime(a.startsAt)} · {a.client}</strong>
+                  <span>{a.service}</span>
+                  <small>{a.status}</small>
+                </div>
+              )
+            : <div className="empty-state">No appointments for this date.</div>}
+        </div>
+      </div>
+    </div>
+  </div>;
 }
 
 function Inbox({ conversations }: { conversations: ConversationData[] }) { return <div className="content"><div className="inbox-layout"><div className="panel inbox-full"><div className="panel-head"><div><h2>AI inbox</h2><p>{conversations.length} conversations in PostgreSQL</p></div><button className="secondary-btn">Filter ▾</button></div>{conversations.map(c => <Conversation key={c.id} {...c} />)}</div><div className="panel conversation-detail"><div className="detail-head"><div className="avatar">{conversations[0]?.name.split(" ").map(x => x[0]).join("") ?? "AI"}</div><div><strong>{conversations[0]?.name ?? "No conversations"}</strong><span>{conversations[0] ? "Live conversation record" : ""}</span></div></div><div className="messages"><div className="message client">{conversations[0]?.preview ?? "No messages yet."}</div></div><div className="reply-box"><input placeholder="Reply to client..." /><button>Send</button></div></div></div></div>; }

@@ -3,19 +3,28 @@ import { NextResponse } from "next/server";
 import { and, asc, count, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { db } from "@db/index";
 import { artists, clients, conversations, messages, appointments, services, organizations } from "@db/schema";
+import { localDateTimeToUtc } from '@/packages/scheduling/square/time';
 
-function dayBounds(dateParam: string | null) {
-  const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : new Date().toISOString().slice(0, 10);
-  const start = new Date(`${date}T00:00:00.000Z`);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
+function dayBounds(dateParam: string | null, timezone: string) {
+  const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+    ? dateParam
+    : new Date().toISOString().slice(0, 10);
+
+  const start = localDateTimeToUtc(`${date}T00:00:00`, timezone);
+
+  // Advance the calendar date first, then convert the next local midnight
+  // to UTC. This keeps the range correct across DST transitions.
+  const nextLocalDate = new Date(`${date}T12:00:00Z`);
+  nextLocalDate.setUTCDate(nextLocalDate.getUTCDate() + 1);
+  const nextDate = nextLocalDate.toISOString().slice(0, 10);
+  const end = localDateTimeToUtc(`${nextDate}T00:00:00`, timezone);
+
   return { date, start, end };
 }
 
 async function handleGET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const { date, start, end } = dayBounds(searchParams.get("date"));
 
     // MVP tenant selection: first seeded artist. Replace with authenticated org/artist context in Sprint 3.
     const [artist] = await db.select({
@@ -27,6 +36,11 @@ async function handleGET(request: Request) {
 
     const [org] = await db.select({ name: organizations.name, timezone: organizations.timezone })
       .from(organizations).where(eq(organizations.id, artist.organizationId)).limit(1);
+
+    const { date, start, end } = dayBounds(
+      searchParams.get("date"),
+      org?.timezone || 'UTC',
+    );
 
     const todayAppointments = await db.select({
       id: appointments.id, startsAt: appointments.startsAt, endsAt: appointments.endsAt, status: appointments.status,
