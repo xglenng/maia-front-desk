@@ -75,13 +75,24 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
       await tx.update(clients).set({ providerCustomerId: result.providerCustomerId, updatedAt: new Date() }).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
       return tx.insert(appointments).values({
         organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, serviceId: service.id,
-        startsAt: new Date(result.start), endsAt: new Date(result.end), status: 'TENTATIVE',
-        priceCents: input.priceCents ?? service.basePriceCents ?? null, depositCents: input.depositCents ?? null, depositStatus: 'PENDING',
+        startsAt: new Date(result.start), endsAt: new Date(result.end),
+        status: input.depositCents && input.depositCents > 0 ? 'TENTATIVE' : 'CONFIRMED',
+        priceCents: input.priceCents ?? service.basePriceCents ?? null,
+        depositCents: input.depositCents ?? null,
+        depositStatus: input.depositCents && input.depositCents > 0 ? 'PENDING' : 'WAIVED',
         holdExpiresAt: null, schedulingProvider: result.provider, providerBookingId: result.providerBookingId,
         notes: 'Created by AI receptionist through connected scheduling provider.'
       }).returning();
     });
-    return { appointmentId: appointment.id, start: result.start, end: result.end, providerBookingId: result.providerBookingId, status: appointment.status };
+    return {
+      appointmentId: appointment.id,
+      start: result.start,
+      end: result.end,
+      providerBookingId: result.providerBookingId,
+      status: appointment.status,
+      depositRequired: Boolean(appointment.depositCents && appointment.depositCents > 0),
+      depositCents: appointment.depositCents ?? 0,
+    };
   }
   const conflicts = await db.select({ id: appointments.id }).from(appointments).where(and(
     eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId), lt(appointments.startsAt, endsAt), gte(appointments.endsAt, startsAt),
