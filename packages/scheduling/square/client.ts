@@ -130,6 +130,44 @@ export class SquareApiClient {
     return services;
   }
 
+  async createCustomer(input: { idempotencyKey: string; givenName: string; familyName?: string | null; email?: string | null; phone?: string | null; referenceId: string }) {
+    const body = await this.request<{ customer?: { id?: string } }>('/v2/customers', {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: input.idempotencyKey,
+        given_name: input.givenName,
+        ...(input.familyName ? { family_name: input.familyName } : {}),
+        ...(input.email ? { email_address: input.email } : {}),
+        ...(input.phone ? { phone_number: input.phone } : {}),
+        reference_id: input.referenceId,
+      }),
+    });
+    if (!body.customer?.id) throw new Error('Square customer creation returned no customer ID.');
+    return body.customer.id;
+  }
+
+  async createBooking(input: { idempotencyKey: string; locationId: string; customerId: string; startAt: string; durationMinutes: number; serviceVariationId: string; serviceVariationVersion: string; teamMemberId: string }) {
+    const body = await this.request<{ booking?: { id?: string; start_at?: string; status?: string } }>('/v2/bookings', {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: input.idempotencyKey,
+        booking: {
+          location_id: input.locationId,
+          customer_id: input.customerId,
+          start_at: input.startAt,
+          appointment_segments: [{
+            duration_minutes: input.durationMinutes,
+            service_variation_id: input.serviceVariationId,
+            service_variation_version: Number(input.serviceVariationVersion),
+            team_member_id: input.teamMemberId,
+          }],
+        },
+      }),
+    });
+    if (!body.booking?.id || !body.booking.start_at) throw new Error('Square booking creation returned an incomplete booking.');
+    return body.booking;
+  }
+
   async searchAvailability(input: {
     locationId: string;
     serviceVariationId: string;

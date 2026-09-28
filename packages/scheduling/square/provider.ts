@@ -1,7 +1,7 @@
 import { SquareApiClient, squareSafeNumber, type SquareAvailability } from './client';
 import { squareAccessToken } from './credentials';
 import { buildSquareSearchWindows, inRequestedWindow, resolveSquareDateWindow } from './time';
-import type { AvailabilityResult, AvailabilitySlot, ProviderAvailabilityInput, SchedulingProvider } from '../types';
+import type { AvailabilityResult, AvailabilitySlot, BookingResult, ProviderAvailabilityInput, ProviderBookingInput, SchedulingProvider } from '../types';
 
 export function translateSquareAvailability(
   availabilities: SquareAvailability[],
@@ -26,6 +26,51 @@ export function translateSquareAvailability(
 
 export class SquareSchedulingProvider implements SchedulingProvider {
   readonly key = 'SQUARE';
+
+  async createBooking(input: ProviderBookingInput): Promise<BookingResult> {
+    const teamMemberId = input.mapping.externalTeamMemberId || input.connection.teamMemberId;
+    const version = input.mapping.externalServiceVariationVersion;
+    if (!input.connection.locationId || !teamMemberId || version == null) {
+      return { status: 'NOT_CONFIGURED', message: 'Square booking is not fully configured yet.' };
+    }
+    const start = new Date(input.start);
+    if (!Number.isFinite(start.getTime()) || start <= new Date()) return { status: 'SLOT_UNAVAILABLE', message: 'That appointment time is no longer available.' };
+    const client = new SquareApiClient(await squareAccessToken(input.connection));
+    const availability = await client.searchAvailability({
+      locationId: input.mapping.locationId,
+      serviceVariationId: input.mapping.externalServiceVariationId,
+      teamMemberId,
+      startAt: start.toISOString(),
+      endAt: new Date(start.getTime() + input.service.durationMinutes * 60_000 + 60_000).toISOString(),
+    });
+    const exact = translateSquareAvailability(availability.availabilities || [], {
+      locationId: input.mapping.locationId,
+      serviceVariationId: input.mapping.externalServiceVariationId,
+      teamMemberId,
+      durationMinutes: input.service.durationMinutes,
+    }, start, new Date(start.getTime() + input.service.durationMinutes * 60_000 + 60_000)).find(slot => slot.start === start.toISOString());
+    if (!exact) return { status: 'SLOT_UNAVAILABLE', message: 'That appointment time is no longer available.' };
+
+    const providerCustomerId = input.client.providerCustomerId || await client.createCustomer({
+      idempotencyKey: `maia-customer-${input.client.id}`,
+      givenName: input.client.firstName,
+      familyName: input.client.lastName,
+      email: input.client.email,
+      phone: input.client.phone,
+      referenceId: input.client.id,
+    });
+    const booking = await client.createBooking({
+      idempotencyKey: input.idempotencyKey,
+      locationId: input.mapping.locationId,
+      customerId: providerCustomerId,
+      startAt: exact.start,
+      durationMinutes: input.service.durationMinutes,
+      serviceVariationId: input.mapping.externalServiceVariationId,
+      serviceVariationVersion: version.toString(),
+      teamMemberId,
+    });
+    return { status: 'BOOKED', provider: 'SQUARE', providerBookingId: booking.id!, providerCustomerId, start: exact.start, end: exact.end };
+  }
 
   async getAvailability(input: ProviderAvailabilityInput): Promise<AvailabilityResult> {
     if (!input.connection || !input.mapping || !input.service || !input.locationTimezone) {

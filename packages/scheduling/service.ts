@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
-import { organizations, schedulingConnections, services, serviceProviderMappings } from '@db/schema';
+import { clients, organizations, schedulingConnections, services, serviceProviderMappings } from '@db/schema';
 import { InternalSchedulingProvider } from './internal';
 import { SquareSchedulingProvider } from './square/provider';
 import { SquareApiError, type SquareErrorDetail } from './square/client';
@@ -157,4 +157,40 @@ export async function usesInternalScheduling(organizationId: string, artistId: s
     .where(and(eq(schedulingConnections.organizationId, organizationId), eq(schedulingConnections.artistId, artistId)))
     .limit(1);
   return resolveSchedulingProvider(connection?.provider ?? null, connection?.status ?? null).kind === 'INTERNAL';
+}
+export async function createSchedulingBooking(
+  organizationId: string,
+  artistId: string,
+  input: import('./types').BookingRequest,
+): Promise<import('./types').BookingResult> {
+  const [connection] = await db.select().from(schedulingConnections).where(and(
+    eq(schedulingConnections.organizationId, organizationId),
+    eq(schedulingConnections.artistId, artistId),
+  )).limit(1);
+  const resolution = resolveSchedulingProvider(connection?.provider ?? null, connection?.status ?? null);
+  if (resolution.kind !== 'EXTERNAL' || !connection || !resolution.implementation.createBooking || !connection.locationId) {
+    return { status: 'NOT_CONFIGURED', message: 'External booking is not configured.' };
+  }
+  const [[service], [mapping], [client]] = await Promise.all([
+    db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.organizationId, organizationId), eq(services.artistId, artistId), eq(services.active, true))).limit(1),
+    db.select().from(serviceProviderMappings).where(and(
+      eq(serviceProviderMappings.organizationId, organizationId), eq(serviceProviderMappings.artistId, artistId),
+      eq(serviceProviderMappings.schedulingConnectionId, connection.id), eq(serviceProviderMappings.serviceId, input.serviceId),
+      eq(serviceProviderMappings.locationId, connection.locationId),
+    )).limit(1),
+    db.select().from(clients).where(and(eq(clients.id, input.clientId), eq(clients.organizationId, organizationId))).limit(1),
+  ]);
+  if (!service || !mapping) return { status: 'SERVICE_NOT_MAPPED', message: 'This service is not configured for online booking.' };
+  if (!client) return { status: 'CUSTOMER_ERROR', message: 'The client profile could not be loaded.' };
+  try {
+    return await resolution.implementation.createBooking({ ...input, organizationId, artistId, connection, mapping, service, client });
+  } catch (error) {
+    const providerCode = error instanceof Error && 'codes' in error ? String((error as Error & { codes: string[] }).codes.join(',')) : 'UNKNOWN';
+    console.error(JSON.stringify({ event: 'scheduling_booking_provider_failure', provider: connection.provider, organizationId, artistId, serviceId: input.serviceId, providerCode,
+      ...(error instanceof SquareApiError ? { squareStatus: error.status, squareErrors: sanitizeSquareErrorDetails(error.errors) } : {}) }));
+    if (error instanceof SquareApiError && error.codes.some(code => ['BOOKING_INVALID', 'INVALID_VALUE', 'CONFLICTING_REQUEST'].includes(code))) {
+      return { status: 'SLOT_UNAVAILABLE', message: 'That appointment time is no longer available.' };
+    }
+    return { status: 'PROVIDER_ERROR', message: 'The scheduling provider could not create the appointment.' };
+  }
 }

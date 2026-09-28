@@ -65,6 +65,7 @@ export const clients = pgTable("clients", {
   smsConsentCapturedAt: timestamp("sms_consent_captured_at", { withTimezone: true }),
   marketingOptIn: boolean("marketing_opt_in").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  providerCustomerId: text("provider_customer_id"),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
@@ -245,6 +246,8 @@ export const appointments = pgTable("appointments", {
   depositStatus: text("deposit_status").default("PENDING").notNull(),
   holdExpiresAt: timestamp("hold_expires_at"),
   calendarEventId: text("calendar_event_id"),
+  schedulingProvider: text("scheduling_provider"),
+  providerBookingId: text("provider_booking_id"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
