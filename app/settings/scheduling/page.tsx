@@ -10,7 +10,12 @@ type SquareTeamMember = { id: string; name: string };
 type SquareVariation = { id: string; version: string | null; name: string; durationMinutes: number | null };
 type Mapping = { id: string; serviceId: string; locationId: string; serviceVariationId: string; serviceVariationVersion: string | null; teamMemberId: string | null };
 type Connection = { id: string; provider: string; externalAccountId: string; accountName: string | null; locationId: string | null; locationTimezone: string | null; teamMemberId: string | null; status: string; lastError: string | null };
-type SchedulingData = { provider: string; connection: Connection | null; services: MaiaService[]; mappings: Mapping[] };
+type BookingPermissions = {
+  enabled: boolean;
+  status: 'ENABLED' | 'READ_ONLY' | 'UNKNOWN';
+  missingScopes: string[];
+};
+type SchedulingData = { provider: string; connection: Connection | null; services: MaiaService[]; mappings: Mapping[]; bookingPermissions: BookingPermissions | null };
 type Catalog = { locations: SquareLocation[]; teamMembers: SquareTeamMember[]; services: SquareVariation[] };
 type MappingDraft = { serviceVariationId: string; teamMemberId: string };
 
@@ -163,6 +168,8 @@ export default function SchedulingSettingsPage() {
 
   if (!user || user.role !== 'OWNER') return null;
   const connected = data?.connection?.provider === 'SQUARE' && data.connection.status === 'CONNECTED';
+  const bookingEnabled = connected && data?.bookingPermissions?.status === 'ENABLED';
+  const bookingPermissionUnknown = connected && data?.bookingPermissions?.status === 'UNKNOWN';
   const locationSaved = Boolean(locationId && locationId === data?.connection?.locationId);
 
   return <main style={{ maxWidth: 1000, margin: '0 auto', padding: '38px 20px 80px', color: '#181716' }}>
@@ -188,7 +195,37 @@ export default function SchedulingSettingsPage() {
     </section>}
     {connected && data?.connection && <>
       <section style={panel}>
-        <div style={providerHead}><div><strong>Square connected</strong><p style={muted}>Merchant: {data.connection.accountName || data.connection.externalAccountId}</p></div><span style={pill}>Connected · read-only</span></div>
+        <div style={providerHead}>
+          <div>
+            <strong>Square connected</strong>
+            <p style={muted}>Merchant: {data.connection.accountName || data.connection.externalAccountId}</p>
+          </div>
+          <span style={{
+            ...pill,
+            ...(!bookingEnabled ? { background: '#fff4df', color: '#7a4b00' } : {}),
+          }}>
+            {bookingEnabled
+              ? 'Connected · booking enabled'
+              : bookingPermissionUnknown
+                ? 'Connected · permissions unknown'
+                : 'Connected · read-only'}
+          </span>
+        </div>
+        {!bookingEnabled && (
+          <div style={{ marginTop: 12 }}>
+            <p style={muted}>
+              {bookingPermissionUnknown
+                ? 'Maia could not verify Square booking permissions. Reconnect Square to authorize booking access.'
+                : 'Square is connected for availability, but Maia needs booking permissions before it can create appointments.'}
+            </p>
+            <a
+              href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`}
+              style={buttonLink}
+            >
+              Reconnect Square
+            </a>
+          </div>
+        )}
         <div style={formGrid}>
           <label style={label}>Square location
             <select value={locationId} onChange={event => { setLocationId(event.target.value); setTeamMemberId(''); }} disabled={!catalog || busy} style={field}>

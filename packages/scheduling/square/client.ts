@@ -73,6 +73,17 @@ export class SquareApiClient {
     return body as T;
   }
 
+  async retrieveTokenStatus() {
+    return this.request<{
+      scopes?: string[];
+      expires_at?: string;
+      client_id?: string;
+      merchant_id?: string;
+    }>('/oauth2/token/status', {
+      method: 'POST',
+    });
+  }
+
   async listLocations() {
     const body = await this.request<{ locations?: SquareLocation[] }>('/v2/locations');
     return (body.locations || []).filter(location => location.id && location.status !== 'INACTIVE').map(location => ({ id: location.id, name: location.name || location.id, timezone: location.timezone || 'UTC' }));

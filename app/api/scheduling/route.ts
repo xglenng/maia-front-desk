@@ -5,7 +5,9 @@ import { z } from 'zod';
 import { db } from '@db/index';
 import { artists, schedulingConnections, serviceProviderMappings, services } from '@db/schema';
 import { getSquareSetupResources } from '@/packages/scheduling/square/resources';
-import { SquareApiError } from '@/packages/scheduling/square/client';
+import { SquareApiClient, SquareApiError } from '@/packages/scheduling/square/client';
+import { squareBookingWriteScopes } from '@/packages/scheduling/square/config';
+import { squareAccessToken } from '@/packages/scheduling/square/credentials';
 
 const scope = { organizationId: z.string().uuid(), artistId: z.string().uuid() };
 const commandSchema = z.discriminatedUnion('action', [
@@ -31,7 +33,64 @@ async function handleGET(request: NextRequest) {
     eq(serviceProviderMappings.schedulingConnectionId, connection.id),
   )) : [];
   const mappings = mappingRows.map(mapping => ({ ...mapping, serviceVariationVersion: mapping.serviceVariationVersion?.toString() ?? null }));
-  return NextResponse.json({ provider: !connection || connection.status === 'DISCONNECTED' ? 'MAIA' : connection.provider, connection: connection ?? null, services: serviceRows, mappings });
+
+  let bookingPermissions: {
+    enabled: boolean;
+    status: 'ENABLED' | 'READ_ONLY' | 'UNKNOWN';
+    missingScopes: string[];
+  } | null = null;
+
+  if (connection?.provider === 'SQUARE' && connection.status === 'CONNECTED') {
+    try {
+      const [secureConnection] = await db.select()
+        .from(schedulingConnections)
+        .where(and(
+          eq(schedulingConnections.id, connection.id),
+          eq(schedulingConnections.organizationId, organizationId),
+          eq(schedulingConnections.artistId, artistId),
+        ))
+        .limit(1);
+
+      if (!secureConnection) throw new Error('Square connection not found.');
+
+      const tokenStatus = await new SquareApiClient(
+        await squareAccessToken(secureConnection),
+      ).retrieveTokenStatus();
+
+      const granted = new Set(tokenStatus.scopes ?? []);
+      const missingScopes = squareBookingWriteScopes.filter(
+        (scope: (typeof squareBookingWriteScopes)[number]) => !granted.has(scope),
+      );
+
+      bookingPermissions = {
+        enabled: missingScopes.length === 0,
+        status: missingScopes.length === 0 ? 'ENABLED' : 'READ_ONLY',
+        missingScopes: [...missingScopes],
+      };
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'square_token_status_failed',
+        organizationId,
+        artistId,
+        status: error instanceof SquareApiError ? error.status : undefined,
+        codes: error instanceof SquareApiError ? error.codes : undefined,
+      }));
+
+      bookingPermissions = {
+        enabled: false,
+        status: 'UNKNOWN',
+        missingScopes: [],
+      };
+    }
+  }
+
+  return NextResponse.json({
+    provider: !connection || connection.status === 'DISCONNECTED' ? 'MAIA' : connection.provider,
+    connection: connection ?? null,
+    services: serviceRows,
+    mappings,
+    bookingPermissions,
+  });
 }
 
 async function findConnection(organizationId: string, artistId: string) {

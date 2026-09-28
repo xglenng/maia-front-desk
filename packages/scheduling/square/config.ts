@@ -10,6 +10,11 @@ export const squareReadScopes = [
   'EMPLOYEES_READ',
 ] as const;
 
+
+export const squareBookingWriteScopes = [
+  'APPOINTMENTS_WRITE',
+  'CUSTOMERS_WRITE',
+] as const;
 export function squareEnvironment() {
   const value = (process.env.SQUARE_ENVIRONMENT || 'sandbox').toLowerCase();
   if (value !== 'sandbox' && value !== 'production') throw new Error('SQUARE_ENVIRONMENT must be sandbox or production.');
