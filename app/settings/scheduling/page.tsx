@@ -211,21 +211,21 @@ export default function SchedulingSettingsPage() {
                 : 'Connected · read-only'}
           </span>
         </div>
-        {!bookingEnabled && (
-          <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12 }}>
+          {!bookingEnabled && (
             <p style={muted}>
               {bookingPermissionUnknown
                 ? 'Maia could not verify Square booking permissions. Reconnect Square to authorize booking access.'
                 : 'Square is connected for availability, but Maia needs booking permissions before it can create appointments.'}
             </p>
-            <a
-              href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`}
-              style={buttonLink}
-            >
-              Reconnect Square
-            </a>
-          </div>
-        )}
+          )}
+          <a
+            href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`}
+            style={buttonLink}
+          >
+            Reconnect Square
+          </a>
+        </div>
         <div style={formGrid}>
           <label style={label}>Square location
             <select value={locationId} onChange={event => { setLocationId(event.target.value); setTeamMemberId(''); }} disabled={!catalog || busy} style={field}>
