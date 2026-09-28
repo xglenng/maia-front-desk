@@ -69,7 +69,25 @@ export class SquareApiClient {
       body = {};
     }
     const parsedBody = body as SquareErrorBody;
-    if (!response.ok) throw new SquareApiError(response.status, squareErrorDetails(parsedBody));
+
+    if (!response.ok) {
+      const errors = squareErrorDetails(parsedBody);
+
+      console.error(JSON.stringify({
+        event: 'square_api_error',
+        path,
+        status: response.status,
+        errors: errors.map(error => ({
+          category: error.category,
+          code: error.code,
+          detail: error.detail,
+          field: error.field,
+        })),
+      }));
+
+      throw new SquareApiError(response.status, errors);
+    }
+
     return body as T;
   }
 
