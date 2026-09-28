@@ -36,19 +36,41 @@ export class SquareSchedulingProvider implements SchedulingProvider {
     const start = new Date(input.start);
     if (!Number.isFinite(start.getTime()) || start <= new Date()) return { status: 'SLOT_UNAVAILABLE', message: 'That appointment time is no longer available.' };
     const client = new SquareApiClient(await squareAccessToken(input.connection));
-    const availability = await client.searchAvailability({
-      locationId: input.mapping.locationId,
-      serviceVariationId: input.mapping.externalServiceVariationId,
-      teamMemberId,
-      startAt: start.toISOString(),
-      endAt: new Date(start.getTime() + input.service.durationMinutes * 60_000 + 60_000).toISOString(),
-    });
-    const exact = translateSquareAvailability(availability.availabilities || [], {
-      locationId: input.mapping.locationId,
-      serviceVariationId: input.mapping.externalServiceVariationId,
-      teamMemberId,
-      durationMinutes: input.service.durationMinutes,
-    }, start, new Date(start.getTime() + input.service.durationMinutes * 60_000 + 60_000)).find(slot => slot.start === start.toISOString());
+
+const appointmentEnd = new Date(
+  start.getTime() + input.service.durationMinutes * 60_000,
+);
+
+// Square requires availability searches to span at least one hour.
+// This only widens the verification query; it does not change the
+// requested appointment duration.
+const availabilitySearchEnd = new Date(
+  start.getTime() + Math.max(60, input.service.durationMinutes + 1) * 60_000,
+);
+
+const availability = await client.searchAvailability({
+  locationId: input.mapping.locationId,
+  serviceVariationId: input.mapping.externalServiceVariationId,
+  teamMemberId,
+  startAt: start.toISOString(),
+  endAt: availabilitySearchEnd.toISOString(),
+});
+
+const exact = translateSquareAvailability(
+  availability.availabilities || [],
+  {
+    locationId: input.mapping.locationId,
+    serviceVariationId: input.mapping.externalServiceVariationId,
+    teamMemberId,
+    durationMinutes: input.service.durationMinutes,
+  },
+  start,
+  availabilitySearchEnd,
+).find(
+  slot =>
+    slot.start === start.toISOString() &&
+    slot.end === appointmentEnd.toISOString(),
+);
     if (!exact) return { status: 'SLOT_UNAVAILABLE', message: 'That appointment time is no longer available.' };
 
     const providerCustomerId = input.client.providerCustomerId || await client.createCustomer({
