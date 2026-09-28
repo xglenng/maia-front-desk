@@ -1,8 +1,9 @@
 import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
-import { appointments, artistConsentForms, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, services, waiverTemplates } from '@db/schema';
+import { appointments, artistConsentForms, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, schedulingConnections, services, waiverTemplates } from '@db/schema';
 import { getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
+import { presentAvailabilitySlot } from '@/packages/scheduling/presentation';
 import { createDepositCheckout } from '@integrations/index';
 import { signWaiver } from '@/packages/auth/waiver-token';
 import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
@@ -32,7 +33,14 @@ export async function getServiceCatalog(ctx: AgentContext) {
 }
 
 export async function getSlots(ctx: AgentContext, input: { serviceId?: string; durationMinutes: number; from: string; to: string }) {
-  return getSchedulingAvailability(ctx.organizationId, ctx.artistId, { ...input, now: new Date() });
+  const [organization, connection] = await Promise.all([
+    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, ctx.organizationId)).limit(1),
+    db.select({ locationTimezone: schedulingConnections.locationTimezone }).from(schedulingConnections).where(and(eq(schedulingConnections.organizationId, ctx.organizationId), eq(schedulingConnections.artistId, ctx.artistId))).limit(1),
+  ]);
+  const timeZone = connection[0]?.locationTimezone || organization[0]?.timezone || 'UTC';
+  const result = await getSchedulingAvailability(ctx.organizationId, ctx.artistId, { ...input, now: new Date() });
+  if (result.status !== 'AVAILABLE') return result;
+  return { ...result, slots: result.slots.map(slot => presentAvailabilitySlot(slot, timeZone)) };
 }
 
 async function requireOngoingSmsConsent(ctx: AgentContext) {

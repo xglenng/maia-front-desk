@@ -4,6 +4,7 @@ import { parse, parseLosslessNumber } from 'lossless-json';
 import { invokeSchedulingProvider, providerMappingMatches, resolveSchedulingProvider, sanitizeSquareErrorDetails } from '../service';
 import { SquareApiError, squareSafeNumber, type SquareJsonInt64 } from '../square/client';
 import { translateSquareAvailability } from '../square/provider';
+import { presentAvailabilitySlot } from '../presentation';
 import type { ProviderAvailabilityInput, SchedulingProvider } from '../types';
 
 test('provider resolution uses Maia when no external provider is connected', () => {
@@ -85,4 +86,20 @@ test('Square duration conversion rejects unsafe and invalid values', () => {
   assert.equal(squareSafeNumber(-1), null);
   assert.equal(squareSafeNumber(Number.MAX_SAFE_INTEGER + 1), null);
   assert.equal(squareSafeNumber('not-a-number'), null);
+});
+
+test('availability presentation converts MDT timestamps and preserves canonical UTC', () => {
+  const presented = presentAvailabilitySlot({ start: '2026-09-30T15:00:00Z', end: '2026-09-30T15:30:00Z' }, 'America/Denver');
+  assert.equal(presented.start, '2026-09-30T15:00:00Z');
+  assert.equal(presented.end, '2026-09-30T15:30:00Z');
+  assert.equal(presented.localStart, 'Sep 30, 2026, 9:00 AM MDT');
+  assert.equal(presented.localEnd, 'Sep 30, 2026, 9:30 AM MDT');
+  assert.equal(presented.timezone, 'America/Denver');
+});
+
+test('availability presentation converts MST timestamps and preserves 30-minute local duration', () => {
+  const presented = presentAvailabilitySlot({ start: '2026-11-01T15:30:00Z', end: '2026-11-01T16:00:00Z' }, 'America/Denver');
+  assert.equal(presented.localStart, 'Nov 1, 2026, 8:30 AM MST');
+  assert.equal(presented.localEnd, 'Nov 1, 2026, 9:00 AM MST');
+  assert.equal(new Date(presented.end).getTime() - new Date(presented.start).getTime(), 30 * 60 * 1000);
 });
