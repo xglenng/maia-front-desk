@@ -2,7 +2,16 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, payments } from '@db/schema';
+import {
+  appointments,
+  clients,
+  conversations,
+  messages,
+  organizations,
+  payments,
+  services,
+} from '@db/schema';
+import { sendStudioSms } from '@integrations/studio-sms';
 
 type SquarePayment = {
   id?: string;
@@ -134,7 +143,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (payment.status === 'COMPLETED') {
-    await db.transaction(async tx => {
+    // Only the webhook invocation that actually transitions the appointment
+    // from TENTATIVE -> CONFIRMED may send the confirmation message.
+    // Square can retry payment.updated events.
+    const [confirmedAppointment] = await db.transaction(async tx => {
       await tx
         .update(payments)
         .set({
@@ -148,7 +160,7 @@ export async function POST(request: NextRequest) {
           ),
         );
 
-      await tx
+      return tx
         .update(appointments)
         .set({
           status: 'CONFIRMED',
@@ -162,7 +174,8 @@ export async function POST(request: NextRequest) {
             eq(appointments.organizationId, localPayment.organizationId),
             eq(appointments.status, 'TENTATIVE'),
           ),
-        );
+        )
+        .returning();
     });
 
     console.log(
@@ -173,8 +186,159 @@ export async function POST(request: NextRequest) {
         squareOrderId: payment.order_id,
         appointmentId: localPayment.appointmentId,
         organizationId: localPayment.organizationId,
+        transitionedToConfirmed: Boolean(confirmedAppointment),
       }),
     );
+
+    if (confirmedAppointment) {
+      const [details] = await db
+        .select({
+          artistId: appointments.artistId,
+          clientId: appointments.clientId,
+          startsAt: appointments.startsAt,
+          depositCents: appointments.depositCents,
+          serviceName: services.name,
+          clientPhone: clients.phone,
+          clientSmsOptIn: clients.smsOptIn,
+          organizationName: organizations.name,
+          organizationTimezone: organizations.timezone,
+        })
+        .from(appointments)
+        .innerJoin(
+          clients,
+          and(
+            eq(clients.id, appointments.clientId),
+            eq(clients.organizationId, appointments.organizationId),
+          ),
+        )
+        .innerJoin(
+          organizations,
+          eq(organizations.id, appointments.organizationId),
+        )
+        .leftJoin(services, eq(services.id, appointments.serviceId))
+        .where(
+          and(
+            eq(appointments.id, localPayment.appointmentId),
+            eq(appointments.organizationId, localPayment.organizationId),
+          ),
+        )
+        .limit(1);
+
+      if (details) {
+        const timezone = details.organizationTimezone || 'UTC';
+
+        const appointmentTime = new Intl.DateTimeFormat('en-US', {
+          timeZone: timezone,
+          month: 'long',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        }).format(details.startsAt);
+
+        const amount = ((details.depositCents ?? localPayment.amountCents) / 100)
+          .toFixed(2);
+
+        const service = details.serviceName || 'appointment';
+
+        const confirmationBody =
+          `${details.organizationName}: Your $${amount} deposit has been received. ` +
+          `Your ${service} appointment for ${appointmentTime} is confirmed.`;
+
+        if (details.clientSmsOptIn && details.clientPhone) {
+          try {
+            const sent = await sendStudioSms({
+              organizationId: localPayment.organizationId,
+              artistId: details.artistId,
+              to: details.clientPhone,
+              body: confirmationBody,
+            });
+
+            let [conversation] = await db
+              .select()
+              .from(conversations)
+              .where(
+                and(
+                  eq(conversations.organizationId, localPayment.organizationId),
+                  eq(conversations.artistId, details.artistId),
+                  eq(conversations.clientId, details.clientId),
+                  eq(conversations.channel, 'SMS'),
+                  eq(conversations.status, 'OPEN'),
+                ),
+              )
+              .limit(1);
+
+            if (!conversation) {
+              [conversation] = await db
+                .insert(conversations)
+                .values({
+                  organizationId: localPayment.organizationId,
+                  artistId: details.artistId,
+                  clientId: details.clientId,
+                  channel: 'SMS',
+                  status: 'OPEN',
+                  aiEnabled: true,
+                  lastMessageAt: new Date(),
+                })
+                .returning();
+            }
+
+            const now = new Date();
+
+            await db.insert(messages).values({
+              conversationId: conversation.id,
+              senderType: 'AI',
+              role: 'assistant',
+              content: confirmationBody,
+              externalMessageId: sent.sid,
+              metadata: {
+                provider: 'twilio',
+                status: sent.status,
+                studioPhone: sent.studioPhone,
+                source: 'square_deposit_confirmation',
+                appointmentId: localPayment.appointmentId,
+              },
+            });
+
+            await db
+              .update(conversations)
+              .set({
+                lastMessageAt: now,
+                updatedAt: now,
+              })
+              .where(eq(conversations.id, conversation.id));
+
+            console.log(
+              JSON.stringify({
+                event: 'square_deposit_confirmation_sent',
+                appointmentId: localPayment.appointmentId,
+                conversationId: conversation.id,
+                messageSid: sent.sid,
+              }),
+            );
+          } catch (error) {
+            // The payment and appointment are already confirmed. A Twilio
+            // problem must not cause Square to retry the financial webhook.
+            console.error(
+              JSON.stringify({
+                event: 'square_deposit_confirmation_failed',
+                appointmentId: localPayment.appointmentId,
+                reason: error instanceof Error ? error.message : 'UNKNOWN',
+              }),
+            );
+          }
+        } else {
+          console.log(
+            JSON.stringify({
+              event: 'square_deposit_confirmation_sms_skipped',
+              appointmentId: localPayment.appointmentId,
+              reason: !details.clientSmsOptIn
+                ? 'CLIENT_NOT_OPTED_IN'
+                : 'CLIENT_HAS_NO_PHONE',
+            }),
+          );
+        }
+      }
+    }
   }
 
   if (payment.status === 'FAILED') {
