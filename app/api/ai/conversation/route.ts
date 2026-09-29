@@ -1,6 +1,6 @@
 import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc,desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@db/index';
 import { artists, clients, conversations, messages } from '@db/schema';
@@ -22,7 +22,7 @@ async function handleGET(request: NextRequest) {
 
   const [conversation] = conversationId
     ? await db.select().from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId), eq(conversations.artistId, artistId), eq(conversations.clientId, clientId))).limit(1)
-    : await db.select().from(conversations).where(and(eq(conversations.organizationId, organizationId), eq(conversations.artistId, artistId), eq(conversations.clientId, clientId), eq(conversations.status, 'OPEN'))).orderBy(asc(conversations.createdAt)).limit(1);
+    : await db.select().from(conversations).where(and(eq(conversations.organizationId, organizationId), eq(conversations.artistId, artistId), eq(conversations.clientId, clientId), eq(conversations.status, 'OPEN'))).orderBy(desc(conversations.createdAt)).limit(1);
 
   if (!conversation) return NextResponse.json({ conversation: null, messages: [] });
 
