@@ -22,7 +22,7 @@ async function handleGET(request: NextRequest) {
 
   const [conversation] = conversationId
     ? await db.select().from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId), eq(conversations.artistId, artistId), eq(conversations.clientId, clientId))).limit(1)
-    : await db.select().from(conversations).where(and(eq(conversations.organizationId, organizationId), eq(conversations.artistId, artistId), eq(conversations.clientId, clientId), eq(conversations.status, 'OPEN'))).orderBy(desc(conversations.createdAt)).limit(1);
+    : await db.select().from(conversations).where(and(eq(conversations.organizationId, organizationId), eq(conversations.artistId, artistId), eq(conversations.clientId, clientId), eq(conversations.channel, 'WEB'), eq(conversations.status, 'OPEN'))).orderBy(desc(conversations.createdAt)).limit(1);
 
   if (!conversation) return NextResponse.json({ conversation: null, messages: [] });
 
