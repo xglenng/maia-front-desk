@@ -195,6 +195,7 @@ export async function POST(request: NextRequest) {
         .select({
           artistId: appointments.artistId,
           clientId: appointments.clientId,
+          conversationId: appointments.conversationId,
           startsAt: appointments.startsAt,
           depositCents: appointments.depositCents,
           serviceName: services.name,
@@ -244,28 +245,27 @@ export async function POST(request: NextRequest) {
           `${details.organizationName}: Your $${amount} deposit has been received. ` +
           `Your ${service} appointment for ${appointmentTime} is confirmed.`;
 
-        // AI Test Sandbox conversations use the WEB channel. Surface the
-        // asynchronous payment confirmation in that conversation without
-        // requiring SMS consent or sending a real text message.
-        const [webConversation] = await db
-          .select()
-          .from(conversations)
-          .where(
-            and(
-              eq(conversations.organizationId, localPayment.organizationId),
-              eq(conversations.artistId, details.artistId),
-              eq(conversations.clientId, details.clientId),
-              eq(conversations.channel, 'WEB'),
-              eq(conversations.status, 'OPEN'),
-            ),
-          )
-          .limit(1);
+        // Route the asynchronous confirmation back to the exact conversation
+        // that created the appointment. This avoids guessing between WEB, SMS,
+        // and future social channels for the same client.
+        const [originConversation] = details.conversationId
+          ? await db
+              .select()
+              .from(conversations)
+              .where(
+                and(
+                  eq(conversations.id, details.conversationId),
+                  eq(conversations.organizationId, localPayment.organizationId),
+                ),
+              )
+              .limit(1)
+          : [];
 
-        if (webConversation) {
+        if (originConversation?.channel === 'WEB') {
           const now = new Date();
 
           await db.insert(messages).values({
-            conversationId: webConversation.id,
+            conversationId: originConversation.id,
             senderType: 'AI',
             role: 'assistant',
             content: confirmationBody,
@@ -278,109 +278,89 @@ export async function POST(request: NextRequest) {
 
           await db
             .update(conversations)
-            .set({
-              lastMessageAt: now,
-              updatedAt: now,
-            })
-            .where(eq(conversations.id, webConversation.id));
+            .set({ lastMessageAt: now, updatedAt: now })
+            .where(eq(conversations.id, originConversation.id));
 
           console.log(
             JSON.stringify({
               event: 'square_deposit_confirmation_web',
               appointmentId: localPayment.appointmentId,
-              conversationId: webConversation.id,
+              conversationId: originConversation.id,
             }),
           );
-        } else if (details.clientSmsOptIn && details.clientPhone) {
-          try {
-            const sent = await sendStudioSms({
-              organizationId: localPayment.organizationId,
-              artistId: details.artistId,
-              to: details.clientPhone,
-              body: confirmationBody,
-            });
-
-            let [conversation] = await db
-              .select()
-              .from(conversations)
-              .where(
-                and(
-                  eq(conversations.organizationId, localPayment.organizationId),
-                  eq(conversations.artistId, details.artistId),
-                  eq(conversations.clientId, details.clientId),
-                  eq(conversations.channel, 'SMS'),
-                  eq(conversations.status, 'OPEN'),
-                ),
-              )
-              .limit(1);
-
-            if (!conversation) {
-              [conversation] = await db
-                .insert(conversations)
-                .values({
-                  organizationId: localPayment.organizationId,
-                  artistId: details.artistId,
-                  clientId: details.clientId,
-                  channel: 'SMS',
-                  status: 'OPEN',
-                  aiEnabled: true,
-                  lastMessageAt: new Date(),
-                })
-                .returning();
-            }
-
-            const now = new Date();
-
-            await db.insert(messages).values({
-              conversationId: conversation.id,
-              senderType: 'AI',
-              role: 'assistant',
-              content: confirmationBody,
-              externalMessageId: sent.sid,
-              metadata: {
-                provider: 'twilio',
-                status: sent.status,
-                studioPhone: sent.studioPhone,
-                source: 'square_deposit_confirmation',
-                appointmentId: localPayment.appointmentId,
-              },
-            });
-
-            await db
-              .update(conversations)
-              .set({
-                lastMessageAt: now,
-                updatedAt: now,
-              })
-              .where(eq(conversations.id, conversation.id));
-
+        } else if (originConversation?.channel === 'SMS') {
+          if (!details.clientSmsOptIn || !details.clientPhone) {
             console.log(
               JSON.stringify({
-                event: 'square_deposit_confirmation_sent',
+                event: 'square_deposit_confirmation_sms_skipped',
                 appointmentId: localPayment.appointmentId,
-                conversationId: conversation.id,
-                messageSid: sent.sid,
+                conversationId: originConversation.id,
+                reason: !details.clientSmsOptIn
+                  ? 'CLIENT_NOT_OPTED_IN'
+                  : 'CLIENT_HAS_NO_PHONE',
               }),
             );
-          } catch (error) {
-            // The payment and appointment are already confirmed. A Twilio
-            // problem must not cause Square to retry the financial webhook.
-            console.error(
-              JSON.stringify({
-                event: 'square_deposit_confirmation_failed',
-                appointmentId: localPayment.appointmentId,
-                reason: error instanceof Error ? error.message : 'UNKNOWN',
-              }),
-            );
+          } else {
+            try {
+              const sent = await sendStudioSms({
+                organizationId: localPayment.organizationId,
+                artistId: details.artistId,
+                to: details.clientPhone,
+                body: confirmationBody,
+              });
+              const now = new Date();
+
+              await db.insert(messages).values({
+                conversationId: originConversation.id,
+                senderType: 'AI',
+                role: 'assistant',
+                content: confirmationBody,
+                externalMessageId: sent.sid,
+                metadata: {
+                  provider: 'twilio',
+                  status: sent.status,
+                  studioPhone: sent.studioPhone,
+                  source: 'square_deposit_confirmation',
+                  appointmentId: localPayment.appointmentId,
+                },
+              });
+
+              await db
+                .update(conversations)
+                .set({ lastMessageAt: now, updatedAt: now })
+                .where(eq(conversations.id, originConversation.id));
+
+              console.log(
+                JSON.stringify({
+                  event: 'square_deposit_confirmation_sent',
+                  appointmentId: localPayment.appointmentId,
+                  conversationId: originConversation.id,
+                  messageSid: sent.sid,
+                }),
+              );
+            } catch (error) {
+              // The payment and appointment are already confirmed. A Twilio
+              // problem must not cause Square to retry the financial webhook.
+              console.error(
+                JSON.stringify({
+                  event: 'square_deposit_confirmation_failed',
+                  appointmentId: localPayment.appointmentId,
+                  conversationId: originConversation.id,
+                  reason: error instanceof Error ? error.message : 'UNKNOWN',
+                }),
+              );
+            }
           }
         } else {
           console.log(
             JSON.stringify({
-              event: 'square_deposit_confirmation_sms_skipped',
+              event: 'square_deposit_confirmation_channel_skipped',
               appointmentId: localPayment.appointmentId,
-              reason: !details.clientSmsOptIn
-                ? 'CLIENT_NOT_OPTED_IN'
-                : 'CLIENT_HAS_NO_PHONE',
+              conversationId: details.conversationId,
+              channel: originConversation?.channel ?? null,
+              reason: details.conversationId
+                ? 'UNSUPPORTED_OR_MISSING_CONVERSATION'
+                : 'APPOINTMENT_HAS_NO_CONVERSATION',
             }),
           );
         }

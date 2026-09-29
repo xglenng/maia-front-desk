@@ -245,6 +245,7 @@ export const appointments = pgTable("appointments", {
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
   artistId: uuid("artist_id").references(() => artists.id).notNull(),
   clientId: uuid("client_id").references(() => clients.id).notNull(),
+  conversationId: uuid("conversation_id"),
   serviceId: uuid("service_id").references(() => services.id),
   startsAt: timestamp("starts_at").notNull(),
   endsAt: timestamp("ends_at").notNull(),

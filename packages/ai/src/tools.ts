@@ -198,7 +198,7 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
     const [appointment] = await db.transaction(async tx => {
       await tx.update(clients).set({ providerCustomerId: result.providerCustomerId, updatedAt: new Date() }).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
       return tx.insert(appointments).values({
-        organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, serviceId: service.id,
+        organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id,
         startsAt: new Date(result.start), endsAt: new Date(result.end),
         status: depositRequired ? 'TENTATIVE' : 'CONFIRMED',
         priceCents,
@@ -225,7 +225,7 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
   if (conflicts.length) throw new Error('That time is no longer available.');
   const holdExpiresAt = new Date(now.getTime() + 10 * 60_000);
   const [appointment] = await db.insert(appointments).values({
-    organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, serviceId: service.id,
+    organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id,
     startsAt, endsAt, status: 'AI_HOLD', priceCents,
     depositCents, depositStatus: depositRequired ? 'PENDING' : 'WAIVED', holdExpiresAt,
     notes: 'Created by AI receptionist booking tool.'
