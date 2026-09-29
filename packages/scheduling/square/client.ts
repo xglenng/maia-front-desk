@@ -221,6 +221,10 @@ export class SquareApiClient {
     };
   }
 
+  async deletePaymentLink(paymentLinkId: string) {
+    await this.request(`/v2/online-checkout/payment-links/${encodeURIComponent(paymentLinkId)}`, { method: 'DELETE' });
+  }
+
   async createBooking(input: { idempotencyKey: string; locationId: string; customerId: string; startAt: string; durationMinutes: number; serviceVariationId: string; serviceVariationVersion: string; teamMemberId: string }) {
     const body = await this.request<{ booking?: { id?: string; start_at?: string; status?: string } }>('/v2/bookings', {
       method: 'POST',

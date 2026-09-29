@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gte, lt, ne, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import {
   appointments,
@@ -10,8 +10,12 @@ import {
   organizations,
   payments,
   services,
+  schedulingConnections,
 } from '@db/schema';
 import { sendStudioSms } from '@integrations/studio-sms';
+import { createSchedulingBooking, usesInternalScheduling } from '@/packages/scheduling/service';
+import { SquareApiClient } from '@/packages/scheduling/square/client';
+import { squareAccessToken } from '@/packages/scheduling/square/credentials';
 
 type SquarePayment = {
   id?: string;
@@ -143,40 +147,104 @@ export async function POST(request: NextRequest) {
   }
 
   if (payment.status === 'COMPLETED') {
-    // Only the webhook invocation that actually transitions the appointment
-    // from TENTATIVE -> CONFIRMED may send the confirmation message.
-    // Square can retry payment.updated events.
-    const [confirmedAppointment] = await db.transaction(async tx => {
-      await tx
-        .update(payments)
-        .set({
-          status: 'PAID',
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(payments.id, localPayment.id),
-            eq(payments.organizationId, localPayment.organizationId),
-          ),
-        );
+    const [pendingAppointment] = await db.select().from(appointments).where(and(
+      eq(appointments.id, localPayment.appointmentId),
+      eq(appointments.organizationId, localPayment.organizationId),
+    )).limit(1);
 
-      return tx
-        .update(appointments)
-        .set({
-          status: 'CONFIRMED',
-          depositStatus: 'PAID',
-          holdExpiresAt: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(appointments.id, localPayment.appointmentId),
-            eq(appointments.organizationId, localPayment.organizationId),
-            eq(appointments.status, 'TENTATIVE'),
-          ),
-        )
-        .returning();
-    });
+    if (!pendingAppointment) {
+      return NextResponse.json({ received: true });
+    }
+
+    // A deposit does not reserve a slot. At payment time we attempt to claim
+    // the slot. External providers enforce their own booking conflict rules;
+    // internal scheduling uses a PostgreSQL advisory lock for this artist/time.
+    let providerBookingId = pendingAppointment.providerBookingId;
+    let providerCustomerId: string | undefined;
+    let providerStart = pendingAppointment.startsAt;
+    let providerEnd = pendingAppointment.endsAt;
+    let canConfirm = pendingAppointment.status === 'PAYMENT_PENDING';
+
+    if (canConfirm && pendingAppointment.serviceId) {
+      const internalScheduling = await usesInternalScheduling(pendingAppointment.organizationId, pendingAppointment.artistId);
+      if (!internalScheduling) {
+        const idempotencyKey = crypto.createHash('sha256').update(`deposit-booking:${pendingAppointment.id}`).digest('hex');
+        const booking = await createSchedulingBooking(pendingAppointment.organizationId, pendingAppointment.artistId, {
+          serviceId: pendingAppointment.serviceId,
+          clientId: pendingAppointment.clientId,
+          start: pendingAppointment.startsAt.toISOString(),
+          idempotencyKey,
+        });
+        if (booking.status === 'BOOKED') {
+          providerBookingId = booking.providerBookingId;
+          providerCustomerId = booking.providerCustomerId;
+          providerStart = new Date(booking.start);
+          providerEnd = new Date(booking.end);
+        } else {
+          canConfirm = false;
+          console.warn(JSON.stringify({
+            event: 'square_deposit_slot_lost',
+            appointmentId: pendingAppointment.id,
+            bookingStatus: booking.status,
+            message: booking.message,
+          }));
+        }
+      }
+    }
+
+    const [confirmedAppointment] = canConfirm ? await db.transaction(async tx => {
+      // Serialize internal claims for this artist/start. External scheduling has
+      // already claimed the provider slot above.
+      if ((pendingAppointment.schedulingProvider || 'INTERNAL') === 'INTERNAL') {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${pendingAppointment.artistId}:${pendingAppointment.startsAt.toISOString()}`}))`);
+        const [conflict] = await tx.select({ id: appointments.id }).from(appointments).where(and(
+          eq(appointments.organizationId, pendingAppointment.organizationId),
+          eq(appointments.artistId, pendingAppointment.artistId),
+          ne(appointments.id, pendingAppointment.id),
+          lt(appointments.startsAt, pendingAppointment.endsAt),
+          gte(appointments.endsAt, pendingAppointment.startsAt),
+          eq(appointments.status, 'CONFIRMED'),
+        )).limit(1);
+        if (conflict) return [];
+      }
+
+      await tx.update(payments).set({ status: 'PAID', updatedAt: new Date() }).where(and(
+        eq(payments.id, localPayment.id),
+        eq(payments.organizationId, localPayment.organizationId),
+      ));
+
+      if (providerCustomerId) {
+        await tx.update(clients).set({ providerCustomerId, updatedAt: new Date() }).where(and(
+          eq(clients.id, pendingAppointment.clientId),
+          eq(clients.organizationId, pendingAppointment.organizationId),
+        ));
+      }
+
+      return tx.update(appointments).set({
+        status: 'CONFIRMED',
+        depositStatus: 'PAID',
+        holdExpiresAt: null,
+        providerBookingId,
+        startsAt: providerStart,
+        endsAt: providerEnd,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(appointments.id, localPayment.appointmentId),
+        eq(appointments.organizationId, localPayment.organizationId),
+        eq(appointments.status, 'PAYMENT_PENDING'),
+      )).returning();
+    }) : [];
+
+    if (!confirmedAppointment) {
+      // Payment succeeded after another client secured the slot (or the
+      // provider rejected it). Keep an explicit state so support can refund or
+      // reschedule; never falsely confirm the appointment.
+      await db.update(payments).set({ status: 'PAID', updatedAt: new Date() }).where(eq(payments.id, localPayment.id));
+      await db.update(appointments).set({ status: 'PAYMENT_RECEIVED_SLOT_UNAVAILABLE', depositStatus: 'PAID', updatedAt: new Date() }).where(and(
+        eq(appointments.id, localPayment.appointmentId),
+        eq(appointments.status, 'PAYMENT_PENDING'),
+      ));
+    }
 
     console.log(
       JSON.stringify({
@@ -191,6 +259,42 @@ export async function POST(request: NextRequest) {
     );
 
     if (confirmedAppointment) {
+      // This client won the slot. Cancel all other unpaid intents that overlap
+      // it, and disable their Square payment links so they cannot pay later.
+      const competing = await db.select({
+        appointmentId: appointments.id,
+        paymentId: payments.id,
+        paymentLinkId: payments.providerCheckoutLinkId,
+      }).from(appointments).leftJoin(payments, and(
+        eq(payments.appointmentId, appointments.id),
+        eq(payments.status, 'PENDING'),
+      )).where(and(
+        eq(appointments.organizationId, pendingAppointment.organizationId),
+        eq(appointments.artistId, pendingAppointment.artistId),
+        ne(appointments.id, pendingAppointment.id),
+        lt(appointments.startsAt, pendingAppointment.endsAt),
+        gte(appointments.endsAt, pendingAppointment.startsAt),
+        eq(appointments.status, 'PAYMENT_PENDING'),
+      ));
+
+      if (competing.length) {
+        const [connection] = await db.select().from(schedulingConnections).where(and(
+          eq(schedulingConnections.organizationId, pendingAppointment.organizationId),
+          eq(schedulingConnections.artistId, pendingAppointment.artistId),
+          eq(schedulingConnections.provider, 'SQUARE'),
+          eq(schedulingConnections.status, 'CONNECTED'),
+        )).limit(1);
+        const square = connection ? new SquareApiClient(await squareAccessToken(connection)) : null;
+        for (const loser of competing) {
+          if (square && loser.paymentLinkId) {
+            try { await square.deletePaymentLink(loser.paymentLinkId); }
+            catch (error) { console.error(JSON.stringify({ event: 'square_competing_payment_link_cancel_failed', appointmentId: loser.appointmentId, reason: error instanceof Error ? error.message : 'UNKNOWN' })); }
+          }
+          if (loser.paymentId) await db.update(payments).set({ status: 'CANCELED', updatedAt: new Date() }).where(eq(payments.id, loser.paymentId));
+          await db.update(appointments).set({ status: 'CANCELED', updatedAt: new Date() }).where(and(eq(appointments.id, loser.appointmentId), eq(appointments.status, 'PAYMENT_PENDING')));
+        }
+      }
+
       const [details] = await db
         .select({
           artistId: appointments.artistId,

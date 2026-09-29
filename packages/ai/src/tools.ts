@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
-import { appointments, artistConsentForms, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
+import { appointments, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
 import { createSchedulingBooking, getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
 import { SquareApiClient } from '@/packages/scheduling/square/client';
 import { squareAccessToken } from '@/packages/scheduling/square/credentials';
@@ -119,79 +119,100 @@ export async function getSlots(ctx: AgentContext, input: { serviceId?: string; d
   return { ...result, slots: result.slots.map(slot => presentAvailabilitySlot(slot, timeZone)) };
 }
 
-async function requireOngoingSmsConsent(ctx: AgentContext) {
-  const [conversation] = await db.select({ channel: conversations.channel }).from(conversations).where(and(eq(conversations.id, ctx.conversationId), eq(conversations.organizationId, ctx.organizationId))).limit(1);
-  if (conversation?.channel !== 'SMS') return;
-  const [client] = await db.select({ smsOptIn: clients.smsOptIn }).from(clients).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId))).limit(1);
-  if (client?.smsOptIn) return;
-  const [surface] = await db.select({ mode: artistConsentForms.mode, confirmationText: artistConsentForms.confirmationText }).from(artistConsentForms).where(and(eq(artistConsentForms.organizationId, ctx.organizationId), eq(artistConsentForms.artistId, ctx.artistId))).limit(1);
-  throw new Error(surface?.mode === 'INBOUND_SMS_CONFIRMATION' && surface.confirmationText ? `Explicit SMS consent is required first. Send this exact request and wait for a separate YES reply: ${surface.confirmationText}` : 'Explicit SMS consent is required before booking or sending links.');
-}
-
 export async function createBookingHold(ctx: AgentContext, input: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) {
-  await requireOngoingSmsConsent(ctx);
   const internalScheduling = await usesInternalScheduling(ctx.organizationId, ctx.artistId);
   const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
   if (!service) throw new Error('Service not found');
   const startsAt = new Date(input.start);
   if (!Number.isFinite(startsAt.getTime())) throw new Error('Invalid appointment start time.');
   const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60_000);
-  const now = new Date();
 
-  // Financial amounts come from the configured Maia service.
+  // Financial amounts always come from Maia's configured service, never from
+  // model-supplied tool arguments.
   const priceCents = service.basePriceCents ?? null;
-
   let depositCents: number | null = null;
-
   switch (service.depositType) {
     case 'FIXED':
-      if (
-        service.depositAmountCents != null &&
-        Number.isSafeInteger(service.depositAmountCents) &&
-        service.depositAmountCents > 0
-      ) {
+      if (service.depositAmountCents != null && Number.isSafeInteger(service.depositAmountCents) && service.depositAmountCents > 0) {
         depositCents = service.depositAmountCents;
       }
       break;
-
     case 'PERCENT':
-      if (
-        priceCents != null &&
-        priceCents > 0 &&
-        service.depositPercent != null &&
-        Number.isSafeInteger(service.depositPercent) &&
-        service.depositPercent > 0 &&
-        service.depositPercent <= 100
-      ) {
+      if (priceCents != null && priceCents > 0 && service.depositPercent != null && Number.isSafeInteger(service.depositPercent) && service.depositPercent > 0 && service.depositPercent <= 100) {
         depositCents = Math.round(priceCents * service.depositPercent / 100);
       }
       break;
-
     case 'NONE':
     default:
       depositCents = null;
       break;
   }
-
   const depositRequired = depositCents != null && depositCents > 0;
 
+  // Idempotency: reuse this client's existing unpaid intent for the same slot.
+  const [existing] = await db.select().from(appointments).where(and(
+    eq(appointments.organizationId, ctx.organizationId),
+    eq(appointments.artistId, ctx.artistId),
+    eq(appointments.clientId, ctx.clientId),
+    eq(appointments.serviceId, service.id),
+    eq(appointments.startsAt, startsAt),
+    depositRequired ? eq(appointments.status, 'PAYMENT_PENDING') : eq(appointments.status, 'CONFIRMED'),
+  )).limit(1);
+  if (existing) {
+    return {
+      appointmentId: existing.id,
+      start: existing.startsAt.toISOString(),
+      end: existing.endsAt.toISOString(),
+      providerBookingId: existing.providerBookingId ?? undefined,
+      status: existing.status,
+      depositRequired,
+      depositCents: existing.depositCents ?? 0,
+    };
+  }
+
+  // Re-check real availability before issuing a deposit link. PAYMENT_PENDING
+  // rows intentionally do not block availability, so several clients may be
+  // offered the same time until one deposit actually wins it.
+  const availability = await getSchedulingAvailability(ctx.organizationId, ctx.artistId, {
+    serviceId: service.id,
+    durationMinutes: service.durationMinutes,
+    from: startsAt.toISOString(),
+    to: endsAt.toISOString(),
+    now: new Date(),
+  });
+  const exactSlotAvailable = availability.status === 'AVAILABLE' && availability.slots.some(slot => new Date(slot.start).getTime() === startsAt.getTime());
+  if (!exactSlotAvailable) throw new Error('That time is no longer available.');
+
+  if (depositRequired) {
+    const [appointment] = await db.insert(appointments).values({
+      organizationId: ctx.organizationId,
+      artistId: ctx.artistId,
+      clientId: ctx.clientId,
+      conversationId: ctx.conversationId,
+      serviceId: service.id,
+      startsAt,
+      endsAt,
+      status: 'PAYMENT_PENDING',
+      priceCents,
+      depositCents,
+      depositStatus: 'PENDING',
+      holdExpiresAt: null,
+      schedulingProvider: internalScheduling ? 'INTERNAL' : 'SQUARE',
+      providerBookingId: null,
+      notes: 'Deposit link issued by AI receptionist. Slot is not reserved until payment succeeds.',
+    }).returning();
+    return {
+      appointmentId: appointment.id,
+      start: startsAt.toISOString(),
+      end: endsAt.toISOString(),
+      status: appointment.status,
+      depositRequired: true,
+      depositCents: depositCents ?? 0,
+    };
+  }
+
+  // Services with no deposit still book immediately.
   if (!internalScheduling) {
-    const existing = await db.select().from(appointments).where(and(
-      eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId),
-      eq(appointments.clientId, ctx.clientId), eq(appointments.serviceId, service.id), eq(appointments.startsAt, startsAt),
-      eq(appointments.schedulingProvider, 'SQUARE'),
-    )).limit(1);
-    if (existing[0]?.providerBookingId) {
-      return {
-        appointmentId: existing[0].id,
-        start: existing[0].startsAt.toISOString(),
-        end: existing[0].endsAt.toISOString(),
-        providerBookingId: existing[0].providerBookingId,
-        status: existing[0].status,
-        depositRequired: Boolean(existing[0].depositCents && existing[0].depositCents > 0),
-        depositCents: existing[0].depositCents ?? 0,
-      };
-    }
     const idempotencyKey = crypto.createHash('sha256').update([ctx.organizationId, ctx.artistId, ctx.clientId, service.id, startsAt.toISOString()].join(':')).digest('hex');
     const result = await createSchedulingBooking(ctx.organizationId, ctx.artistId, { serviceId: service.id, clientId: ctx.clientId, start: startsAt.toISOString(), idempotencyKey });
     if (result.status !== 'BOOKED') throw new Error(result.message);
@@ -199,46 +220,20 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
       await tx.update(clients).set({ providerCustomerId: result.providerCustomerId, updatedAt: new Date() }).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
       return tx.insert(appointments).values({
         organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id,
-        startsAt: new Date(result.start), endsAt: new Date(result.end),
-        status: depositRequired ? 'TENTATIVE' : 'CONFIRMED',
-        priceCents,
-        depositCents,
-        depositStatus: depositRequired ? 'PENDING' : 'WAIVED',
-        holdExpiresAt: null, schedulingProvider: result.provider, providerBookingId: result.providerBookingId,
+        startsAt: new Date(result.start), endsAt: new Date(result.end), status: 'CONFIRMED', priceCents,
+        depositCents: null, depositStatus: 'WAIVED', holdExpiresAt: null, schedulingProvider: result.provider, providerBookingId: result.providerBookingId,
         notes: 'Created by AI receptionist through connected scheduling provider.'
       }).returning();
     });
-    return {
-      appointmentId: appointment.id,
-      start: result.start,
-      end: result.end,
-      providerBookingId: result.providerBookingId,
-      status: appointment.status,
-      depositRequired: Boolean(appointment.depositCents && appointment.depositCents > 0),
-      depositCents: appointment.depositCents ?? 0,
-    };
+    return { appointmentId: appointment.id, start: result.start, end: result.end, providerBookingId: result.providerBookingId, status: appointment.status, depositRequired: false, depositCents: 0 };
   }
-  const conflicts = await db.select({ id: appointments.id }).from(appointments).where(and(
-    eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId), lt(appointments.startsAt, endsAt), gte(appointments.endsAt, startsAt),
-    or(eq(appointments.status, 'CONFIRMED'), eq(appointments.status, 'COMPLETED'), and(or(eq(appointments.status, 'TENTATIVE'), eq(appointments.status, 'AI_HOLD')), or(isNull(appointments.holdExpiresAt), gte(appointments.holdExpiresAt, now))))
-  ));
-  if (conflicts.length) throw new Error('That time is no longer available.');
-  const holdExpiresAt = new Date(now.getTime() + 10 * 60_000);
+
   const [appointment] = await db.insert(appointments).values({
     organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id,
-    startsAt, endsAt, status: 'AI_HOLD', priceCents,
-    depositCents, depositStatus: depositRequired ? 'PENDING' : 'WAIVED', holdExpiresAt,
-    notes: 'Created by AI receptionist booking tool.'
+    startsAt, endsAt, status: 'CONFIRMED', priceCents, depositCents: null, depositStatus: 'WAIVED', holdExpiresAt: null,
+    schedulingProvider: 'INTERNAL', notes: 'Created by AI receptionist booking tool.'
   }).returning();
-  return {
-    appointmentId: appointment.id,
-    start: startsAt.toISOString(),
-    end: endsAt.toISOString(),
-    expiresAt: holdExpiresAt.toISOString(),
-    status: appointment.status,
-    depositRequired,
-    depositCents: depositCents ?? 0,
-  };
+  return { appointmentId: appointment.id, start: startsAt.toISOString(), end: endsAt.toISOString(), status: appointment.status, depositRequired: false, depositCents: 0 };
 }
 
 export async function createDepositLink(ctx: AgentContext, appointmentId: string) {
@@ -253,6 +248,10 @@ export async function createDepositLink(ctx: AgentContext, appointmentId: string
     .limit(1);
 
   if (!appointment) throw new Error('Appointment not found.');
+
+  if (appointment.status !== 'PAYMENT_PENDING') {
+    throw new Error('This deposit link is no longer available. Please choose an available appointment time.');
+  }
 
   if (!appointment.depositCents || appointment.depositCents <= 0) {
     throw new Error('No deposit is configured for this appointment.');
@@ -329,6 +328,7 @@ export async function createDepositLink(ctx: AgentContext, appointmentId: string
     appointmentId: appointment.id,
     provider: 'square',
     providerCheckoutSessionId: link.orderId,
+    providerCheckoutLinkId: link.id,
     // Temporary reuse of this nullable text field for the hosted checkout
     // URL. We'll replace this with explicit Square columns when we add the
     // webhook/payment-provider abstraction.
@@ -347,7 +347,6 @@ export async function createDepositLink(ctx: AgentContext, appointmentId: string
 }
 
 export async function getWaiverLink(ctx: AgentContext, appointmentId: string) {
-  await requireOngoingSmsConsent(ctx);
   const [appointment] = await db.select().from(appointments).where(and(eq(appointments.id,appointmentId),eq(appointments.organizationId,ctx.organizationId),eq(appointments.artistId,ctx.artistId),eq(appointments.clientId,ctx.clientId)));
   if(!appointment)throw new Error('Appointment not found');
   const [client] = await db.select().from(clients).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));

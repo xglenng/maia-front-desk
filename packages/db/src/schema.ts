@@ -376,6 +376,7 @@ export const payments = pgTable("payments", {
   appointmentId: uuid("appointment_id").references(() => appointments.id).notNull(),
   provider: text("provider").notNull().default("stripe"),
   providerCheckoutSessionId: text("provider_checkout_session_id"),
+  providerCheckoutLinkId: text("provider_checkout_link_id"),
   providerPaymentIntentId: text("provider_payment_intent_id"),
   amountCents: integer("amount_cents").notNull(),
   status: text("status").notNull().default("PENDING"),

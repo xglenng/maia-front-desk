@@ -44,9 +44,11 @@ export async function POST(request: NextRequest) {
 
   let [client] = await db.select().from(clients).where(and(eq(clients.organizationId, number.organizationId), eq(clients.phone, from))).limit(1);
   if (!client) {
-    [client] = await db.insert(clients).values({ organizationId: number.organizationId, firstName: params.ProfileName?.split(' ')[0] || 'SMS', lastName: params.ProfileName?.split(' ').slice(1).join(' ') || null, phone: from, smsOptIn: false, smsConsentStatus: 'INBOUND_ONLY' }).returning();
+    const now = new Date();
+    [client] = await db.insert(clients).values({ organizationId: number.organizationId, firstName: params.ProfileName?.split(' ')[0] || 'SMS', lastName: params.ProfileName?.split(' ').slice(1).join(' ') || null, phone: from, smsOptIn: true, smsConsentStatus: 'OPTED_IN', smsConsentCapturedAt: now }).returning();
   } else if (!client.smsOptIn && client.smsConsentStatus !== 'OPTED_OUT') {
-    [client] = await db.update(clients).set({ smsConsentStatus: 'INBOUND_ONLY', updatedAt: new Date() }).where(eq(clients.id, client.id)).returning();
+    const now = new Date();
+    [client] = await db.update(clients).set({ smsOptIn: true, smsConsentStatus: 'OPTED_IN', smsConsentCapturedAt: now, updatedAt: now }).where(eq(clients.id, client.id)).returning();
   }
   const [conversation] = await db.select().from(conversations).where(and(eq(conversations.organizationId, number.organizationId), eq(conversations.artistId, number.artistId), eq(conversations.clientId, client.id), eq(conversations.channel, 'SMS'), eq(conversations.status, 'OPEN'))).orderBy(asc(conversations.createdAt)).limit(1);
   const conv = conversation ?? (await db.insert(conversations).values({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, channel: 'SMS', status: 'OPEN', aiEnabled: true, lastMessageAt: new Date() }).returning())[0];
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest) {
     await sendSms({ to: from, from: to, body: 'You have been opted out of SMS messages. Reply START to opt back in.', accountSid: account?.accountSid, authToken });
     return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   }
-  if (['START','UNSTOP','YES'].includes(upper)) {
+  if (['START','UNSTOP'].includes(upper)) {
     const now = new Date();
     await db.update(clients).set({ smsOptIn: true, smsConsentStatus: 'OPTED_IN', smsConsentCapturedAt: now, updatedAt: now }).where(eq(clients.id, client.id));
     await db.insert(messages).values({ conversationId: conv.id, senderType: 'CLIENT', role: 'user', content: text, externalMessageId: params.MessageSid, metadata: { provider: 'twilio', studioPhone: to } });
