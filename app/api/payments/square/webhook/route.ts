@@ -265,7 +265,19 @@ export async function POST(request: NextRequest) {
         appointmentId: appointments.id,
         paymentId: payments.id,
         paymentLinkId: payments.providerCheckoutLinkId,
-      }).from(appointments).leftJoin(payments, and(
+        conversationId: appointments.conversationId,
+        startsAt: appointments.startsAt,
+        clientPhone: clients.phone,
+        clientSmsOptIn: clients.smsOptIn,
+        organizationName: organizations.name,
+        organizationTimezone: organizations.timezone,
+      }).from(appointments)
+        .innerJoin(clients, and(
+          eq(clients.id, appointments.clientId),
+          eq(clients.organizationId, appointments.organizationId),
+        ))
+        .innerJoin(organizations, eq(organizations.id, appointments.organizationId))
+        .leftJoin(payments, and(
         eq(payments.appointmentId, appointments.id),
         eq(payments.status, 'PENDING'),
       )).where(and(
@@ -292,6 +304,83 @@ export async function POST(request: NextRequest) {
           }
           if (loser.paymentId) await db.update(payments).set({ status: 'CANCELED', updatedAt: new Date() }).where(eq(payments.id, loser.paymentId));
           await db.update(appointments).set({ status: 'CANCELED', updatedAt: new Date() }).where(and(eq(appointments.id, loser.appointmentId), eq(appointments.status, 'PAYMENT_PENDING')));
+
+          // Tell clients whose unpaid intent lost the race immediately. Their
+          // payment link is no longer valid, and no payment was captured.
+          const [loserConversation] = loser.conversationId
+            ? await db.select().from(conversations).where(and(
+                eq(conversations.id, loser.conversationId),
+                eq(conversations.organizationId, pendingAppointment.organizationId),
+              )).limit(1)
+            : [];
+
+          if (loserConversation) {
+            const timeZone = loser.organizationTimezone || 'UTC';
+            const lostTime = new Intl.DateTimeFormat('en-US', {
+              timeZone,
+              month: 'long',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            }).format(loser.startsAt);
+            const body = `${loser.organizationName}: The ${lostTime} appointment was just booked by another client, so your deposit link is no longer active. No payment was taken. Reply here and Maia can help you find another available time.`;
+            const now = new Date();
+
+            if (loserConversation.channel === 'WEB') {
+              await db.insert(messages).values({
+                conversationId: loserConversation.id,
+                senderType: 'AI',
+                role: 'assistant',
+                content: body,
+                metadata: {
+                  provider: 'square',
+                  source: 'square_slot_taken',
+                  appointmentId: loser.appointmentId,
+                  winningAppointmentId: pendingAppointment.id,
+                },
+              });
+              await db.update(conversations).set({ lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, loserConversation.id));
+            } else if (loserConversation.channel === 'SMS' && loser.clientSmsOptIn && loser.clientPhone) {
+              try {
+                const sent = await sendStudioSms({
+                  organizationId: pendingAppointment.organizationId,
+                  artistId: pendingAppointment.artistId,
+                  to: loser.clientPhone,
+                  body,
+                });
+                await db.insert(messages).values({
+                  conversationId: loserConversation.id,
+                  senderType: 'AI',
+                  role: 'assistant',
+                  content: body,
+                  externalMessageId: sent.sid,
+                  metadata: {
+                    provider: 'twilio',
+                    status: sent.status,
+                    studioPhone: sent.studioPhone,
+                    source: 'square_slot_taken',
+                    appointmentId: loser.appointmentId,
+                    winningAppointmentId: pendingAppointment.id,
+                  },
+                });
+                await db.update(conversations).set({ lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, loserConversation.id));
+              } catch (error) {
+                console.error(JSON.stringify({
+                  event: 'square_slot_taken_notification_failed',
+                  appointmentId: loser.appointmentId,
+                  conversationId: loserConversation.id,
+                  reason: error instanceof Error ? error.message : 'UNKNOWN',
+                }));
+              }
+            } else {
+              console.log(JSON.stringify({
+                event: 'square_slot_taken_notification_skipped',
+                appointmentId: loser.appointmentId,
+                conversationId: loserConversation.id,
+                channel: loserConversation.channel,
+              }));
+            }
+          }
         }
       }
 
