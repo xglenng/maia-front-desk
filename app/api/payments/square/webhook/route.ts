@@ -244,7 +244,54 @@ export async function POST(request: NextRequest) {
           `${details.organizationName}: Your $${amount} deposit has been received. ` +
           `Your ${service} appointment for ${appointmentTime} is confirmed.`;
 
-        if (details.clientSmsOptIn && details.clientPhone) {
+        // AI Test Sandbox conversations use the WEB channel. Surface the
+        // asynchronous payment confirmation in that conversation without
+        // requiring SMS consent or sending a real text message.
+        const [webConversation] = await db
+          .select()
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.organizationId, localPayment.organizationId),
+              eq(conversations.artistId, details.artistId),
+              eq(conversations.clientId, details.clientId),
+              eq(conversations.channel, 'WEB'),
+              eq(conversations.status, 'OPEN'),
+            ),
+          )
+          .limit(1);
+
+        if (webConversation) {
+          const now = new Date();
+
+          await db.insert(messages).values({
+            conversationId: webConversation.id,
+            senderType: 'AI',
+            role: 'assistant',
+            content: confirmationBody,
+            metadata: {
+              provider: 'square',
+              source: 'square_deposit_confirmation',
+              appointmentId: localPayment.appointmentId,
+            },
+          });
+
+          await db
+            .update(conversations)
+            .set({
+              lastMessageAt: now,
+              updatedAt: now,
+            })
+            .where(eq(conversations.id, webConversation.id));
+
+          console.log(
+            JSON.stringify({
+              event: 'square_deposit_confirmation_web',
+              appointmentId: localPayment.appointmentId,
+              conversationId: webConversation.id,
+            }),
+          );
+        } else if (details.clientSmsOptIn && details.clientPhone) {
           try {
             const sent = await sendStudioSms({
               organizationId: localPayment.organizationId,
