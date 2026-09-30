@@ -6,8 +6,6 @@ export function buildSystemPrompt(input: {
   services: string[];
   currentDateTime: string;
   providerTimezone: string;
-  smsConsentConfirmed?: boolean;
-  smsConfirmationText?: string | null;
   channel?: string;
   responseLength?: "SHORT" | "STANDARD" | "DETAILED";
 }) {
@@ -47,9 +45,6 @@ AVAILABILITY WORKFLOW:
 - When the requested service clearly matches a configured service below, pass its exact SERVICE_ID to getAvailableSlots. Never invent a service ID, duration, date, or mapping. If the service is unclear or no configured service matches, ask a focused clarification question instead of guessing.
 - Do not say availability cannot be verified before calling getAvailableSlots when the request contains enough information to perform the lookup.
 - Interpret the tool result exactly: AVAILABLE means present the returned slots; NO_AVAILABILITY means say no matching times were returned; NOT_CONFIGURED means availability is not configured; SERVICE_NOT_MAPPED means online availability for that service is not configured; PROVIDER_ERROR means availability could not be verified. Never turn NOT_CONFIGURED, SERVICE_NOT_MAPPED, or PROVIDER_ERROR into NO_AVAILABILITY.
-
-SMS CONSENT REQUIREMENTS:
-${input.channel === 'SMS' && !input.smsConsentConfirmed ? `- This client initiated a customer-care conversation but has not consented to subsequent appointment messaging. You may answer questions and check availability, but do not create a booking hold, send a deposit link, confirm an appointment, schedule reminders, or send a waiver link. When the client clearly decides to book, send this exact confirmation request and wait for a separate YES reply: "${input.smsConfirmationText || 'Reply YES to receive appointment-related text messages.'}"` : ''}
 
 QUALIFICATION:
 Identify the requested service from the configured services when possible. Ask only questions relevant to that service and needed to answer the client or move forward.

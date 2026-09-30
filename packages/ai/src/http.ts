@@ -5,11 +5,10 @@ import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { db } from '@db/index';
-import { artistConsentForms, artists, businessRules, clients, conversations, messages, organizations, schedulingConnections } from '@db/schema';
+import { artists, businessRules, clients, conversations, messages, organizations, schedulingConnections } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
 import { createBookingHold, createDepositLink, escalate, getArtistContext, getClient, getClientAppointments, getServiceCatalog, getSlots, getWaiverLink, sendMessage, type AgentContext } from '@ai/tools';
 import { shouldRunAi } from '@/packages/inbox/state';
-import { hasBookingCommitmentIntent, smsConfirmationText } from '@/packages/consent';
 
 const inputSchema = z.object({
   message: z.string().min(1).max(4000),
@@ -54,14 +53,6 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
     if (!options.messageAlreadyStored) await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
     await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversation.id));
 
-    const [consentSurface] = await db.select({ mode: artistConsentForms.mode, confirmationText: artistConsentForms.confirmationText, organizationName: organizations.name }).from(artistConsentForms).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id)).where(and(eq(artistConsentForms.organizationId, input.organizationId), eq(artistConsentForms.artistId, input.artistId))).limit(1);
-    const confirmation = consentSurface?.confirmationText || smsConfirmationText(consentSurface?.organizationName || artist.displayName);
-    const bookingIntent = hasBookingCommitmentIntent(input.message);
-    if (conversation.channel === 'SMS' && !client.smsOptIn && bookingIntent) {
-      const message = await sendMessage(ctx, confirmation);
-      return NextResponse.json({ reply: confirmation, conversationId: conversation.id, messageId: message.id, mode: 'CONSENT_REQUIRED' });
-    }
-
     if (process.env.AI_PROVIDER === 'mock' || !process.env.OPENAI_API_KEY) {
       const text = input.message.toLowerCase();
       const reply = text.includes('price') || text.includes('cost')
@@ -89,7 +80,7 @@ export async function handlePOST(request: NextRequest, options: { messageAlready
         service.hourlyRateCents != null ? `hourly $${(service.hourlyRateCents / 100).toFixed(2)}` : null
       ].filter(Boolean).join(', ');
       return `[SERVICE_ID: ${service.id}] ${service.serviceType ? `${service.serviceType} - ` : ''}${service.name}${service.description ? ` (${service.description})` : ''}: ${pricing}`;
-    }), currentDateTime, providerTimezone, smsConsentConfirmed: client.smsOptIn, smsConfirmationText: confirmation, channel: conversation.channel, responseLength: artist.responseLength });
+    }), currentDateTime, providerTimezone, channel: conversation.channel, responseLength: artist.responseLength });
 
     const history = await db.select({ role: messages.role, content: messages.content })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);

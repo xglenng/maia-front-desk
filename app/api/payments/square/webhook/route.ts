@@ -347,6 +347,7 @@ export async function POST(request: NextRequest) {
                   artistId: pendingAppointment.artistId,
                   to: loser.clientPhone,
                   body,
+                  allowCustomerCareReply: true,
                 });
                 await db.insert(messages).values({
                   conversationId: loserConversation.id,
