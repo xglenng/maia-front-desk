@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq, gte, lt, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, ne, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import {
   appointments,
@@ -266,6 +266,7 @@ export async function POST(request: NextRequest) {
         paymentId: payments.id,
         paymentLinkId: payments.providerCheckoutLinkId,
         conversationId: appointments.conversationId,
+        clientId: appointments.clientId,
         startsAt: appointments.startsAt,
         clientPhone: clients.phone,
         clientSmsOptIn: clients.smsOptIn,
@@ -307,12 +308,25 @@ export async function POST(request: NextRequest) {
 
           // Tell clients whose unpaid intent lost the race immediately. Their
           // payment link is no longer valid, and no payment was captured.
-          const [loserConversation] = loser.conversationId
+          let [loserConversation] = loser.conversationId
             ? await db.select().from(conversations).where(and(
                 eq(conversations.id, loser.conversationId),
                 eq(conversations.organizationId, pendingAppointment.organizationId),
               )).limit(1)
             : [];
+
+          // Test resets and conversation cleanup can leave an appointment
+          // pointing at a deleted conversation. Fall back to the client's
+          // current open SMS conversation so the slot-taken notice is not lost.
+          if (!loserConversation) {
+            [loserConversation] = await db.select().from(conversations).where(and(
+              eq(conversations.organizationId, pendingAppointment.organizationId),
+              eq(conversations.artistId, pendingAppointment.artistId),
+              eq(conversations.clientId, loser.clientId),
+              eq(conversations.channel, 'SMS'),
+              eq(conversations.status, 'OPEN'),
+            )).orderBy(desc(conversations.createdAt)).limit(1);
+          }
 
           if (loserConversation) {
             const timeZone = loser.organizationTimezone || 'UTC';
@@ -323,7 +337,7 @@ export async function POST(request: NextRequest) {
               hour: 'numeric',
               minute: '2-digit',
             }).format(loser.startsAt);
-            const body = `${loser.organizationName}: The ${lostTime} appointment was just booked by another client, so your deposit link is no longer active. No payment was taken. Reply here and Maia can help you find another available time.`;
+            const body = `${loser.organizationName}: The ${lostTime} appointment was just booked by another client, so your deposit link is no longer active. No payment was taken. I can help you find another available time. What day or time works best for you?`;
             const now = new Date();
 
             if (loserConversation.channel === 'WEB') {
@@ -347,7 +361,6 @@ export async function POST(request: NextRequest) {
                   artistId: pendingAppointment.artistId,
                   to: loser.clientPhone,
                   body,
-                  allowCustomerCareReply: true,
                 });
                 await db.insert(messages).values({
                   conversationId: loserConversation.id,
@@ -442,7 +455,7 @@ export async function POST(request: NextRequest) {
         // Route the asynchronous confirmation back to the exact conversation
         // that created the appointment. This avoids guessing between WEB, SMS,
         // and future social channels for the same client.
-        const [originConversation] = details.conversationId
+        let [originConversation] = details.conversationId
           ? await db
               .select()
               .from(conversations)
@@ -454,6 +467,26 @@ export async function POST(request: NextRequest) {
               )
               .limit(1)
           : [];
+
+        // If the originating conversation was deleted (for example during a
+        // test reset), route the confirmation to this client's newest open SMS
+        // conversation instead of silently dropping a successful-payment notice.
+        if (!originConversation && details.clientPhone) {
+          [originConversation] = await db
+            .select()
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.organizationId, localPayment.organizationId),
+                eq(conversations.artistId, details.artistId),
+                eq(conversations.clientId, details.clientId),
+                eq(conversations.channel, 'SMS'),
+                eq(conversations.status, 'OPEN'),
+              ),
+            )
+            .orderBy(desc(conversations.createdAt))
+            .limit(1);
+        }
 
         if (originConversation?.channel === 'WEB') {
           const now = new Date();
