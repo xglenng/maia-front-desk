@@ -24,10 +24,14 @@ async function handlePOST(req: Request) {
   try {
     const body = await req.json();
     const { organizationId, businessName, businessAddress, contactEmail, websiteUrl } = body;
-    if (!organizationId || !businessName || !businessAddress || !contactEmail || !websiteUrl) {
+    if (!organizationId || !businessName || !businessAddress || !contactEmail) {
       return NextResponse.json({ error: "Missing required legal-page information" }, { status: 400 });
     }
 
+    const [org] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
+    if (!org) return NextResponse.json({ error: "Organization not found" }, { status: 404 });
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
+    const resolvedWebsiteUrl = (typeof websiteUrl === "string" && websiteUrl.trim()) || `${appUrl}/a/${org.slug}`;
     const today = new Date().toISOString().slice(0, 10);
     const existing = await db.select().from(legalDocuments)
       .where(eq(legalDocuments.organizationId, organizationId));
@@ -42,7 +46,7 @@ async function handlePOST(req: Request) {
       }
     }
     const nextVersion = (type: string) => Math.max(0, ...existing.filter((d) => d.type === type).map((d) => d.version)) + 1;
-    const input = { businessName, businessAddress, contactEmail, websiteUrl, effectiveDate: today };
+    const input = { businessName, businessAddress, contactEmail, websiteUrl: resolvedWebsiteUrl, effectiveDate: today };
 
     const [privacy] = await db.insert(legalDocuments).values({
       organizationId, type: "PRIVACY", version: nextVersion("PRIVACY"), status: "DRAFT",

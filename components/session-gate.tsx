@@ -12,7 +12,9 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path === '/login' ||
   path === '/signup' ||
   path === '/waiver' ||
-  path.startsWith('/legal/');
+  path.startsWith('/legal/') ||
+  path.startsWith('/a/') ||
+  path.startsWith('/book/');
   const ownerPage = path === '/settings' || path === '/settings/services' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
   const [user, setUser] = useState<SessionUser | null>(null);
   useEffect(() => {

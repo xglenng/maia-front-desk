@@ -33,9 +33,9 @@ export function PublicBookingForm(props: Props) {
     <input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", left: "-9999px" }} />
     <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: 14, border: "1px solid #d9d3cc", borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
       <input name="smsConsent" type="checkbox" style={{ marginTop: 3 }} />
-      <span>{props.disclosure} <a href={props.privacyUrl} target="_blank">Privacy Policy</a> · <a href={props.termsUrl} target="_blank">Terms</a></span>
+      <span><strong>Optional SMS consent:</strong> {props.disclosure} <a href={props.privacyUrl} target="_blank">Privacy Policy</a> · <a href={props.termsUrl} target="_blank">Terms &amp; Conditions</a></span>
     </label>
-    <p style={{ margin: 0, color: "#6f6a64", fontSize: 13 }}>The SMS checkbox is optional. You can send this inquiry without agreeing to text messages.</p>
+    <p style={{ margin: 0, color: "#6f6a64", fontSize: 13 }}>SMS consent is optional and is not required to submit this appointment request. Leaving the box unchecked will not prevent you from continuing.</p>
     <button disabled={busy} style={{ padding: "13px 18px", border: 0, borderRadius: 8, background: "#181716", color: "white", fontWeight: 700 }}>{busy ? "Sending…" : "Send inquiry"}</button>
     {message && <p role="alert" style={{ color: "#8f2f22", margin: 0 }}>{message}</p>}
   </form>;

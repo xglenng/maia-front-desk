@@ -3,7 +3,7 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { protectedRoute, identity } from "@/packages/auth/server";
 import { buildActivationPlan, type NumberStrategy } from "@/packages/onboarding/activation";
-import { loadConsentForm } from "@/packages/consent/server";
+import { ensureHostedConsentForm } from "@/packages/consent/server";
 import { db, pool } from "@db";
 import {
   artists,
@@ -57,7 +57,7 @@ async function load(organizationId: string, requestedArtistId?: string | null) {
     getDetectedTests(organizationId, selectedArtistId),
     db.select({ id: studioActivationEvents.id, action: studioActivationEvents.action, status: studioActivationEvents.status, createdAt: studioActivationEvents.createdAt }).from(studioActivationEvents).where(and(eq(studioActivationEvents.organizationId, organizationId), eq(studioActivationEvents.artistId, selectedArtistId))).orderBy(desc(studioActivationEvents.createdAt)).limit(10),
     db.select({ id: clients.id, firstName: clients.firstName, lastName: clients.lastName, phone: clients.phone }).from(clients).where(and(eq(clients.organizationId, organizationId), eq(clients.smsOptIn, true), isNotNull(clients.phone))).limit(20),
-    loadConsentForm(organizationId, selectedArtistId)
+    ensureHostedConsentForm(organizationId, selectedArtistId)
   ]);
 
   const numberStrategy = (saved?.numberStrategy === "PORT_EXISTING" ? "PORT_EXISTING" : "TEMPORARY") as NumberStrategy;

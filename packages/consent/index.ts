@@ -15,7 +15,7 @@ export function slugifyName(value: string) {
 }
 
 export function consentDisclosure(businessName: string) {
-  return `I agree to receive SMS messages from ${businessName} regarding appointment requests, booking confirmations, reminders, rescheduling, and related services. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase.`;
+  return `I agree to receive SMS messages from ${businessName} regarding your inquiry, appointment requests, booking confirmations, reminders, rescheduling, deposits, required forms or waivers, and customer service. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase.`;
 }
 
 export function smsConfirmationText(businessName: string) {
