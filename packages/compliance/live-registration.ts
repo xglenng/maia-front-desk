@@ -37,7 +37,29 @@ async function saveProfile(organizationId: string, values: Partial<typeof compli
 }
 
 function businessType(value: string | null) {
-  return ({ SOLE_PROPRIETOR: "SOLE_PROPRIETORSHIP", LLC: "LLC", PARTNERSHIP: "PARTNERSHIP", CORPORATION: "CORPORATION", NON_PROFIT: "NON_PROFIT" } as Record<string, string>)[value || ""] || "LLC";
+  return ({
+    SOLE_PROPRIETOR: "Sole Proprietorship",
+    LLC: "Limited Liability Corporation",
+    PARTNERSHIP: "Partnership",
+    CORPORATION: "Corporation",
+    NON_PROFIT: "Non-profit Corporation"
+  } as Record<string, string>)[value || ""] || "Limited Liability Corporation";
+}
+
+function assertPublicRegistrationUrls(profile: Profile) {
+  const urls = [
+    ["Business website", profile.websiteUrl],
+    ["Privacy Policy", profile.privacyPolicyUrl],
+    ["Terms & Conditions", profile.termsUrl]
+  ] as const;
+  for (const [label, value] of urls) {
+    if (!value) throw new Error(`${label} URL is missing.`);
+    let parsed: URL;
+    try { parsed = new URL(value); } catch { throw new Error(`${label} must be a valid public URL.`); }
+    if (parsed.protocol !== "https:" || ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) {
+      throw new Error(`${label} must use a public HTTPS production URL before live Twilio submission.`);
+    }
+  }
 }
 
 export async function startLiveRegistration(profile: Profile) {
@@ -47,6 +69,7 @@ export async function startLiveRegistration(profile: Profile) {
   let current = profile;
   let artifacts = (current.twilioArtifacts || {}) as Artifacts;
   try {
+    assertPublicRegistrationUrls(current);
     if (!current.twilioCustomerProfileSid) {
       const created = await createCustomerProfile(credentials, { friendlyName: `${current.businessName} A2P profile`, email: current.contactEmail });
       current = await saveProfile(current.organizationId, { twilioCustomerProfileSid: created.sid, customerProfileStatus: status(created.status), status: "CUSTOMER_PROFILE_DRAFT", submittedAt: new Date() });
@@ -56,7 +79,7 @@ export async function startLiveRegistration(profile: Profile) {
     if (!artifacts.businessEndUserSid) {
       const created = await createEndUser(credentials, { friendlyName: `${current.businessName} business`, type: "customer_profile_business_information", attributes: {
         business_name: current.businessName, business_type: businessType(current.businessType), business_registration_identifier: current.businessRegistrationType || "EIN",
-        business_registration_number: decryptComplianceSecret(current.businessRegistrationNumberEncrypted), business_industry: "PROFESSIONAL",
+        business_registration_number: decryptComplianceSecret(current.businessRegistrationNumberEncrypted), business_industry: current.industry || "CONSUMER",
         business_regions_of_operation: current.businessRegions || "USA_AND_CANADA", business_identity: current.businessIdentity || "direct_customer", website_url: current.websiteUrl
       }});
       artifacts = { ...artifacts, businessEndUserSid: created.sid }; await saveProfile(current.organizationId, { twilioArtifacts: artifacts });
