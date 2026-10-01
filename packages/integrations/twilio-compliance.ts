@@ -100,3 +100,19 @@ export function createCampaign(credentials: TwilioCredentials, input: { serviceS
 export function getCampaign(credentials: TwilioCredentials, serviceSid: string, campaignSid: string) {
   return request<TwilioObject>({ base: messaging, path: `/v1/Services/${encodeURIComponent(serviceSid)}/Compliance/Usa2p/${encodeURIComponent(campaignSid)}`, ...credentials, apiVersion: "v1.2" });
 }
+
+export function getMessagingService(credentials: TwilioCredentials, serviceSid: string) {
+  return request<TwilioObject>({ base: messaging, path: `/v1/Services/${encodeURIComponent(serviceSid)}`, ...credentials });
+}
+
+export function listMessagingServicePhoneNumbers(credentials: TwilioCredentials, serviceSid: string) {
+  return request<{ phone_numbers?: Array<Record<string, unknown> & { sid: string; phone_number?: string }> }>({
+    base: messaging,
+    path: `/v1/Services/${encodeURIComponent(serviceSid)}/PhoneNumbers?PageSize=100`,
+    ...credentials
+  });
+}
+
+export function listCampaigns(credentials: TwilioCredentials, serviceSid: string) {
+  return request<{ compliance?: TwilioObject[] }>({ base: messaging, path: `/v1/Services/${encodeURIComponent(serviceSid)}/Compliance/Usa2p?PageSize=100`, ...credentials, apiVersion: "v1.2" });
+}
