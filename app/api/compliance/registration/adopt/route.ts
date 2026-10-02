@@ -81,7 +81,7 @@ async function handlePOST(req: Request) {
     const senders = senderPage.phone_numbers || [];
     if (!senders.length) return NextResponse.json({ error: "The Messaging Service has no phone-number senders to adopt." }, { status: 409 });
     const trustProductSid = value(brand, "a2p_profile_bundle_sid", "a2pProfileBundleSid", "A2PProfileBundleSid");
-    const artifacts = { ...(profile.twilioArtifacts as Record<string, unknown> || {}), adoptedExistingRegistration: true, adoptedAt: new Date().toISOString(), messagingServiceSid: input.messagingServiceSid, senderSids: senders.map(s => s.sid) };
+    const artifacts = { ...(profile.twilioArtifacts as Record<string, unknown> || {}), adoptedExistingRegistration: true, adoptedAt: new Date().toISOString(), messagingServiceSid: input.messagingServiceSid, senderSids: senders.map(s => s.sid), senders: senders.map(s => ({ sid: s.sid, phoneNumber: value(s, "phone_number", "phoneNumber") })) };
 
     await db.transaction(async tx => {
       const [artist] = await tx.select().from(artists).where(eq(artists.organizationId, input.organizationId)).limit(1);
