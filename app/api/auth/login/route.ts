@@ -105,10 +105,12 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch {
-    return NextResponse.json(
-      { error: 'Unable to sign in' },
-      { status: 400 }
-    );
-  }
+  } catch (error) {
+  console.error('LOGIN ERROR:', error);
+
+  return NextResponse.json(
+    { error: 'Unable to sign in' },
+    { status: 400 }
+  );
+}
 }

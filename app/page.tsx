@@ -54,14 +54,14 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setLoading(true); setError(null); setData(null);
     fetch(`/api/dashboard?date=${selectedDate}`)
       .then(async r => { if (!r.ok) throw new Error((await r.json()).error || "Failed to load dashboard"); return r.json(); })
       .then(json => { if (!cancelled) { setData(json); setError(null); } })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedDate]);
+  }, [selectedDate, user?.organization_id]);
 
   const dateLabel = useMemo(() => {
     return weekDates[selectedDay].toLocaleDateString("en-US", {
@@ -78,11 +78,13 @@ export default function Home() {
     setSelectedDay(day === 0 ? 6 : day - 1);
   }
 
+  const artistInitials = data?.artist.displayName.split(/\s+/).filter(Boolean).map(part => part[0]).slice(0, 2).join("").toUpperCase() || "AI";
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">✦</div><div><strong>INKFLOW</strong><span>AI Receptionist</span></div></div>
-        <div className="artist-card"><div className="avatar">MS</div><div><strong>Mike Smith</strong><span>Embellished Studios</span></div><button aria-label="Switch artist">⌄</button></div>
+        <div className="artist-card"><div className="avatar">{artistInitials}</div><div><strong>{data?.artist.displayName ?? "Artist"}</strong><span>{data?.organization?.name ?? "Organization"}</span></div><button aria-label="Switch artist">⌄</button></div>
         <nav>
           {(["Overview", "Calendar", "Inbox", "Clients"] as const).map((item) => item === "Inbox" ?
             <a key={item} href="/inbox" className="nav-item" style={{ textDecoration: "none" }}>

@@ -38,7 +38,7 @@ test("Meta OAuth requests only the messaging permissions used by the app", () =>
   const url = new URL(metaOAuthUrl("state-token"));
   const scopes = new Set((url.searchParams.get("scope") || "").split(","));
   assert.equal(url.searchParams.get("state"), "state-token");
-  assert.deepEqual(scopes, new Set(["pages_show_list", "pages_read_engagement", "pages_messaging", "instagram_basic", "instagram_manage_messages"]));
+  assert.deepEqual(scopes, new Set(["pages_show_list", "pages_read_engagement", "pages_manage_metadata", "pages_messaging", "instagram_basic", "instagram_manage_messages"]));
   if (priorId === undefined) delete process.env.META_APP_ID; else process.env.META_APP_ID = priorId;
   if (priorRedirect === undefined) delete process.env.META_REDIRECT_URI; else process.env.META_REDIRECT_URI = priorRedirect;
 });

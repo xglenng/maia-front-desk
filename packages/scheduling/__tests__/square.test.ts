@@ -4,14 +4,18 @@ import { SquareApiClient, SquareApiError, squareInt64String } from '../square/cl
 import { squareOAuthSession, squareReadScopes } from '../square/config';
 import { addLocalDays, buildSquareSearchWindows, parseSchedulingDate, resolveSquareDateWindow } from '../square/time';
 
-test('Square requests include booking and customer write scopes', () => {
+test('Square requests only booking, customer, and payment-link scopes in use', () => {
   assert.deepEqual(squareReadScopes, [
     'APPOINTMENTS_READ', 'APPOINTMENTS_ALL_READ', 'APPOINTMENTS_BUSINESS_SETTINGS_READ',
     'APPOINTMENTS_WRITE', 'CUSTOMERS_READ', 'CUSTOMERS_WRITE',
-    'MERCHANT_PROFILE_READ', 'ITEMS_READ', 'EMPLOYEES_READ',
+    'ORDERS_WRITE', 'MERCHANT_PROFILE_READ', 'ITEMS_READ', 'EMPLOYEES_READ',
   ]);
   assert.equal(squareReadScopes.includes('APPOINTMENTS_WRITE'), true);
   assert.equal(squareReadScopes.includes('CUSTOMERS_WRITE'), true);
+  assert.equal(squareReadScopes.includes('ORDERS_WRITE'), true);
+  assert.equal(squareReadScopes.includes('ORDERS_READ'), false);
+  assert.equal(squareReadScopes.includes('PAYMENTS_READ'), false);
+  assert.equal(squareReadScopes.includes('PAYMENTS_WRITE'), false);
 });
 
 test('Square OAuth uses the supported session behavior per environment', () => {

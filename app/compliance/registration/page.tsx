@@ -1,5 +1,5 @@
 "use client";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
 
 type Readiness = { ready: boolean; missing: string[]; completed: number; total: number };
@@ -10,10 +10,18 @@ type ConsentForm = { artistId: string; artistName: string; mode: string; ready: 
 const field = { width: "100%", padding: 12, border: "1px solid #ddd7d0", borderRadius: 8, font: "inherit" };
 const label = { display: "grid", gap: 6, fontSize: 13, fontWeight: 600 };
 const card = { background: "white", border: "1px solid #e8e4df", borderRadius: 12, padding: 22, marginTop: 16 };
+const initialForm = {
+  businessType: "LLC", businessRegistrationNumber: "", contactFirstName: "", contactLastName: "", contactPhone: "",
+  representativeBusinessTitle: "Owner", representativeJobPosition: "Other", addressLine1: "", addressLine2: "", city: "", region: "", postalCode: "",
+  industry: "CONSUMER", campaignUseCase: "CUSTOMER_CARE", campaignDescription: "",
+  messageFlow: "", sample1: "", sample2: "", optInKeywords: "START, YES", helpMessage: "", optOutMessage: "",
+  hasEmbeddedLinks: false, hasEmbeddedPhoneNumbers: false, subscriberOptIn: true
+};
 
 export default function A2pRegistrationPage() {
   const user = useSession();
   const organizationId = user?.organization_id ?? "";
+  const loadRequestId = useRef(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<"mock" | "live">("live");
@@ -21,17 +29,7 @@ export default function A2pRegistrationPage() {
   const [consentForms, setConsentForms] = useState<ConsentForm[]>([]);
   const [busy, setBusy] = useState(false);
   const [adoptMessagingServiceSid, setAdoptMessagingServiceSid] = useState("");
-  const [form, setForm] = useState({
-    businessType: "LLC", businessRegistrationNumber: "", contactFirstName: "", contactLastName: "", contactPhone: "",
-    representativeBusinessTitle: "Owner", representativeJobPosition: "Other", addressLine1: "", addressLine2: "", city: "", region: "", postalCode: "",
-    industry: "CONSUMER", campaignUseCase: "CUSTOMER_CARE", campaignDescription: "",
-    messageFlow: "Clients initiate a conversation by texting the studio number or opt in through the studio booking form. The first automated response identifies the studio and explains that STOP opts out and HELP provides help.",
-    sample1: "Embellished Studios: Thanks for contacting us. How can we help with your tattoo appointment? Reply STOP to opt out.",
-    sample2: "Embellished Studios: Your appointment request was received. We will follow up shortly. Reply STOP to opt out.",
-    optInKeywords: "START, YES", helpMessage: "Embellished Studios: Reply with your booking question or contact the studio directly. Reply STOP to opt out.",
-    optOutMessage: "Embellished Studios: You have been opted out and will receive no further messages. Reply START to opt back in.",
-    hasEmbeddedLinks: false, hasEmbeddedPhoneNumbers: false, subscriberOptIn: true
-  });
+  const [form, setForm] = useState({ ...initialForm });
 
   const set = (name: string, value: string | boolean) => setForm((old) => ({ ...old, [name]: value }));
 
@@ -43,54 +41,72 @@ export default function A2pRegistrationPage() {
 
   async function load() {
     if (!organizationId) return;
+    const requestId = ++loadRequestId.current;
     setBusy(true); setMessage("");
     const res = await fetch(`/api/compliance/registration?organizationId=${encodeURIComponent(organizationId)}`);
-    const data = await res.json(); setBusy(false);
+    const data = await res.json();
+    if (requestId !== loadRequestId.current) return;
+    setBusy(false);
     if (!res.ok) return setMessage(data.error || "Unable to load registration.");
     setProfile(data.profile); setMode(data.mode || "live"); setEvents(data.events || []); setConsentForms(data.consentForms || []);
     setForm((old) => ({ ...old, ...Object.fromEntries(Object.entries(data.profile).filter(([key, value]) => key in old && typeof value !== "object")), businessRegistrationNumber: "", sample1: data.profile.sampleMessages?.[0] || old.sample1, sample2: data.profile.sampleMessages?.[1] || old.sample2, optInKeywords: (data.profile.optInKeywords || ["START", "YES"]).join(", ") }));
   }
 
-  useEffect(() => { if (organizationId) void load(); }, [organizationId]);
+  useEffect(() => {
+    loadRequestId.current += 1;
+    setProfile(null); setMessage(""); setMode("live"); setEvents([]); setConsentForms([]);
+    setAdoptMessagingServiceSid(""); setBusy(false); setForm({ ...initialForm });
+    if (organizationId) void load();
+  }, [organizationId]);
 
   async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage("");
+    event.preventDefault(); const requestId = loadRequestId.current; setBusy(true); setMessage("");
     const { sample1, sample2, optInKeywords, businessRegistrationNumber, ...fields } = form;
     const payload = { ...fields, organizationId, ...(businessRegistrationNumber ? { businessRegistrationNumber } : {}), sampleMessages: [sample1, sample2], optInKeywords: optInKeywords.split(",").map(x => x.trim().toUpperCase()).filter(Boolean) };
     const res = await fetch("/api/compliance/registration", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const data = await res.json(); setBusy(false);
+    const data = await res.json();
+    if (requestId !== loadRequestId.current) return;
+    setBusy(false);
     if (!res.ok) return setMessage(typeof data.error === "string" ? data.error : "Review the highlighted registration fields.");
     setProfile(data.profile); setForm(old => ({ ...old, businessRegistrationNumber: "" })); setMessage("Registration intake saved.");
   }
 
   async function submit() {
-    setBusy(true); setMessage("");
+    const requestId = loadRequestId.current; setBusy(true); setMessage("");
     const res = await fetch("/api/compliance/registration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId }) });
-    const data = await res.json(); setBusy(false);
+    const data = await res.json();
+    if (requestId !== loadRequestId.current) return;
+    setBusy(false);
     if (!res.ok) return setMessage(data.missing?.length ? `Still required: ${data.missing.join(", ")}` : data.error || "Submission failed.");
     setProfile(data.profile); setMessage(data.mode === "mock" ? "Registration submitted in mock mode." : "Customer Profile submitted to Twilio. Use Sync Twilio status as each review stage completes.");
   }
 
   async function decision(mockDecision: "APPROVED" | "REJECTED") {
-    setBusy(true);
+    const requestId = loadRequestId.current; setBusy(true);
     const res = await fetch("/api/compliance/registration/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, mockDecision }) });
-    const data = await res.json(); setBusy(false); setMessage(data.statusMessage || data.error);
+    const data = await res.json();
+    if (requestId !== loadRequestId.current) return;
+    setBusy(false); setMessage(data.statusMessage || data.error);
     if (res.ok) setProfile(old => old ? { ...old, status: data.status, statusMessage: data.statusMessage } : old);
   }
 
   async function adoptExisting() {
-    setBusy(true); setMessage("");
+    const requestId = loadRequestId.current; setBusy(true); setMessage("");
     const res = await fetch("/api/compliance/registration/adopt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, messagingServiceSid: adoptMessagingServiceSid }) });
-    const data = await res.json(); setBusy(false);
+    const data = await res.json();
+    if (requestId !== loadRequestId.current) return;
+    setBusy(false);
     if (!res.ok) return setMessage(data.error || "Unable to adopt existing Twilio registration.");
     setMessage(`${data.message}${data.senders?.length ? ` Sender: ${data.senders.map((s: {phoneNumber?: string}) => s.phoneNumber).filter(Boolean).join(", ")}` : ""}`);
     await load();
   }
 
   async function sync() {
-    setBusy(true); setMessage("");
+    const requestId = loadRequestId.current; setBusy(true); setMessage("");
     const res = await fetch("/api/compliance/registration/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId }) });
-    const data = await res.json(); setBusy(false); setMessage(data.statusMessage || data.error || "Status synchronized.");
+    const data = await res.json();
+    if (requestId !== loadRequestId.current) return;
+    setBusy(false); setMessage(data.statusMessage || data.error || "Status synchronized.");
     if (res.ok) await load();
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/packages/db/src";
 import { cookieName, sameOrigin } from "@/packages/auth/server";
 import { digest, hashPassword, token } from "@/packages/auth/crypto";
+import { isSignupRateLimited } from "@/packages/auth/signup-rate-limit";
 
 function slugify(value: string) {
   return value
@@ -23,6 +24,13 @@ export async function POST(req: NextRequest) {
   let client;
 
   try {
+    if (await isSignupRateLimited(req)) {
+      return NextResponse.json(
+        { error: "Too many signup attempts. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
 
     const studioName =

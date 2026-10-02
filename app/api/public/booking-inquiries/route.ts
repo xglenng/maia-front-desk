@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { sameOrigin } from "@/packages/auth/server";
 import { db } from "@db";
 import { artistConsentForms, artists, bookingInquiries, clients, legalDocuments, organizations, services, smsConsentEvidence } from "@db/schema";
 import { normalizePhone } from "@/packages/consent";
@@ -21,6 +22,13 @@ const schema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    if (!sameOrigin(request)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+    const contentLengthHeader = request.headers.get("content-length");
+    if (contentLengthHeader !== null) {
+      const contentLength = Number(contentLengthHeader);
+      if (!Number.isSafeInteger(contentLength) || contentLength < 0) return NextResponse.json({ error: "Invalid request size." }, { status: 400 });
+      if (contentLength > 64 * 1024) return NextResponse.json({ error: "Request is too large." }, { status: 413 });
+    }
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: "Please check the form and try again." }, { status: 400 });
     const input = parsed.data;

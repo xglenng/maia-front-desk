@@ -40,6 +40,31 @@ function publicProfile(profile: typeof complianceProfiles.$inferSelect, consentF
   return { ...safe, hasBusinessRegistrationNumber: Boolean(_secret), readiness: registrationReadiness({ ...profile, consentFormReady }) };
 }
 
+function registrationProfile(profile: typeof complianceProfiles.$inferSelect, consentFormReady: boolean, consentForms: Awaited<ReturnType<typeof consentSurfaces>>["rows"]) {
+  const businessName = profile.businessName;
+  const savedSamples = Array.isArray(profile.sampleMessages)
+    ? profile.sampleMessages.filter((sample): sample is string => typeof sample === "string")
+    : [];
+  const defaultSamples = [
+    `${businessName}: Thanks for contacting us. How can we help with your appointment? Reply STOP to opt out.`,
+    `${businessName}: Your appointment request was received. We will follow up shortly. Reply STOP to opt out.`
+  ];
+  const hasInboundConsent = consentForms.some(form => form.mode === "INBOUND_SMS_CONFIRMATION");
+
+  return {
+    ...publicProfile(profile, consentFormReady),
+    campaignDescription: profile.campaignDescription || (hasInboundConsent
+      ? inboundCampaignDescription(businessName)
+      : `${businessName} provides customer care and appointment-related messages to people who contact the business or opt in through its booking or inquiry form. Messages include responses to questions, appointment requests, confirmations, scheduling updates, and service-related follow-up.`),
+    messageFlow: profile.messageFlow || consentForms[0]?.messageFlow || `Clients contact ${businessName} by text or opt in through the business booking or inquiry form. The first response identifies ${businessName} and explains how to get help and opt out. Messages are limited to customer care, appointment requests, confirmations, scheduling updates, and service-related follow-up.`,
+    sampleMessages: savedSamples.length
+      ? [savedSamples[0] || defaultSamples[0], savedSamples[1] || defaultSamples[1], ...savedSamples.slice(2)]
+      : defaultSamples,
+    helpMessage: profile.helpMessage || `${businessName}: Reply with your booking question or contact the studio directly. Reply STOP to opt out.`,
+    optOutMessage: profile.optOutMessage || `${businessName}: You have been opted out and will receive no further messages. Reply START to opt back in.`
+  };
+}
+
 async function handleGET(req: Request) {
   const organizationId = new URL(req.url).searchParams.get("organizationId");
   if (!organizationId) return NextResponse.json({ error: "organizationId is required" }, { status: 400 });
@@ -48,7 +73,7 @@ async function handleGET(req: Request) {
   const events = await db.select().from(complianceEvents).where(eq(complianceEvents.organizationId, organizationId)).orderBy(desc(complianceEvents.createdAt)).limit(20);
   const campaigns = await db.select().from(a2pCampaigns).where(eq(a2pCampaigns.organizationId, organizationId));
   const consentForms = await consentSurfaces(organizationId);
-  return NextResponse.json({ profile: publicProfile(profile, consentForms.ready), consentForms: consentForms.rows, events, campaigns, mode: process.env.TWILIO_COMPLIANCE_MODE === "mock" ? "mock" : "live" });
+  return NextResponse.json({ profile: registrationProfile(profile, consentForms.ready, consentForms.rows), consentForms: consentForms.rows, events, campaigns, mode: process.env.TWILIO_COMPLIANCE_MODE === "mock" ? "mock" : "live" });
 }
 
 async function handlePUT(req: Request) {

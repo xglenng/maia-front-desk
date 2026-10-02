@@ -112,7 +112,7 @@ export default function SignupPage() {
               maxLength={120}
               value={studioName}
               onChange={(e) => setStudioName(e.target.value)}
-              placeholder="Embellished Studios"
+              placeholder="Your business name"
               style={input}
             />
           </Field>
