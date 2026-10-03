@@ -5,7 +5,8 @@ import { z } from "zod";
 import { db } from "@db";
 import { a2pCampaigns, artistConsentForms, artists, complianceEvents, complianceProfiles, organizations, twilioMessagingServices } from "@db/schema";
 import { registrationReadiness } from "@/packages/compliance/a2p";
-import { appBaseUrl, campaignMessageFlow, formOptInUrl, inboundCampaignDescription, inboundSampleMessages, isConsentFormReady } from "@/packages/consent";
+import { campaignPreview } from "@/packages/compliance/campaign";
+import { appBaseUrl, assertPublicHttpsUrl, campaignMessageFlow, formOptInUrl, inboundCampaignDescription, inboundSampleMessages, isConsentFormReady } from "@/packages/consent";
 import { encryptComplianceSecret } from "@/packages/compliance/secrets";
 import { startLiveRegistration } from "@/packages/compliance/live-registration";
 
@@ -28,11 +29,25 @@ const intakeSchema = z.object({
   subscriberOptIn: z.literal(true)
 });
 
-async function consentSurfaces(organizationId: string) {
+function publicAppUrlError() {
+  if (process.env.TWILIO_COMPLIANCE_MODE === "mock") return null;
+  try {
+    assertPublicHttpsUrl(appBaseUrl(), "NEXT_PUBLIC_APP_URL");
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Set NEXT_PUBLIC_APP_URL to a public HTTPS application URL before live SMS registration.";
+  }
+}
+
+async function consentSurfaces(organizationId: string, campaignProfile?: typeof complianceProfiles.$inferSelect) {
   const provisioned = await db.select({ artistId: twilioMessagingServices.artistId }).from(twilioMessagingServices).where(and(eq(twilioMessagingServices.organizationId, organizationId), eq(twilioMessagingServices.status, "ACTIVE")));
   const rows = await db.select({ form: artistConsentForms, artistName: artists.displayName, organizationName: organizations.name, organizationSlug: organizations.slug }).from(artistConsentForms).innerJoin(artists, eq(artistConsentForms.artistId, artists.id)).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id)).where(eq(artistConsentForms.organizationId, organizationId));
   const relevant = provisioned.map(service => rows.find(row => row.form.artistId === service.artistId)).filter(Boolean) as typeof rows;
-  return { ready: provisioned.length > 0 && relevant.length === provisioned.length && relevant.every(row => isConsentFormReady(row.form)), rows: relevant.map(row => ({ artistId: row.form.artistId, artistName: row.artistName, mode: row.form.mode, ready: isConsentFormReady(row.form), publicUrl: formOptInUrl(row.form, appBaseUrl(), row.organizationSlug), messageFlow: campaignMessageFlow(row.organizationName, formOptInUrl(row.form, appBaseUrl(), row.organizationSlug), row.form.mode) })) };
+  return { ready: provisioned.length > 0 && relevant.length === provisioned.length && relevant.every(row => isConsentFormReady(row.form)), rows: relevant.map(row => {
+    const publicUrl = formOptInUrl(row.form, appBaseUrl(), row.organizationSlug);
+    const campaign = campaignProfile ? campaignPreview(campaignProfile, { mode: row.form.mode, publicUrl }) : null;
+    return { artistId: row.form.artistId, artistName: row.artistName, mode: row.form.mode, ready: isConsentFormReady(row.form), publicUrl, messageFlow: campaign?.messageFlow || campaignMessageFlow(row.organizationName, publicUrl, row.form.mode), campaign };
+  }) };
 }
 
 function publicProfile(profile: typeof complianceProfiles.$inferSelect, consentFormReady: boolean) {
@@ -51,32 +66,48 @@ function registrationProfile(profile: typeof complianceProfiles.$inferSelect, co
   ];
   const hasInboundConsent = consentForms.some(form => form.mode === "INBOUND_SMS_CONFIRMATION");
 
-  return {
-    ...publicProfile(profile, consentFormReady),
-    campaignDescription: profile.campaignDescription || (hasInboundConsent
-      ? inboundCampaignDescription(businessName)
-      : `${businessName} provides customer care and appointment-related messages to people who contact the business or opt in through its booking or inquiry form. Messages include responses to questions, appointment requests, confirmations, scheduling updates, and service-related follow-up.`),
-    messageFlow: profile.messageFlow || consentForms[0]?.messageFlow || `Clients contact ${businessName} by text or opt in through the business booking or inquiry form. The first response identifies ${businessName} and explains how to get help and opt out. Messages are limited to customer care, appointment requests, confirmations, scheduling updates, and service-related follow-up.`,
-    sampleMessages: savedSamples.length
-      ? [savedSamples[0] || defaultSamples[0], savedSamples[1] || defaultSamples[1], ...savedSamples.slice(2)]
-      : defaultSamples,
+  const campaign = consentForms[0]?.campaign;
+  const campaignValues = campaign ? {
+    campaignDescription: campaign.description,
+    messageFlow: campaign.messageFlow,
+    sampleMessages: campaign.samples,
+    optInKeywords: campaign.optInKeywords,
+    helpMessage: campaign.helpMessage,
+    optOutMessage: campaign.optOutMessage,
+    hasEmbeddedLinks: campaign.hasEmbeddedLinks,
+    hasEmbeddedPhoneNumbers: campaign.hasEmbeddedPhone,
+  } : {
+    campaignDescription: profile.campaignDescription || (hasInboundConsent ? inboundCampaignDescription(businessName) : `${businessName} provides customer care and appointment-related messages to people who contact the business or opt in through its booking or inquiry form. Messages include responses to questions, appointment requests, confirmations, scheduling updates, and service-related follow-up.`),
+    messageFlow: profile.messageFlow || `Clients contact ${businessName} by text or opt in through the business booking or inquiry form.`,
+    sampleMessages: savedSamples.length ? savedSamples : defaultSamples,
+    optInKeywords: profile.optInKeywords || ["START", "UNSTOP"],
     helpMessage: profile.helpMessage || `${businessName}: Reply with your booking question or contact the studio directly. Reply STOP to opt out.`,
-    optOutMessage: profile.optOutMessage || `${businessName}: You have been opted out and will receive no further messages. Reply START to opt back in.`
+    optOutMessage: profile.optOutMessage || `${businessName}: You have been opted out and will receive no further messages. Reply START to opt back in.`,
+  };
+  const safeProfile = publicProfile(profile, consentFormReady);
+  return {
+    ...safeProfile,
+    ...campaignValues,
+    readiness: registrationReadiness({ ...profile, ...campaignValues, consentFormReady }),
   };
 }
 
 async function handleGET(req: Request) {
+  const urlError = publicAppUrlError();
+  if (urlError) return NextResponse.json({ error: urlError }, { status: 503 });
   const organizationId = new URL(req.url).searchParams.get("organizationId");
   if (!organizationId) return NextResponse.json({ error: "organizationId is required" }, { status: 400 });
   const [profile] = await db.select().from(complianceProfiles).where(eq(complianceProfiles.organizationId, organizationId)).limit(1);
   if (!profile) return NextResponse.json({ error: "Complete business compliance setup first." }, { status: 404 });
   const events = await db.select().from(complianceEvents).where(eq(complianceEvents.organizationId, organizationId)).orderBy(desc(complianceEvents.createdAt)).limit(20);
   const campaigns = await db.select().from(a2pCampaigns).where(eq(a2pCampaigns.organizationId, organizationId));
-  const consentForms = await consentSurfaces(organizationId);
+  const consentForms = await consentSurfaces(organizationId, profile);
   return NextResponse.json({ profile: registrationProfile(profile, consentForms.ready, consentForms.rows), consentForms: consentForms.rows, events, campaigns, mode: process.env.TWILIO_COMPLIANCE_MODE === "mock" ? "mock" : "live" });
 }
 
 async function handlePUT(req: Request) {
+  const urlError = publicAppUrlError();
+  if (urlError) return NextResponse.json({ error: urlError }, { status: 503 });
   const parsed = intakeSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { organizationId, businessRegistrationNumber, ...input } = parsed.data;
@@ -92,20 +123,31 @@ async function handlePUT(req: Request) {
     businessRegistrationNumberEncrypted: encryptComplianceSecret(businessRegistrationNumber.replace(/\s/g, "")),
     businessRegistrationNumberLast4: businessRegistrationNumber.replace(/\D/g, "").slice(-4)
   } : {};
-  const consentForms = await consentSurfaces(organizationId);
-  const generatedMessageFlow = consentForms.rows[0]?.messageFlow || input.messageFlow;
-  const inboundSurface = consentForms.rows.find(row => row.mode === "INBOUND_SMS_CONFIRMATION");
-  const generatedCampaignFields = inboundSurface ? { campaignDescription: inboundCampaignDescription(current.businessName), sampleMessages: inboundSampleMessages(current.businessName), optInKeywords: ["YES", "START"], hasEmbeddedLinks: true } : {};
-  const [updated] = await db.update(complianceProfiles).set({ ...input, messageFlow: generatedMessageFlow, ...generatedCampaignFields, ...taxUpdate, status: "DRAFT", statusMessage: "Registration intake saved.", updatedAt: new Date() }).where(eq(complianceProfiles.organizationId, organizationId)).returning();
-  return NextResponse.json({ profile: publicProfile(updated, consentForms.ready), consentForms: consentForms.rows });
+  const campaignSource = { ...current, ...input };
+  const consentForms = await consentSurfaces(organizationId, campaignSource as typeof current);
+  const firstCampaign = consentForms.rows[0]?.campaign;
+  const generatedCampaignFields = firstCampaign ? {
+    campaignDescription: firstCampaign.description,
+    messageFlow: firstCampaign.messageFlow,
+    sampleMessages: firstCampaign.samples,
+    optInKeywords: firstCampaign.optInKeywords,
+    helpMessage: firstCampaign.helpMessage,
+    optOutMessage: firstCampaign.optOutMessage,
+    hasEmbeddedLinks: firstCampaign.hasEmbeddedLinks,
+  } : {};
+  const [updated] = await db.update(complianceProfiles).set({ ...input, ...generatedCampaignFields, ...taxUpdate, status: "DRAFT", statusMessage: "Registration intake saved.", updatedAt: new Date() }).where(eq(complianceProfiles.organizationId, organizationId)).returning();
+  const updatedConsentForms = await consentSurfaces(organizationId, updated);
+  return NextResponse.json({ profile: registrationProfile(updated, updatedConsentForms.ready, updatedConsentForms.rows), consentForms: updatedConsentForms.rows });
 }
 
 async function handlePOST(req: Request) {
+  const urlError = publicAppUrlError();
+  if (urlError) return NextResponse.json({ error: urlError }, { status: 503 });
   const parsed = z.object({ organizationId: z.string().uuid() }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const [profile] = await db.select().from(complianceProfiles).where(eq(complianceProfiles.organizationId, parsed.data.organizationId)).limit(1);
   if (!profile) return NextResponse.json({ error: "Compliance profile not found." }, { status: 404 });
-  const consentForms = await consentSurfaces(parsed.data.organizationId);
+  const consentForms = await consentSurfaces(parsed.data.organizationId, profile);
   const readiness = registrationReadiness({ ...profile, consentFormReady: consentForms.ready });
   if (!readiness.ready) return NextResponse.json({ error: "Registration is incomplete.", missing: readiness.missing }, { status: 409 });
   if (["CUSTOMER_PROFILE_PENDING", "A2P_PROFILE_PENDING", "BRAND_PENDING", "CAMPAIGN_PENDING", "APPROVED", "MOCK_PENDING", "MOCK_APPROVED"].includes(profile.status)) return NextResponse.json({ profile: publicProfile(profile, consentForms.ready), status: "already_submitted" });

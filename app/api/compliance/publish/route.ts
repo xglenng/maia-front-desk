@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@db";
 import { complianceProfiles, legalDocuments, organizations } from "@db/schema";
 import { eq, and } from "drizzle-orm";
+import { appBaseUrl } from "@/packages/consent";
 
 async function handlePOST(req: Request) {
   try {
@@ -26,7 +27,7 @@ async function handlePOST(req: Request) {
     }
 
     const now = new Date();
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
+    const appUrl = appBaseUrl();
     const slug = org.slug;
 
     const currentDocuments = [];

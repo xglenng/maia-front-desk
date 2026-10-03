@@ -2,7 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@db";
 import { a2pCampaigns, artistConsentForms, complianceEvents, complianceProfiles, organizations, phoneNumbers, twilioAccounts, twilioMessagingServices } from "@db/schema";
 import { decryptComplianceSecret } from "./secrets";
-import { appBaseUrl, campaignMessageFlow, formOptInUrl, inboundCampaignDescription, inboundSampleMessages, isConsentFormReady } from "@/packages/consent";
+import { appBaseUrl, assertPublicHttpsUrl, formOptInUrl, isConsentFormReady } from "@/packages/consent";
+import { assertCampaignPublicUrls, campaignPreview } from "@/packages/compliance/campaign";
 import { decryptSecret } from "@integrations/twilio";
 import {
   assignCustomerProfileEntity, assignTrustProductEntity, createAddress, createBrand, createCampaign,
@@ -47,6 +48,7 @@ function businessType(value: string | null) {
 }
 
 function assertPublicRegistrationUrls(profile: Profile) {
+  assertPublicHttpsUrl(appBaseUrl(), "NEXT_PUBLIC_APP_URL");
   const urls = [
     ["Business website", profile.websiteUrl],
     ["Privacy Policy", profile.privacyPolicyUrl],
@@ -54,11 +56,7 @@ function assertPublicRegistrationUrls(profile: Profile) {
   ] as const;
   for (const [label, value] of urls) {
     if (!value) throw new Error(`${label} URL is missing.`);
-    let parsed: URL;
-    try { parsed = new URL(value); } catch { throw new Error(`${label} must be a valid public URL.`); }
-    if (parsed.protocol !== "https:" || ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) {
-      throw new Error(`${label} must use a public HTTPS production URL before live Twilio submission.`);
-    }
+    assertPublicHttpsUrl(value, label);
   }
 }
 
@@ -203,11 +201,11 @@ export async function syncLiveRegistration(profile: Profile) {
       const [surface] = await db.select({ form: artistConsentForms, organization: organizations }).from(artistConsentForms).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id)).where(and(eq(artistConsentForms.organizationId, profile.organizationId), eq(artistConsentForms.artistId, resource.service.artistId))).limit(1);
       if (!surface || !isConsentFormReady(surface.form)) throw new Error("Every provisioned artist needs a ready public SMS opt-in form before campaign creation.");
       const optInUrl = formOptInUrl(surface.form, appBaseUrl(), surface.organization.slug);
-      const messageFlow = campaignMessageFlow(surface.organization.name, optInUrl, surface.form.mode);
-      const isInboundConfirmation = surface.form.mode === "INBOUND_SMS_CONFIRMATION";
+      assertCampaignPublicUrls(profile, optInUrl, appBaseUrl());
+      const campaignCopy = campaignPreview(profile, { mode: surface.form.mode, publicUrl: optInUrl });
       let [campaign] = await db.select().from(a2pCampaigns).where(eq(a2pCampaigns.messagingServiceId, resource.service.id)).limit(1);
       if (!campaign?.providerCampaignSid) {
-        const created = await createCampaign(resource.credentials, { serviceSid: resource.service.serviceSid, brandSid, description: isInboundConfirmation ? inboundCampaignDescription(surface.organization.name) : profile.campaignDescription!, messageFlow, samples: isInboundConfirmation ? inboundSampleMessages(surface.organization.name) : profile.sampleMessages as string[], useCase: profile.campaignUseCase!, hasLinks: isInboundConfirmation ? true : profile.hasEmbeddedLinks, hasPhoneNumbers: profile.hasEmbeddedPhoneNumbers, privacyUrl: profile.privacyPolicyUrl!, termsUrl: profile.termsUrl! });
+        const created = await createCampaign(resource.credentials, { serviceSid: resource.service.serviceSid, brandSid, description: campaignCopy.description, messageFlow: campaignCopy.messageFlow, samples: campaignCopy.samples, useCase: campaignCopy.useCase, hasLinks: campaignCopy.hasEmbeddedLinks, hasPhoneNumbers: campaignCopy.hasEmbeddedPhone, privacyUrl: campaignCopy.privacyUrl, termsUrl: campaignCopy.termsUrl });
         campaign = (await db.insert(a2pCampaigns).values({ organizationId: profile.organizationId, artistId: resource.service.artistId, messagingServiceId: resource.service.id, twilioAccountId: resource.account.id, providerCampaignSid: created.sid, status: status(objectStatus(created)), errors: providerErrors(created) as object, submittedAt: new Date() }).returning())[0];
         await audit(profile.organizationId, "CAMPAIGN", "CREATE", "SUCCESS", created.sid, { messagingServiceSid: resource.service.serviceSid });
         allApproved = allApproved && approved(objectStatus(created));

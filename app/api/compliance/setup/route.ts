@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@db";
 import { artists, complianceProfiles, organizations } from "@db/schema";
 import { ensureHostedConsentForm } from "@/packages/consent/server";
+import { appBaseUrl } from "@/packages/consent";
 import { eq } from "drizzle-orm";
 
 async function handlePOST(req: Request) {
@@ -15,7 +16,7 @@ async function handlePOST(req: Request) {
     const [org] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
     if (!org) return NextResponse.json({ error: "Organization not found" }, { status: 404 });
 
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
+    const appUrl = appBaseUrl();
     const hasWebsite = body.hasWebsite !== false;
     const suppliedWebsite = typeof body.websiteUrl === "string" ? body.websiteUrl.trim() : "";
     if (hasWebsite && !suppliedWebsite) {

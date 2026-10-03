@@ -4,6 +4,7 @@ import { db } from "@db";
 import { complianceProfiles, legalDocuments, organizations } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
 import { generatePrivacyPolicy, generateTerms } from "../../../../packages/compliance/legal-pages";
+import { appBaseUrl } from "@/packages/consent";
 
 async function handleGET(req: Request) {
   const organizationId = new URL(req.url).searchParams.get("organizationId");
@@ -30,7 +31,7 @@ async function handlePOST(req: Request) {
 
     const [org] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
     if (!org) return NextResponse.json({ error: "Organization not found" }, { status: 404 });
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
+    const appUrl = appBaseUrl();
     const resolvedWebsiteUrl = (typeof websiteUrl === "string" && websiteUrl.trim()) || `${appUrl}/a/${org.slug}`;
     const today = new Date().toISOString().slice(0, 10);
     const existing = await db.select().from(legalDocuments)

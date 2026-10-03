@@ -9,6 +9,7 @@ import { decryptSecret, sendSms } from "@integrations/twilio";
 import { decryptComplianceSecret } from "@/packages/compliance/secrets";
 import { isMetaAuthError, sendMetaMessage, withinSocialReplyWindow } from "@channels/meta";
 import { withinInboundReplyWindow } from "@/packages/consent";
+import { hasScopedSmsConsent } from "@/packages/consent/server";
 
 type Context = { params: Promise<{ id: string }> };
 const bodySchema = z.object({ body: z.string().trim().min(1).max(1600) });
@@ -29,6 +30,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
   if (conversation.channel === "SMS") {
     const contextualReplyAllowed = client.smsConsentStatus === "INBOUND_ONLY" && withinInboundReplyWindow(conversation.lastInboundAt);
     if (!client.phone || (!client.smsOptIn && !contextualReplyAllowed)) return NextResponse.json({ error: client.smsConsentStatus === "OPTED_OUT" ? "This client opted out. They must text START before receiving another reply." : "This client is not opted in and has no recent inbound customer-care message to answer." }, { status: 409 });
+    if (client.smsOptIn && !await hasScopedSmsConsent({ organizationId: access.user.organization_id, artistId: conversation.artistId, clientId: client.id, phone: client.phone })) return NextResponse.json({ error: "This client has no recorded SMS consent for this artist." }, { status: 409 });
     const [number] = await db.select().from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, access.user.organization_id), eq(phoneNumbers.artistId, conversation.artistId), eq(phoneNumbers.isPrimary, true), eq(phoneNumbers.active, true))).limit(1);
     if (!number || !["APPROVED", "MOCK_APPROVED"].includes(number.complianceStatus)) return NextResponse.json({ error: "Outbound SMS is disabled until the artist's primary number and A2P campaign are active." }, { status: 409 });
     const [account] = number.twilioAccountId ? await db.select().from(twilioAccounts).where(and(eq(twilioAccounts.id, number.twilioAccountId), eq(twilioAccounts.organizationId, access.user.organization_id), eq(twilioAccounts.status, "ACTIVE"))) : [];

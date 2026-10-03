@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
 import { db } from "@db";
-import { artistConsentForms, artists, organizations } from "@db/schema";
+import { and, eq } from "drizzle-orm";
+import { artistConsentForms, artists, organizations, smsConsentEvidence } from "@db/schema";
 import { appBaseUrl, consentDisclosure, formOptInUrl, isConsentFormReady, slugifyName, smsConfirmationText } from ".";
 
 export async function loadConsentForm(organizationId: string, artistId: string) {
@@ -31,4 +31,21 @@ export async function ensureHostedConsentForm(organizationId: string, artistId: 
     confirmationText: smsConfirmationText(existing.organizationName)
   });
   return loadConsentForm(organizationId, artistId);
+}
+
+export async function hasScopedSmsConsent(input: { organizationId: string; artistId: string; clientId: string; phone: string }) {
+  const [evidence] = await db.select({
+    consented: smsConsentEvidence.consented,
+    organizationId: smsConsentEvidence.organizationId,
+    artistId: smsConsentEvidence.artistId,
+    clientId: smsConsentEvidence.clientId,
+    phone: smsConsentEvidence.phone,
+  }).from(smsConsentEvidence).where(and(
+    eq(smsConsentEvidence.organizationId, input.organizationId),
+    eq(smsConsentEvidence.artistId, input.artistId),
+    eq(smsConsentEvidence.clientId, input.clientId),
+    eq(smsConsentEvidence.phone, input.phone),
+    eq(smsConsentEvidence.consented, true),
+  )).limit(1);
+  return Boolean(evidence);
 }

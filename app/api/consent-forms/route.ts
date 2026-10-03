@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { protectedRoute } from "@/packages/auth/server";
-import { consentDisclosure, inboundPublicDisclosure, smsConfirmationText, tokenDigest } from "@/packages/consent";
+import { appBaseUrl, consentDisclosure, inboundPublicDisclosure, smsConfirmationText, tokenDigest } from "@/packages/consent";
 import { ensureHostedConsentForm, loadConsentForm } from "@/packages/consent/server";
 import { db } from "@db";
 import { artistConsentForms, artists, organizations } from "@db/schema";
@@ -67,7 +67,7 @@ async function handlePOST(request: NextRequest) {
   if (!current?.form || current.form.mode !== "EXTERNAL" || !current.ready) return NextResponse.json({ error: "Save and verify the external form first." }, { status: 409 });
   const token = randomBytes(32).toString("hex");
   await db.update(artistConsentForms).set({ externalIngestTokenHash: tokenDigest(token), updatedAt: new Date() }).where(eq(artistConsentForms.id, current.form.id));
-  return NextResponse.json({ token, endpoint: `${new URL(request.url).origin}/api/public/consent/external/${current.form.id}`, warning: "Copy this token now. It is not shown again." });
+  return NextResponse.json({ token, endpoint: `${appBaseUrl()}/api/public/consent/external/${current.form.id}`, warning: "Copy this token now. It is not shown again." });
 }
 
 export const GET = protectedRoute(handleGET, true);

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { db } from '@db';
 import { clients, conversations, messages, phoneNumbers, twilioAccounts } from '@db/schema';
 import { decryptSecret, sendSms } from '@integrations/twilio';
+import { hasScopedSmsConsent } from '@/packages/consent/server';
 
 const schema = z.object({ organizationId: z.string().uuid(), artistId: z.string().uuid(), clientId: z.string().uuid(), body: z.string().min(1).max(1600) });
 
@@ -13,6 +14,7 @@ async function handlePOST(request: NextRequest) {
   const { organizationId, artistId, clientId, body } = parsed.data;
   const [client] = await db.select().from(clients).where(and(eq(clients.id, clientId), eq(clients.organizationId, organizationId), eq(clients.smsOptIn, true)));
   if (!client?.phone) return NextResponse.json({ error: 'Client is not opted in to SMS or has no phone number.' }, { status: 409 });
+  if (client.smsConsentStatus === 'OPTED_OUT' || !await hasScopedSmsConsent({ organizationId, artistId, clientId, phone: client.phone })) return NextResponse.json({ error: 'Client has no current SMS consent for this artist.' }, { status: 409 });
   const [number] = await db.select().from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, organizationId), eq(phoneNumbers.artistId, artistId), eq(phoneNumbers.isPrimary, true))).limit(1);
   if (!number) return NextResponse.json({ error: "No studio SMS number is provisioned for this artist." }, { status: 409 });
   if (number && (!number.active || !["APPROVED", "MOCK_APPROVED"].includes(number.complianceStatus))) {

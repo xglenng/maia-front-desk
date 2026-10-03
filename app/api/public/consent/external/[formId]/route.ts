@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@db";
 import { artistConsentForms, clients, legalDocuments, organizations, smsConsentEvidence } from "@db/schema";
-import { normalizePhone, tokenMatches } from "@/packages/consent";
+import { appBaseUrl, hostedConsentState, normalizePhone, tokenMatches } from "@/packages/consent";
 
 const schema = z.object({
   firstName: z.string().trim().min(1).max(80),
@@ -83,9 +83,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fo
         lastName: input.lastName || null,
         email: input.email,
         phone,
-        smsOptIn: input.consented,
-        smsConsentStatus: input.consented ? "OPTED_IN" : "DECLINED",
-        smsConsentCapturedAt: input.consented ? now : null
+        ...hostedConsentState(input.consented, now)
       }).returning();
     }
 
@@ -100,8 +98,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fo
       sourceUrl: form.externalUrl!,
       disclosureText: form.disclosureText,
       disclosureVersion: form.disclosureVersion,
-      privacyPolicyUrl: `${new URL(request.url).origin}/legal/${row.organizationSlug}/privacy`,
-      termsUrl: `${new URL(request.url).origin}/legal/${row.organizationSlug}/terms`,
+      privacyPolicyUrl: `${appBaseUrl()}/legal/${row.organizationSlug}/privacy`,
+      termsUrl: `${appBaseUrl()}/legal/${row.organizationSlug}/terms`,
       privacyDocumentVersion: privacyDocument.version,
       termsDocumentVersion: termsDocument.version,
       ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,

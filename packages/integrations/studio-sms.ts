@@ -1,9 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@db/index";
-import { phoneNumbers, twilioAccounts } from "@db/schema";
+import { clients, phoneNumbers, twilioAccounts } from "@db/schema";
 import { decryptSecret, sendSms } from "./twilio";
+import { hasScopedSmsConsent } from "@/packages/consent/server";
 
 export async function sendStudioSms(input: { organizationId: string; artistId: string; to: string; body: string; allowCustomerCareReply?: boolean }) {
+  const [client] = await db.select({ id: clients.id, smsOptIn: clients.smsOptIn, smsConsentStatus: clients.smsConsentStatus }).from(clients).where(and(
+    eq(clients.organizationId, input.organizationId),
+    eq(clients.phone, input.to),
+  )).limit(1);
+  if (!client?.smsOptIn || client.smsConsentStatus === "OPTED_OUT" || !await hasScopedSmsConsent({ organizationId: input.organizationId, artistId: input.artistId, clientId: client.id, phone: input.to })) throw new Error("Client is not opted in to SMS for this artist.");
   const [number] = await db.select().from(phoneNumbers).where(and(
     eq(phoneNumbers.organizationId, input.organizationId),
     eq(phoneNumbers.artistId, input.artistId),

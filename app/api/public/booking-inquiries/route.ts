@@ -4,7 +4,7 @@ import { z } from "zod";
 import { sameOrigin } from "@/packages/auth/server";
 import { db } from "@db";
 import { artistConsentForms, artists, bookingInquiries, clients, legalDocuments, organizations, services, smsConsentEvidence } from "@db/schema";
-import { normalizePhone } from "@/packages/consent";
+import { appBaseUrl, hostedConsentState, normalizePhone } from "@/packages/consent";
 
 const schema = z.object({
   organizationSlug: z.string().min(1).max(100),
@@ -80,13 +80,11 @@ export async function POST(request: NextRequest) {
         lastName: input.lastName || null,
         email: input.email,
         phone,
-        smsOptIn: input.smsConsent,
-        smsConsentStatus: input.smsConsent ? "OPTED_IN" : "DECLINED",
-        smsConsentCapturedAt: input.smsConsent ? now : null
+        ...hostedConsentState(input.smsConsent, now)
       }).returning();
     }
 
-    const origin = new URL(request.url).origin;
+    const origin = appBaseUrl();
     const sourceUrl = `${origin}/book/${encodeURIComponent(input.organizationSlug)}/${encodeURIComponent(input.formSlug)}`;
     await db.insert(smsConsentEvidence).values({
       organizationId: surface.organization.id,
