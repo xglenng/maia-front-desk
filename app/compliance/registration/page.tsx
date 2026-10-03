@@ -1,7 +1,6 @@
 "use client";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
-import { campaignPreview } from "@/packages/compliance/campaign";
 
 type Readiness = { ready: boolean; missing: string[]; completed: number; total: number };
 type Profile = { status: string; statusMessage?: string | null; providerErrors?: unknown; readiness: Readiness; hasBusinessRegistrationNumber: boolean; businessRegistrationNumberLast4?: string | null; [key: string]: unknown };
@@ -15,7 +14,7 @@ const initialForm = {
   businessType: "LLC", businessRegistrationNumber: "", contactFirstName: "", contactLastName: "", contactPhone: "",
   representativeBusinessTitle: "Owner", representativeJobPosition: "Other", addressLine1: "", addressLine2: "", city: "", region: "", postalCode: "",
   industry: "CONSUMER", campaignUseCase: "CUSTOMER_CARE", campaignDescription: "",
-  messageFlow: "", sample1: "", sample2: "", optInKeywords: "START, YES", helpMessage: "", optOutMessage: "",
+  messageFlow: "", sample1: "", sample2: "", optInKeywords: "START, UNSTOP", helpMessage: "", optOutMessage: "",
   hasEmbeddedLinks: false, hasEmbeddedPhoneNumbers: false, subscriberOptIn: true
 };
 
@@ -39,20 +38,6 @@ export default function A2pRegistrationPage() {
   const adoptionEvent = events.find(event => event.phase === "ADOPTION" && event.action === "ADOPT_EXISTING" && event.status === "SUCCESS");
   const adoptedMessagingServiceSid = artifacts.messagingServiceSid || adoptionEvent?.details?.messagingServiceSid || "";
   const adoptedSenders = adoptionEvent?.details?.senders?.filter(sender => sender.phoneNumber) || [];
-  const campaignProfile = {
-    businessName: typeof profile?.businessName === "string" ? profile.businessName : "",
-    campaignDescription: form.campaignDescription,
-    sampleMessages: [form.sample1, form.sample2],
-    campaignUseCase: form.campaignUseCase,
-    hasEmbeddedLinks: form.hasEmbeddedLinks,
-    hasEmbeddedPhoneNumbers: form.hasEmbeddedPhoneNumbers,
-    contactEmail: typeof profile?.contactEmail === "string" ? profile.contactEmail : null,
-    contactPhone: typeof profile?.contactPhone === "string" ? profile.contactPhone : null,
-    websiteUrl: typeof profile?.websiteUrl === "string" ? profile.websiteUrl : null,
-    privacyPolicyUrl: typeof profile?.privacyPolicyUrl === "string" ? profile.privacyPolicyUrl : null,
-    termsUrl: typeof profile?.termsUrl === "string" ? profile.termsUrl : null,
-  };
-
   async function load() {
     if (!organizationId) return;
     const requestId = ++loadRequestId.current;
@@ -63,7 +48,7 @@ export default function A2pRegistrationPage() {
     setBusy(false);
     if (!res.ok) return setMessage(data.error || "Unable to load registration.");
     setProfile(data.profile); setMode(data.mode || "live"); setEvents(data.events || []); setConsentForms(data.consentForms || []);
-    setForm((old) => ({ ...old, ...Object.fromEntries(Object.entries(data.profile).filter(([key, value]) => key in old && typeof value !== "object")), businessRegistrationNumber: "", sample1: data.profile.sampleMessages?.[0] || old.sample1, sample2: data.profile.sampleMessages?.[1] || old.sample2, optInKeywords: (data.profile.optInKeywords || ["START", "YES"]).join(", ") }));
+    setForm((old) => ({ ...old, ...Object.fromEntries(Object.entries(data.profile).filter(([key, value]) => key in old && typeof value !== "object")), businessRegistrationNumber: "", sample1: data.profile.sampleMessages?.[0] || old.sample1, sample2: data.profile.sampleMessages?.[1] || old.sample2, optInKeywords: (data.profile.optInKeywords || ["START", "UNSTOP"]).join(", ") }));
   }
 
   useEffect(() => {
@@ -148,16 +133,19 @@ export default function A2pRegistrationPage() {
     {profile && <>
       {adoptedExisting && profile.status === "APPROVED" ? <section style={{...card,borderColor:"#b9d8c4"}}><h2 style={{marginTop:0}}>Existing Twilio Registration — Approved</h2><p style={{fontSize:14,lineHeight:1.6}}><strong>Outbound messaging is active.</strong> Maia adopted the studio&apos;s existing approved A2P registration and will not create duplicate registration resources.</p><div style={{display:"grid",gap:8,fontSize:13,marginTop:16}}>{Boolean(adoptedMessagingServiceSid) && <div><strong>Messaging Service:</strong> <code>{String(adoptedMessagingServiceSid)}</code></div>}{Boolean(profile.twilioCampaignSid) && <div><strong>Campaign:</strong> <code>{String(profile.twilioCampaignSid)}</code></div>}{Boolean(profile.twilioBrandSid) && <div><strong>Brand:</strong> <code>{String(profile.twilioBrandSid)}</code></div>}{adoptedSenders.length > 0 && <div><strong>Sender:</strong> {adoptedSenders.map(sender => sender.phoneNumber).join(", ")}</div>}<div><strong>Twilio status:</strong> APPROVED · <strong>Mode:</strong> {mode}</div></div>{Boolean(profile.statusMessage) && <p style={{color:"#5f6f64",fontSize:13,marginTop:16}}>{String(profile.statusMessage)}</p>}<button disabled={busy} onClick={sync} style={{marginTop:8,padding:"11px 18px"}}>Sync Twilio status</button></section> : <section style={card}><h2 style={{ marginTop: 0 }}>Readiness</h2><p><strong>{profile.readiness.completed}/{profile.readiness.total}</strong> requirements complete · Status: <strong>{profile.status}</strong> · Mode: <strong>{mode}</strong></p>{Boolean(profile.statusMessage) && <p>{String(profile.statusMessage)}</p>}{profile.readiness.missing.length > 0 && <p style={{ color: "#8f2f22" }}>Still required: {profile.readiness.missing.join(", ")}</p>}{Boolean(profile.providerErrors) && <details open><summary style={{color:"#8f2f22",fontWeight:700}}>Twilio review details</summary><pre style={{whiteSpace:"pre-wrap",fontSize:12}}>{JSON.stringify(profile.providerErrors,null,2)}</pre></details>}</section>}
       <section style={card}><h2 style={{marginTop:0}}>Customer opt-in evidence and campaign preview</h2>{consentForms.length ? consentForms.map(item => {
-        const campaign = campaignPreview(campaignProfile, { mode: item.mode, publicUrl: item.publicUrl });
+        const campaign = item.campaign;
         return <div key={item.artistId} style={{borderTop:"1px solid #eee",paddingTop:12,marginTop:12}}>
           <p><strong>{item.artistName}</strong> · {item.ready ? "Ready" : "Action required"} · {item.mode === "INBOUND_SMS_CONFIRMATION" ? "Client texts first; YES confirms subscription" : "Checked form box is affirmative consent"}<br/><a href={item.publicUrl} target="_blank">{item.publicUrl}</a></p>
-          <p><strong>Campaign description</strong><br/>{campaign.description}</p>
-          <p><strong>Message flow</strong><br/>{campaign.messageFlow}</p>
-          <p><strong>Sample messages</strong><br/>{campaign.samples.map((sample, index) => <span key={index}>{index + 1}. {sample}<br/></span>)}</p>
-          <p><strong>Opt-in behavior</strong><br/>{item.mode === "INBOUND_SMS_CONFIRMATION" ? "YES confirms only a pending request; START and UNSTOP are explicit opt-in/resubscribe commands." : "The checked web-form box records affirmative consent; no second YES is required. START and UNSTOP are explicit opt-in/resubscribe commands."}</p>
-          <p><strong>HELP response</strong><br/>{campaign.helpMessage}</p>
-          <p><strong>STOP response</strong><br/>{campaign.optOutMessage}<br/><small>Maia replies only when Twilio has not already handled the keyword.</small></p>
-          <p><strong>Twilio use case:</strong> {campaign.useCase} · <strong>Embedded links:</strong> {String(campaign.hasEmbeddedLinks)} · <strong>Embedded phone:</strong> {String(campaign.hasEmbeddedPhone)}</p>
+          {campaign ? <>
+            <p><strong>Campaign description</strong><br/>{campaign.description}</p>
+            <p><strong>Message flow</strong><br/>{campaign.messageFlow}</p>
+            <p><strong>Sample messages</strong><br/>{campaign.samples.map((sample, index) => <span key={index}>{index + 1}. {sample}<br/></span>)}</p>
+            <p><strong>Opt-in keywords</strong><br/>{campaign.optInKeywords.join(", ")}</p>
+            <p><strong>Opt-in behavior</strong><br/>{item.mode === "INBOUND_SMS_CONFIRMATION" ? "YES confirms only a pending request; START and UNSTOP are explicit opt-in/resubscribe commands." : "The checked web-form box records affirmative consent; no second YES is required. START and UNSTOP are explicit opt-in/resubscribe commands."}</p>
+            <p><strong>HELP response</strong><br/>{campaign.helpMessage}</p>
+            <p><strong>STOP response</strong><br/>{campaign.optOutMessage}<br/><small>Maia replies only when Twilio has not already handled the keyword.</small></p>
+            <p><strong>Twilio use case:</strong> {campaign.useCase} · <strong>Embedded links:</strong> {String(campaign.hasEmbeddedLinks)} · <strong>Embedded phone:</strong> {String(campaign.hasEmbeddedPhone)}</p>
+          </> : <p>Campaign preview unavailable. Reload registration details.</p>}
         </div>;
       }) : <p>No provisioned artist has a ready consent workflow. <a href="/settings/consent-forms">Configure SMS consent workflow</a>.</p>}<p style={{fontSize:13,color:"#6f6a64"}}>Campaign copy is generated per artist from this consent workflow and the saved registration settings.</p></section>
       {!adoptedExisting && <form onSubmit={save} style={card}>

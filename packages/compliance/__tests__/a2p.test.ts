@@ -162,14 +162,16 @@ test("createCampaign sends the exact previewed fields and public consent URL", a
   assert.match(form.get("MessageFlow") || "", /https:\/\/maia\.example\.com\/book\/studio\/artist/);
 });
 
-test("registration API, UI, and live campaign submission share campaignPreview", () => {
+test("registration API is authoritative and the client only renders its campaign preview", () => {
   const api = readFileSync("app/api/compliance/registration/route.ts", "utf8");
   const page = readFileSync("app/compliance/registration/page.tsx", "utf8");
   const live = readFileSync("packages/compliance/live-registration.ts", "utf8");
   assert.match(api, /campaignPreview\(campaignProfile/);
+  assert.match(api, /messageFlow: campaign\?\.messageFlow.*campaign \}/);
   assert.match(api, /campaignUseCase: campaign\.useCase/);
   assert.match(api, /registrationReadiness\(profile, consentForms\.rows\[0\]\?\.campaign, consentForms\.ready\)/);
-  assert.match(page, /campaignPreview\(campaignProfile/);
+  assert.match(page, /const campaign = item\.campaign/);
+  assert.doesNotMatch(page, /campaignPreview|packages\/compliance\/campaign|packages\/consent/);
   assert.match(page, /sample1: data\.profile\.sampleMessages\?\.\[0\]/);
   assert.match(live, /campaignPreview\(profile/);
   assert.ok(live.indexOf("assertCampaignPublicUrls(profile, optInUrl, appBaseUrl())") < live.indexOf("createCampaign(resource.credentials"));
