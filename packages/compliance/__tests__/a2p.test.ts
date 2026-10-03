@@ -47,6 +47,8 @@ test("campaign preview preserves saved standard copy and generates per-mode cons
   assert.equal(generated.samples.length, 2);
   assert.match(generated.samples[0], /Reply STOP to opt out or HELP for help/);
   assert.match(hosted.messageFlow, /no second YES reply is required/i);
+  assert.match(hosted.messageFlow, /support@example\.com/);
+  assert.doesNotMatch(hosted.messageFlow, /Disable or match Twilio's automatic HELP reply/);
   assert.equal(hosted.hasEmbeddedLinks, false);
   assert.equal(hosted.hasEmbeddedPhone, true);
   assert.match(hosted.helpMessage, /support@example.com/);
@@ -63,6 +65,8 @@ test("campaign preview preserves saved standard copy and generates per-mode cons
   assert.deepEqual(inbound.optInKeywords, ["YES", "START", "UNSTOP"]);
   assert.equal(inbound.hasEmbeddedLinks, true);
   assert.match(inbound.messageFlow, /https:\/\/studio\.example\.com\/contact/);
+  assert.match(inbound.messageFlow, /support@example\.com/);
+  assert.doesNotMatch(inbound.messageFlow, /Disable or match Twilio's automatic HELP reply/);
 });
 
 test("hosted campaign readiness uses effective preview when legacy campaign columns are blank or stale", () => {
