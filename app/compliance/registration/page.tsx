@@ -82,7 +82,21 @@ export default function A2pRegistrationPage() {
     if (requestId !== loadRequestId.current) return;
     setBusy(false);
     if (!res.ok) return setMessage(typeof data.error === "string" ? data.error : "Review the highlighted registration fields.");
-    setProfile(data.profile); setForm(old => ({ ...old, businessRegistrationNumber: "" })); setMessage("Registration intake saved.");
+    setProfile(data.profile); setForm(old => ({
+      ...old,
+      businessRegistrationNumber: "",
+      campaignUseCase: data.profile.campaignUseCase || old.campaignUseCase,
+      campaignDescription: data.profile.campaignDescription || "",
+      messageFlow: data.profile.messageFlow || "",
+      sample1: data.profile.sampleMessages?.[0] || "",
+      sample2: data.profile.sampleMessages?.[1] || "",
+      optInKeywords: (data.profile.optInKeywords || ["START", "UNSTOP"]).join(", "),
+      helpMessage: data.profile.helpMessage || "",
+      optOutMessage: data.profile.optOutMessage || "",
+      hasEmbeddedLinks: Boolean(data.profile.hasEmbeddedLinks),
+      hasEmbeddedPhoneNumbers: Boolean(data.profile.hasEmbeddedPhoneNumbers),
+      subscriberOptIn: Boolean(data.profile.subscriberOptIn),
+    })); setMessage("Registration intake saved.");
   }
 
   async function submit() {

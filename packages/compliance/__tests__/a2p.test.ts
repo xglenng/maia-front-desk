@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { registrationReadiness } from "../a2p";
+import { registrationReadiness, type A2pRegistrationInput } from "../a2p";
 import { assertCampaignPublicUrls, campaignPreview } from "../campaign";
 import { createCampaign } from "@integrations/twilio-compliance";
 
@@ -40,6 +40,8 @@ test("campaign preview preserves saved standard copy and generates per-mode cons
   const hosted = campaignPreview(profile, { mode: "HOSTED", publicUrl: "https://maia.example.com/book/studio/artist" });
   assert.equal(hosted.description, profile.campaignDescription);
   assert.deepEqual(hosted.samples, profile.sampleMessages);
+  assert.deepEqual(hosted.optInKeywords, ["START", "UNSTOP"]);
+  assert.equal(hosted.optInKeywords.includes("YES"), false);
   const generated = campaignPreview({ ...profile, campaignDescription: null, sampleMessages: null }, { mode: "HOSTED", publicUrl: "https://maia.example.com/book/studio/artist" });
   assert.match(generated.description, /checked box records consent; a second YES reply is not required/i);
   assert.equal(generated.samples.length, 2);
@@ -61,6 +63,54 @@ test("campaign preview preserves saved standard copy and generates per-mode cons
   assert.deepEqual(inbound.optInKeywords, ["YES", "START", "UNSTOP"]);
   assert.equal(inbound.hasEmbeddedLinks, true);
   assert.match(inbound.messageFlow, /https:\/\/studio\.example\.com\/contact/);
+});
+
+test("hosted campaign readiness uses effective preview when legacy campaign columns are blank or stale", () => {
+  const profile: A2pRegistrationInput = {
+    businessName: "Maia Test Tattoo", businessAddress: "1 Main St, Anytown, CA 90000",
+    websiteUrl: "https://studio.example.com", contactEmail: "support@example.com",
+    privacyPolicyUrl: "https://studio.example.com/privacy", termsUrl: "https://studio.example.com/terms",
+    legalPagesAcceptedAt: new Date(), businessType: "LLC", businessRegistrationNumberEncrypted: "encrypted-ein",
+    contactFirstName: "Maia", contactLastName: "Owner", contactPhone: "+15555550100",
+    representativeBusinessTitle: "Owner", representativeJobPosition: "Other", addressLine1: "1 Main St",
+    city: "Anytown", region: "CA", postalCode: "90000", industry: "CONSUMER",
+    campaignUseCase: null, campaignDescription: null, messageFlow: null, sampleMessages: [],
+    optInKeywords: ["START", "YES"], helpMessage: null, optOutMessage: "Old custom STOP reply",
+    subscriberOptIn: true
+  };
+  const preview = campaignPreview({
+    businessName: profile.businessName!, campaignDescription: profile.campaignDescription,
+    sampleMessages: profile.sampleMessages, campaignUseCase: profile.campaignUseCase,
+    contactEmail: profile.contactEmail, contactPhone: profile.contactPhone, websiteUrl: profile.websiteUrl,
+    privacyPolicyUrl: profile.privacyPolicyUrl, termsUrl: profile.termsUrl,
+  }, { mode: "HOSTED", publicUrl: "https://maia.example.com/book/maia-test-tattoo/atest" });
+  const readiness = registrationReadiness(profile, preview, true);
+  assert.equal(readiness.ready, true);
+  assert.deepEqual(readiness.missing, []);
+  assert.deepEqual(preview.optInKeywords, ["START", "UNSTOP"]);
+  assert.doesNotMatch(preview.messageFlow, /text YES/i);
+});
+
+test("effective campaign copy does not hide missing business identity or address fields", () => {
+  const profile: A2pRegistrationInput = {
+    businessName: "Maia Test Tattoo", businessAddress: "", websiteUrl: "https://studio.example.com",
+    contactEmail: "support@example.com", privacyPolicyUrl: "https://studio.example.com/privacy",
+    termsUrl: "https://studio.example.com/terms", legalPagesAcceptedAt: new Date(), businessType: null,
+    businessRegistrationNumberEncrypted: null, contactFirstName: "Maia", contactLastName: "Owner",
+    contactPhone: "+15555550100", representativeBusinessTitle: null, representativeJobPosition: null,
+    addressLine1: null, city: null, region: null, postalCode: null, industry: "CONSUMER",
+    campaignUseCase: null, campaignDescription: null, messageFlow: null, sampleMessages: [],
+    optInKeywords: [], helpMessage: null, optOutMessage: null, subscriberOptIn: true
+  };
+  const preview = campaignPreview({
+    businessName: profile.businessName!, websiteUrl: profile.websiteUrl, contactEmail: profile.contactEmail,
+    privacyPolicyUrl: profile.privacyPolicyUrl, termsUrl: profile.termsUrl,
+  }, { mode: "HOSTED", publicUrl: "https://maia.example.com/book/maia-test-tattoo/atest" });
+  const readiness = registrationReadiness(profile, preview, true);
+  assert.equal(readiness.ready, false);
+  for (const missing of ["Business type", "EIN or business registration number", "Authorized representative title", "Authorized representative job position", "Street address", "City", "State / region", "Postal code"]) {
+    assert.ok(readiness.missing.includes(missing), `${missing} remains required`);
+  }
 });
 
 test("campaign submission validates every referenced URL together", () => {
@@ -117,7 +167,10 @@ test("registration API, UI, and live campaign submission share campaignPreview",
   const page = readFileSync("app/compliance/registration/page.tsx", "utf8");
   const live = readFileSync("packages/compliance/live-registration.ts", "utf8");
   assert.match(api, /campaignPreview\(campaignProfile/);
+  assert.match(api, /campaignUseCase: campaign\.useCase/);
+  assert.match(api, /registrationReadiness\(profile, consentForms\.rows\[0\]\?\.campaign, consentForms\.ready\)/);
   assert.match(page, /campaignPreview\(campaignProfile/);
+  assert.match(page, /sample1: data\.profile\.sampleMessages\?\.\[0\]/);
   assert.match(live, /campaignPreview\(profile/);
   assert.ok(live.indexOf("assertCampaignPublicUrls(profile, optInUrl, appBaseUrl())") < live.indexOf("createCampaign(resource.credentials"));
 });

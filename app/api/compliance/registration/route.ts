@@ -68,6 +68,7 @@ function registrationProfile(profile: typeof complianceProfiles.$inferSelect, co
 
   const campaign = consentForms[0]?.campaign;
   const campaignValues = campaign ? {
+    campaignUseCase: campaign.useCase,
     campaignDescription: campaign.description,
     messageFlow: campaign.messageFlow,
     sampleMessages: campaign.samples,
@@ -88,7 +89,7 @@ function registrationProfile(profile: typeof complianceProfiles.$inferSelect, co
   return {
     ...safeProfile,
     ...campaignValues,
-    readiness: registrationReadiness({ ...profile, ...campaignValues, consentFormReady }),
+    readiness: registrationReadiness(profile, campaign, consentFormReady),
   };
 }
 
@@ -127,6 +128,7 @@ async function handlePUT(req: Request) {
   const consentForms = await consentSurfaces(organizationId, campaignSource as typeof current);
   const firstCampaign = consentForms.rows[0]?.campaign;
   const generatedCampaignFields = firstCampaign ? {
+    campaignUseCase: firstCampaign.useCase,
     campaignDescription: firstCampaign.description,
     messageFlow: firstCampaign.messageFlow,
     sampleMessages: firstCampaign.samples,
@@ -148,15 +150,15 @@ async function handlePOST(req: Request) {
   const [profile] = await db.select().from(complianceProfiles).where(eq(complianceProfiles.organizationId, parsed.data.organizationId)).limit(1);
   if (!profile) return NextResponse.json({ error: "Compliance profile not found." }, { status: 404 });
   const consentForms = await consentSurfaces(parsed.data.organizationId, profile);
-  const readiness = registrationReadiness({ ...profile, consentFormReady: consentForms.ready });
+  const readiness = registrationReadiness(profile, consentForms.rows[0]?.campaign, consentForms.ready);
   if (!readiness.ready) return NextResponse.json({ error: "Registration is incomplete.", missing: readiness.missing }, { status: 409 });
-  if (["CUSTOMER_PROFILE_PENDING", "A2P_PROFILE_PENDING", "BRAND_PENDING", "CAMPAIGN_PENDING", "APPROVED", "MOCK_PENDING", "MOCK_APPROVED"].includes(profile.status)) return NextResponse.json({ profile: publicProfile(profile, consentForms.ready), status: "already_submitted" });
+  if (["CUSTOMER_PROFILE_PENDING", "A2P_PROFILE_PENDING", "BRAND_PENDING", "CAMPAIGN_PENDING", "APPROVED", "MOCK_PENDING", "MOCK_APPROVED"].includes(profile.status)) return NextResponse.json({ profile: registrationProfile(profile, consentForms.ready, consentForms.rows), status: "already_submitted" });
 
   if (process.env.TWILIO_COMPLIANCE_MODE !== "mock") {
     try {
       await startLiveRegistration(profile);
       const [updated] = await db.select().from(complianceProfiles).where(eq(complianceProfiles.organizationId, parsed.data.organizationId)).limit(1);
-      return NextResponse.json({ status: "submitted", mode: "live", profile: publicProfile(updated, consentForms.ready) });
+      return NextResponse.json({ status: "submitted", mode: "live", profile: registrationProfile(updated, consentForms.ready, consentForms.rows) });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to submit registration to Twilio." }, { status: 502 });
     }
@@ -169,7 +171,7 @@ async function handlePOST(req: Request) {
     twilioCampaignSid: profile.twilioCampaignSid || `QE_MOCK_${suffix}`,
     updatedAt: new Date()
   }).where(eq(complianceProfiles.organizationId, parsed.data.organizationId)).returning();
-  return NextResponse.json({ status: "submitted", mode: "mock", profile: publicProfile(updated, consentForms.ready) });
+  return NextResponse.json({ status: "submitted", mode: "mock", profile: registrationProfile(updated, consentForms.ready, consentForms.rows) });
 }
 
 export const GET = protectedRoute(handleGET, true);

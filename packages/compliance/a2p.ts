@@ -46,13 +46,34 @@ export const REQUIRED_A2P_FIELDS: Array<[keyof A2pRegistrationInput, string]> = 
   ["optOutMessage", "STOP response"]
 ];
 
-export function registrationReadiness(profile: A2pRegistrationInput) {
-  const missing = REQUIRED_A2P_FIELDS.filter(([key]) => !profile[key]).map(([, label]) => label);
-  const samples = Array.isArray(profile.sampleMessages) ? profile.sampleMessages.filter(Boolean) : [];
-  const keywords = Array.isArray(profile.optInKeywords) ? profile.optInKeywords.filter(Boolean) : [];
+export type EffectiveCampaignReadiness = {
+  useCase: string;
+  description: string;
+  messageFlow: string;
+  samples: string[];
+  optInKeywords: string[];
+  helpMessage: string;
+  optOutMessage: string;
+};
+
+export function registrationReadiness(profile: A2pRegistrationInput, campaign?: EffectiveCampaignReadiness | null, consentFormReady = profile.consentFormReady) {
+  const effective: A2pRegistrationInput = campaign ? {
+    ...profile,
+    campaignUseCase: campaign.useCase,
+    campaignDescription: campaign.description,
+    messageFlow: campaign.messageFlow,
+    sampleMessages: campaign.samples,
+    optInKeywords: campaign.optInKeywords,
+    helpMessage: campaign.helpMessage,
+    optOutMessage: campaign.optOutMessage,
+    consentFormReady,
+  } : { ...profile, consentFormReady };
+  const missing = REQUIRED_A2P_FIELDS.filter(([key]) => !effective[key]).map(([, label]) => label);
+  const samples = Array.isArray(effective.sampleMessages) ? effective.sampleMessages.filter(Boolean) : [];
+  const keywords = Array.isArray(effective.optInKeywords) ? effective.optInKeywords.filter(Boolean) : [];
   if (samples.length < 2) missing.push("At least two sample messages");
   if (keywords.length < 1) missing.push("At least one opt-in keyword");
-  if (!profile.subscriberOptIn) missing.push("Subscriber opt-in confirmation");
-  if (!profile.consentFormReady) missing.push("Verified public SMS opt-in form for every provisioned artist");
+  if (!effective.subscriberOptIn) missing.push("Subscriber opt-in confirmation");
+  if (!effective.consentFormReady) missing.push("Verified public SMS opt-in form for every provisioned artist");
   return { ready: missing.length === 0, missing, completed: REQUIRED_A2P_FIELDS.length + 4 - missing.length, total: REQUIRED_A2P_FIELDS.length + 4 };
 }
