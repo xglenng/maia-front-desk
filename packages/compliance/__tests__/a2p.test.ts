@@ -233,3 +233,26 @@ test("mapped pending numbers reach HELP without an inbound active filter or outb
   const studioSms = readFileSync("packages/integrations/studio-sms.ts", "utf8");
   assert.match(studioSms, /!\["APPROVED", "MOCK_APPROVED"\]/);
 });
+
+test("invalid Twilio signatures are diagnosed safely and still return 403 before message processing", () => {
+  const inbound = readFileSync("app/api/twilio/inbound/route.ts", "utf8");
+  const handler = inbound.slice(inbound.indexOf("export async function POST"));
+  const signatureBlock = handler.slice(handler.indexOf("const signature ="), handler.indexOf("// Twilio retries"));
+  assert.match(signatureBlock, /const signaturePresent = Boolean\(signature\)/);
+  assert.match(signatureBlock, /const signatureValid = Boolean\(signature && validateTwilioSignature\(/);
+  assert.equal((signatureBlock.match(/validateTwilioSignature\(/g) || []).length, 1);
+  assert.match(signatureBlock, /step|logInbound\('signature_validation'/);
+  assert.match(signatureBlock, /signaturePresent,/);
+  assert.match(signatureBlock, /signatureValid,/);
+  assert.match(signatureBlock, /validationUrl: publicUrl/);
+  assert.match(signatureBlock, /credentialSource: account \? 'subaccount' : 'parent'/);
+  assert.match(signatureBlock, /accountSid: maskedAccountSid\(/);
+  assert.match(signatureBlock, /reason: 'invalid_twilio_signature'/);
+  assert.match(signatureBlock, /new NextResponse\('Invalid Twilio signature', \{ status: 403 \}\)/);
+  assert.ok(handler.indexOf("if (!signatureValid)") < handler.indexOf("// Twilio retries"));
+  assert.ok(handler.indexOf("if (!signatureValid)") < handler.indexOf("await recordInbound("));
+  assert.match(handler, /reason: 'missing_required_fields'/);
+  assert.match(handler, /logInbound\('destination_unmapped'/);
+  assert.match(handler, /logInbound\('destination_not_routable'/);
+  assert.match(handler, /reason: 'duplicate_message_sid'/);
+});

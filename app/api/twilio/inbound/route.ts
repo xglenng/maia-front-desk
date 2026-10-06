@@ -22,6 +22,10 @@ function maskedPhone(value?: string) {
   return digits.length > 4 ? `***${digits.slice(-4)}` : digits ? '***' : undefined;
 }
 
+function maskedAccountSid(value?: string) {
+  return value ? `${value.slice(0, 2)}***${value.slice(-4)}` : undefined;
+}
+
 function logInbound(step: string, details: Record<string, unknown> = {}) {
   console.info(JSON.stringify({ event: 'twilio_inbound', step, ...details }));
 }
@@ -121,14 +125,29 @@ export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV === 'production' || process.env.TWILIO_VALIDATE_SIGNATURE !== 'false') {
     const signature = request.headers.get('x-twilio-signature');
     const publicUrl = process.env.TWILIO_WEBHOOK_BASE_URL ? `${process.env.TWILIO_WEBHOOK_BASE_URL.replace(/\/$/, '')}/api/twilio/inbound` : (process.env.TWILIO_WEBHOOK_URL || `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/inbound`);
-    if (!signature || !validateTwilioSignature({ signature, url: publicUrl, params, authToken })) return new NextResponse('Invalid Twilio signature', { status: 403 });
+    const signaturePresent = Boolean(signature);
+    const signatureValid = Boolean(signature && validateTwilioSignature({ signature, url: publicUrl, params, authToken }));
+    logInbound('signature_validation', {
+      signaturePresent,
+      signatureValid,
+      validationUrl: publicUrl,
+      credentialSource: account ? 'subaccount' : 'parent',
+      accountSid: maskedAccountSid(account?.accountSid || process.env.TWILIO_ACCOUNT_SID),
+    });
+    if (!signatureValid) {
+      logInbound('webhook_rejected', { reason: 'invalid_twilio_signature', to: maskedPhone(to) });
+      return new NextResponse('Invalid Twilio signature', { status: 403 });
+    }
   }
 
   // Twilio retries webhooks that time out. A MessageSid must only be stored and
   // answered once, otherwise a retry can create duplicate client/AI messages.
   if (params.MessageSid) {
     const [duplicate] = await db.select({ id: messages.id }).from(messages).where(eq(messages.externalMessageId, params.MessageSid)).limit(1);
-    if (duplicate) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
+    if (duplicate) {
+      logInbound('webhook_rejected', { reason: 'duplicate_message_sid', to: maskedPhone(to), messageSidPresent: true });
+      return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
+    }
   }
 
   const surface = await loadConsentSurface(number.organizationId, number.artistId);
