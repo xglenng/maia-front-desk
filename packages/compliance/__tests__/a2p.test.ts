@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { registrationReadiness, type A2pRegistrationInput } from "../a2p";
 import { assertCampaignPublicUrls, campaignPreview } from "../campaign";
 import { createCampaign } from "@integrations/twilio-compliance";
+import { isInboundPhoneRoutable } from "@integrations/twilio-routing";
 
 test("registration readiness identifies missing campaign data", () => {
   const result = registrationReadiness({ businessName: "Studio", subscriberOptIn: false });
@@ -197,4 +198,38 @@ test("HELP is handled before AI and hosted checkbox evidence is recorded directl
   assert.match(booking, /userAgent: request\.headers/);
   const studioSms = readFileSync("packages/integrations/studio-sms.ts", "utf8");
   assert.match(studioSms, /!client\?\.smsOptIn/);
+});
+
+test("inbound routing accepts mapped pending temporary Twilio numbers without enabling outbound", () => {
+  const pending = { provider: "twilio", organizationId: "org-1", artistId: "artist-1", lifecycleRole: "TEMPORARY", retireAfter: null, active: false, complianceStatus: "NOT_REGISTERED" };
+  assert.equal(isInboundPhoneRoutable(pending), true);
+  const sendRoute = readFileSync("app/api/twilio/send/route.ts", "utf8");
+  assert.match(sendRoute, /!number\.active \|\| !\["APPROVED", "MOCK_APPROVED"\]/);
+});
+
+test("inbound routing rejects unknown, unmapped, expired, and retired numbers", () => {
+  assert.equal(isInboundPhoneRoutable(undefined), false);
+  assert.equal(isInboundPhoneRoutable({ provider: "twilio", organizationId: "org-1", artistId: null, lifecycleRole: "TEMPORARY", retireAfter: null }), false);
+  assert.equal(isInboundPhoneRoutable({ provider: "twilio", organizationId: "org-1", artistId: "artist-1", lifecycleRole: "TEMPORARY_GRACE", retireAfter: new Date("2026-10-05T00:00:00Z") }, new Date("2026-10-06T00:00:00Z")), false);
+  for (const lifecycleRole of ["RETIRED", "RELEASED", "DEPROVISIONED", "UNKNOWN"]) {
+    assert.equal(isInboundPhoneRoutable({ provider: "twilio", organizationId: "org-1", artistId: "artist-1", lifecycleRole, retireAfter: null }), false);
+  }
+});
+
+test("mapped pending numbers reach HELP without an inbound active filter or outbound bypass", () => {
+  const inbound = readFileSync("app/api/twilio/inbound/route.ts", "utf8");
+  assert.match(inbound, /isInboundPhoneRoutable\(\{ provider: number\.provider/);
+  assert.match(inbound, /innerJoin\(artists, and\(eq\(artists\.id, phoneNumbers\.artistId\), eq\(artists\.organizationId, phoneNumbers\.organizationId\)\)\)/);
+  assert.match(inbound, /innerJoin\(organizations, eq\(organizations\.id, phoneNumbers\.organizationId\)\)/);
+  const lookup = inbound.slice(inbound.indexOf("const [mapping]"), inbound.indexOf("if (!mapping)"));
+  assert.doesNotMatch(lookup, /phoneNumbers\.active/);
+  assert.match(inbound, /if \(action === 'HELP'\)/);
+  assert.match(inbound, /await recordOutbound\(conv\.id, from, to, body/);
+  assert.match(inbound, /outbound_reply_attempted/);
+  assert.match(inbound, /outbound_reply_failed/);
+  assert.match(inbound, /outbound_reply_succeeded/);
+  const sendRoute = readFileSync("app/api/twilio/send/route.ts", "utf8");
+  assert.match(sendRoute, /!number\.active \|\| !\["APPROVED", "MOCK_APPROVED"\]/);
+  const studioSms = readFileSync("packages/integrations/studio-sms.ts", "utf8");
+  assert.match(studioSms, /!\["APPROVED", "MOCK_APPROVED"\]/);
 });

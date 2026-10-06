@@ -6,6 +6,7 @@ import { artistConsentForms, artists, clients, complianceProfiles, conversations
 import { decryptSecret, sendSms, validateTwilioSignature } from '@integrations/twilio';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { appBaseUrl, formOptInUrl, helpResponse, inboundConfirmationRequest, inboundConsentDecision, inboundOnlyConsentState, inboundSubscriptionConfirmation, isConsentFormReady, isPendingYesConfirmation, optOutConfirmation, pendingSmsConfirmationMatches, smsKeywordAction } from '@/packages/consent';
+import { isInboundPhoneRoutable } from '@integrations/twilio-routing';
 
 async function parseForm(request: NextRequest) {
   const form = await request.formData();
@@ -16,8 +17,29 @@ async function parseForm(request: NextRequest) {
 
 const xmlResponse = () => new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
 
-async function recordOutbound(conversationId: string, to: string, from: string, body: string, account: { accountSid: string; authToken?: string } | undefined) {
-  const sent = await sendSms({ to, from, body, accountSid: account?.accountSid, authToken: account?.authToken });
+function maskedPhone(value?: string) {
+  const digits = value?.replace(/\D/g, '') || '';
+  return digits.length > 4 ? `***${digits.slice(-4)}` : digits ? '***' : undefined;
+}
+
+function logInbound(step: string, details: Record<string, unknown> = {}) {
+  console.info(JSON.stringify({ event: 'twilio_inbound', step, ...details }));
+}
+
+async function sendInboundReply(to: string, from: string, body: string, account: { accountSid: string; authToken?: string } | undefined, replyType: string) {
+  logInbound('outbound_reply_attempted', { replyType, to: maskedPhone(to), from: maskedPhone(from) });
+  try {
+    const sent = await sendSms({ to, from, body, accountSid: account?.accountSid, authToken: account?.authToken });
+    logInbound('outbound_reply_succeeded', { replyType, to: maskedPhone(to), from: maskedPhone(from), status: sent.status });
+    return sent;
+  } catch (error) {
+    logInbound('outbound_reply_failed', { replyType, to: maskedPhone(to), from: maskedPhone(from), errorType: error instanceof Error ? error.name : 'UnknownError' });
+    throw error;
+  }
+}
+
+async function recordOutbound(conversationId: string, to: string, from: string, body: string, account: { accountSid: string; authToken?: string } | undefined, replyType = 'keyword_response') {
+  const sent = await sendInboundReply(to, from, body, account, replyType);
   await db.insert(messages).values({ conversationId, senderType: 'SYSTEM', role: 'assistant', content: body, externalMessageId: sent.sid, metadata: { provider: 'twilio', status: sent.status, studioPhone: from } });
 }
 
@@ -73,12 +95,27 @@ export async function POST(request: NextRequest) {
   const from = params.From?.trim();
   const to = params.To?.trim();
   const text = params.Body?.trim();
-  if (!from || !to || !text) return new NextResponse('Missing From, To, or Body', { status: 400 });
+  logInbound('webhook_received', { from: maskedPhone(from), to: maskedPhone(to), hasBody: Boolean(text), messageSidPresent: Boolean(params.MessageSid) });
+  if (!from || !to || !text) {
+    logInbound('webhook_rejected', { reason: 'missing_required_fields', from: maskedPhone(from), to: maskedPhone(to) });
+    return new NextResponse('Missing From, To, or Body', { status: 400 });
+  }
 
-  const number = (await db.select().from(phoneNumbers).where(and(eq(phoneNumbers.phoneNumber, to), eq(phoneNumbers.active, true))).limit(1))[0];
-  if (!number) return new NextResponse('No artist is mapped to this Twilio number', { status: 422 });
-  const [artist] = await db.select().from(artists).where(and(eq(artists.id, number.artistId), eq(artists.organizationId, number.organizationId)));
-  if (!artist) return new NextResponse('Artist not found', { status: 404 });
+  const [mapping] = await db.select({ number: phoneNumbers, artist: artists }).from(phoneNumbers)
+    .innerJoin(artists, and(eq(artists.id, phoneNumbers.artistId), eq(artists.organizationId, phoneNumbers.organizationId)))
+    .innerJoin(organizations, eq(organizations.id, phoneNumbers.organizationId))
+    .where(and(eq(phoneNumbers.phoneNumber, to), eq(phoneNumbers.provider, 'twilio')))
+    .limit(1);
+  if (!mapping) {
+    logInbound('destination_unmapped', { to: maskedPhone(to) });
+    return new NextResponse('No artist is mapped to this Twilio number', { status: 422 });
+  }
+  const { number, artist } = mapping;
+  if (!isInboundPhoneRoutable({ provider: number.provider, organizationId: number.organizationId, artistId: number.artistId, lifecycleRole: number.lifecycleRole, retireAfter: number.retireAfter })) {
+    logInbound('destination_not_routable', { to: maskedPhone(to), lifecycleRole: number.lifecycleRole, active: number.active });
+    return new NextResponse('This Twilio number is retired or not eligible for inbound routing', { status: 422 });
+  }
+  logInbound('destination_mapped', { to: maskedPhone(to), lifecycleRole: number.lifecycleRole, active: number.active, complianceStatus: number.complianceStatus });
   const [account] = number.twilioAccountId ? await db.select().from(twilioAccounts).where(and(eq(twilioAccounts.id, number.twilioAccountId), eq(twilioAccounts.organizationId, number.organizationId))) : [];
   const authToken = account ? decryptSecret(account.authTokenEncrypted) : process.env.TWILIO_AUTH_TOKEN;
   if (process.env.NODE_ENV === 'production' || process.env.TWILIO_VALIDATE_SIGNATURE !== 'false') {
@@ -105,6 +142,7 @@ export async function POST(request: NextRequest) {
   let conv = conversation ?? (await db.insert(conversations).values({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, channel: 'SMS', status: 'OPEN', aiEnabled: true, lastMessageAt: new Date() }).returning())[0];
 
   const action = smsKeywordAction(text);
+  logInbound('keyword_branch_selected', { branch: action || 'NON_KEYWORD', to: maskedPhone(to) });
   const upper = text.toUpperCase();
   const now = new Date();
   const twilioHandledKeyword = (params.OptOutType || '').trim().toUpperCase();
@@ -125,7 +163,7 @@ export async function POST(request: NextRequest) {
       await db.update(messages).set({ metadata: { ...metadata, consentConfirmation: { ...confirmation, status: 'CANCELLED' } } }).where(eq(messages.id, pending.message.id));
     }
     // Twilio is expected to send its configured opt-out reply when it supplies OptOutType; Maia replies only when Twilio did not.
-    if (twilioHandledKeyword !== 'STOP') await recordOutbound(conv.id, from, to, surface?.organization.name ? optOutConfirmation(surface.organization.name) : 'You have been opted out of SMS messages. Reply START to opt back in.', account ? { accountSid: account.accountSid, authToken } : undefined);
+    if (twilioHandledKeyword !== 'STOP') await recordOutbound(conv.id, from, to, surface?.organization.name ? optOutConfirmation(surface.organization.name) : 'You have been opted out of SMS messages. Reply START to opt back in.', account ? { accountSid: account.accountSid, authToken } : undefined, 'STOP');
     return xmlResponse();
   }
   if (action === 'HELP') {
@@ -134,7 +172,7 @@ export async function POST(request: NextRequest) {
     const body = helpResponse(surface?.organization.name || artist.displayName, { email: profile?.contactEmail, website: profile?.websiteUrl, phone: profile?.contactPhone || number.phoneNumber });
     // Maia owns HELP so the reply always contains this tenant's real support contact.
     // Configure Twilio's automatic HELP reply off (or identically) to prevent a duplicate.
-    await recordOutbound(conv.id, from, to, body, account ? { accountSid: account.accountSid, authToken } : undefined);
+    await recordOutbound(conv.id, from, to, body, account ? { accountSid: account.accountSid, authToken } : undefined, 'HELP');
     return xmlResponse();
   }
 
@@ -151,12 +189,12 @@ export async function POST(request: NextRequest) {
     if (surface?.form && isConsentFormReady(surface.form)) {
       await recordInboundConsent({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, phone: from, studioPhone: to, messageSid: params.MessageSid, form: surface.form, organizationSlug: surface.organization.slug, keyword: upper, source: 'INBOUND_KEYWORD', disclosureText: inboundSubscriptionConfirmation(surface.organization.name) });
     }
-    if (twilioHandledKeyword !== 'START') await recordOutbound(conv.id, from, to, inboundSubscriptionConfirmation(surface?.organization.name || artist.displayName), account ? { accountSid: account.accountSid, authToken } : undefined);
+    if (twilioHandledKeyword !== 'START') await recordOutbound(conv.id, from, to, inboundSubscriptionConfirmation(surface?.organization.name || artist.displayName), account ? { accountSid: account.accountSid, authToken } : undefined, 'START');
     return xmlResponse();
   }
   if (action === 'START') {
     await recordInbound(conv.id, text, params.MessageSid, to, now);
-    if (twilioHandledKeyword !== 'START') await recordOutbound(conv.id, from, to, `${surface?.organization.name || artist.displayName}: SMS opt-in could not be recorded. Please contact the studio for a verified consent option.`, account ? { accountSid: account.accountSid, authToken } : undefined);
+    if (twilioHandledKeyword !== 'START') await recordOutbound(conv.id, from, to, `${surface?.organization.name || artist.displayName}: SMS opt-in could not be recorded. Please contact the studio for a verified consent option.`, account ? { accountSid: account.accountSid, authToken } : undefined, 'START_REJECTED');
     return xmlResponse();
   }
 
@@ -180,9 +218,9 @@ export async function POST(request: NextRequest) {
       await db.update(messages).set({ metadata: { ...metadata, consentConfirmation: { ...confirmation, status: 'CONFIRMED', confirmedAt: now.toISOString() } } }).where(eq(messages.id, pending.message.id));
       await db.update(clients).set({ smsOptIn: true, smsConsentStatus: 'OPTED_IN', smsConsentCapturedAt: now, updatedAt: now }).where(and(eq(clients.id, client.id), eq(clients.organizationId, number.organizationId)));
       await recordInboundConsent({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, phone: from, studioPhone: to, messageSid: params.MessageSid, form: surface.form, organizationSlug: surface.organization.slug, keyword: upper, source: 'INBOUND_SMS_CONFIRMATION', disclosureText: pending.message.content });
-      await recordOutbound(conv.id, from, to, inboundSubscriptionConfirmation(surface.organization.name), account ? { accountSid: account.accountSid, authToken } : undefined);
+      await recordOutbound(conv.id, from, to, inboundSubscriptionConfirmation(surface.organization.name), account ? { accountSid: account.accountSid, authToken } : undefined, 'YES_CONFIRMED');
     } else if (!client.smsOptIn && client.smsConsentStatus !== 'OPTED_OUT') {
-      await recordOutbound(conv.id, from, to, `${surface?.organization.name || artist.displayName}: No SMS confirmation is pending. Send your question or text START to opt in.`, account ? { accountSid: account.accountSid, authToken } : undefined);
+      await recordOutbound(conv.id, from, to, `${surface?.organization.name || artist.displayName}: No SMS confirmation is pending. Send your question or text START to opt in.`, account ? { accountSid: account.accountSid, authToken } : undefined, 'YES_REJECTED');
     }
     return xmlResponse();
   }
@@ -210,7 +248,7 @@ export async function POST(request: NextRequest) {
       metadata: { provider: 'twilio', studioPhone: to, consentConfirmation: confirmationState }
     }).returning();
     try {
-      const sent = await sendSms({ to: from, from: to, body: confirmationRequest, accountSid: account?.accountSid, authToken });
+      const sent = await sendInboundReply(from, to, confirmationRequest, account ? { accountSid: account.accountSid, authToken } : undefined, 'YES_REQUEST');
       const metadata = pendingMessage.metadata && typeof pendingMessage.metadata === 'object' ? pendingMessage.metadata as Record<string, unknown> : {};
       await db.update(messages).set({ externalMessageId: sent.sid, metadata: { ...metadata, status: sent.status } }).where(eq(messages.id, pendingMessage.id));
     } catch (error) {
@@ -229,7 +267,7 @@ export async function POST(request: NextRequest) {
   if (aiRes.status === 409 && (aiData.mode === 'HUMAN' || aiData.mode === 'CLOSED')) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   if (!aiRes.ok || !aiData.reply) return new NextResponse('AI processing failed', { status: 500 });
   if (client.smsConsentStatus !== 'OPTED_OUT') {
-    const sent = await sendSms({ to: from, from: to, body: aiData.reply, accountSid: account?.accountSid, authToken });
+    const sent = await sendInboundReply(from, to, aiData.reply, account ? { accountSid: account.accountSid, authToken } : undefined, 'AI_REPLY');
     if (aiData.messageId) await db.update(messages).set({ externalMessageId: sent.sid, metadata: { provider: 'twilio', status: sent.status, studioPhone: to } }).where(eq(messages.id, aiData.messageId));
   }
   return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
