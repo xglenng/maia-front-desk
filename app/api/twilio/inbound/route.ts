@@ -2,7 +2,7 @@ import { handlePOST as runAi } from '@/packages/ai/src/http';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@db';
-import { artistConsentForms, artists, clients, complianceProfiles, conversations, legalDocuments, messages, organizations, phoneNumbers, smsConsentEvidence, twilioAccounts } from '@db/schema';
+import { artistConsentForms, artists, clients, complianceEvents, complianceProfiles, conversations, legalDocuments, messages, organizations, phoneNumbers, smsConsentEvidence, twilioAccounts } from '@db/schema';
 import { decryptSecret, sendSms, validateTwilioSignature } from '@integrations/twilio';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { appBaseUrl, formOptInUrl, helpResponse, inboundConfirmationRequest, inboundConsentDecision, inboundOnlyConsentState, inboundSubscriptionConfirmation, isConsentFormReady, isPendingYesConfirmation, optOutConfirmation, pendingSmsConfirmationMatches, smsKeywordAction } from '@/packages/consent';
@@ -28,6 +28,43 @@ function maskedAccountSid(value?: string) {
 
 function logInbound(step: string, details: Record<string, unknown> = {}) {
   console.info(JSON.stringify({ event: 'twilio_inbound', step, ...details }));
+}
+
+async function persistSignatureDiagnostic(input: {
+  organizationId: string;
+  messageSid?: string;
+  eventType: string;
+  signaturePresent: boolean;
+  signatureValid: boolean;
+  validationUrl: string;
+  credentialSource: 'subaccount' | 'parent';
+  accountSid?: string;
+  destination?: string;
+}) {
+  try {
+    await db.insert(complianceEvents).values({
+      organizationId: input.organizationId,
+      phase: 'INBOUND_WEBHOOK',
+      action: 'SIGNATURE_VALIDATION',
+      status: input.signatureValid ? 'VALID' : 'INVALID',
+      providerSid: input.messageSid || null,
+      details: {
+        eventType: input.eventType,
+        signaturePresent: input.signaturePresent,
+        signatureValid: input.signatureValid,
+        validationUrl: input.validationUrl,
+        credentialSource: input.credentialSource,
+        accountSid: maskedAccountSid(input.accountSid),
+        destination: maskedPhone(input.destination),
+      },
+    });
+  } catch (error) {
+    logInbound('signature_diagnostic_persist_failed', {
+      eventType: input.eventType,
+      signatureValid: input.signatureValid,
+      errorType: error instanceof Error ? error.name : 'UnknownError',
+    });
+  }
 }
 
 async function sendInboundReply(to: string, from: string, body: string, account: { accountSid: string; authToken?: string } | undefined, replyType: string) {
@@ -133,6 +170,17 @@ export async function POST(request: NextRequest) {
       validationUrl: publicUrl,
       credentialSource: account ? 'subaccount' : 'parent',
       accountSid: maskedAccountSid(account?.accountSid || process.env.TWILIO_ACCOUNT_SID),
+    });
+    await persistSignatureDiagnostic({
+      organizationId: number.organizationId,
+      messageSid: params.MessageSid,
+      eventType: smsKeywordAction(text) || 'MESSAGE',
+      signaturePresent,
+      signatureValid,
+      validationUrl: publicUrl,
+      credentialSource: account ? 'subaccount' : 'parent',
+      accountSid: account?.accountSid || process.env.TWILIO_ACCOUNT_SID,
+      destination: to,
     });
     if (!signatureValid) {
       logInbound('webhook_rejected', { reason: 'invalid_twilio_signature', to: maskedPhone(to) });
