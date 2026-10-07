@@ -3,6 +3,7 @@ import { db } from "@db/index";
 import { clients, phoneNumbers, twilioAccounts } from "@db/schema";
 import { decryptSecret, sendSms } from "./twilio";
 import { hasScopedSmsConsent } from "@/packages/consent/server";
+import { maySendStudioSms } from "./studio-sms-policy";
 
 export async function sendStudioSms(input: { organizationId: string; artistId: string; to: string; body: string; allowCustomerCareReply?: boolean }) {
   const [client] = await db.select({ id: clients.id, smsOptIn: clients.smsOptIn, smsConsentStatus: clients.smsConsentStatus }).from(clients).where(and(
@@ -17,7 +18,7 @@ export async function sendStudioSms(input: { organizationId: string; artistId: s
     eq(phoneNumbers.active, true),
   )).limit(1);
   if (!number) throw new Error("The artist's primary SMS number is not active.");
-  if (!input.allowCustomerCareReply && !["APPROVED", "MOCK_APPROVED"].includes(number.complianceStatus)) throw new Error("The artist's primary SMS number is not A2P-approved.");
+  if (!input.allowCustomerCareReply && !maySendStudioSms(number.complianceStatus)) throw new Error("The artist's primary SMS number is not A2P-approved for this environment.");
   const [account] = number.twilioAccountId ? await db.select().from(twilioAccounts).where(and(
     eq(twilioAccounts.id, number.twilioAccountId), eq(twilioAccounts.organizationId, input.organizationId), eq(twilioAccounts.status, "ACTIVE"),
   )) : [];

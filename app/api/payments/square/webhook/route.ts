@@ -16,6 +16,8 @@ import { sendStudioSms } from '@integrations/studio-sms';
 import { createSchedulingBooking, usesInternalScheduling } from '@/packages/scheduling/service';
 import { SquareApiClient } from '@/packages/scheduling/square/client';
 import { squareAccessToken } from '@/packages/scheduling/square/credentials';
+import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
+import { cancelAppointmentLifecycleJobs } from '@/packages/automations/lifecycle.server';
 
 type SquarePayment = {
   id?: string;
@@ -155,6 +157,7 @@ export async function POST(request: NextRequest) {
     if (!pendingAppointment) {
       return NextResponse.json({ received: true });
     }
+    if (pendingAppointment.paymentProvider && pendingAppointment.paymentProvider !== 'SQUARE') return NextResponse.json({ received: true });
 
     // A deposit does not reserve a slot. At payment time we attempt to claim
     // the slot. External providers enforce their own booking conflict rules;
@@ -208,7 +211,7 @@ export async function POST(request: NextRequest) {
         if (conflict) return [];
       }
 
-      await tx.update(payments).set({ status: 'PAID', updatedAt: new Date() }).where(and(
+      await tx.update(payments).set({ status: 'PAID', confirmationMethod: 'SQUARE_WEBHOOK', confirmedAt: new Date(), updatedAt: new Date() }).where(and(
         eq(payments.id, localPayment.id),
         eq(payments.organizationId, localPayment.organizationId),
       ));
@@ -239,7 +242,7 @@ export async function POST(request: NextRequest) {
       // Payment succeeded after another client secured the slot (or the
       // provider rejected it). Keep an explicit state so support can refund or
       // reschedule; never falsely confirm the appointment.
-      await db.update(payments).set({ status: 'PAID', updatedAt: new Date() }).where(eq(payments.id, localPayment.id));
+      await db.update(payments).set({ status: 'PAID', confirmationMethod: 'SQUARE_WEBHOOK', confirmedAt: new Date(), updatedAt: new Date() }).where(eq(payments.id, localPayment.id));
       await db.update(appointments).set({ status: 'PAYMENT_RECEIVED_SLOT_UNAVAILABLE', depositStatus: 'PAID', updatedAt: new Date() }).where(and(
         eq(appointments.id, localPayment.appointmentId),
         eq(appointments.status, 'PAYMENT_PENDING'),
@@ -259,6 +262,7 @@ export async function POST(request: NextRequest) {
     );
 
     if (confirmedAppointment) {
+      await scheduleConfirmedAppointmentAutomations(confirmedAppointment.id);
       // This client won the slot. Cancel all other unpaid intents that overlap
       // it, and disable their Square payment links so they cannot pay later.
       const competing = await db.select({
@@ -305,6 +309,7 @@ export async function POST(request: NextRequest) {
           }
           if (loser.paymentId) await db.update(payments).set({ status: 'CANCELED', updatedAt: new Date() }).where(eq(payments.id, loser.paymentId));
           await db.update(appointments).set({ status: 'CANCELED', updatedAt: new Date() }).where(and(eq(appointments.id, loser.appointmentId), eq(appointments.status, 'PAYMENT_PENDING')));
+          await cancelAppointmentLifecycleJobs(loser.appointmentId, 'APPOINTMENT_CANCELLED');
 
           // Tell clients whose unpaid intent lost the race immediately. Their
           // payment link is no longer valid, and no payment was captured.

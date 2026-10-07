@@ -1,17 +1,35 @@
-import { protectedRoute } from '@/packages/auth/server';
+import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, automationJobs, calendarConnections, clients } from '@db/schema';
+import { appointments, artists, calendarConnections, clients, externalWaiverAssignments, externalWaiverForms, payments, services, waiverSubmissions, waiverTemplates } from '@db/schema';
 import { GoogleCalendarAdapter } from '@integrations/index';
+import { canAccessArtist } from '@/packages/inbox/state';
+import { cancelAppointmentLifecycleJobs, cancelAppointmentPreCompletionJobs, scheduleAppointmentCompletionFollowups } from '@/packages/automations/lifecycle.server';
+import { z } from 'zod';
 
 async function handleGET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const organizationId = request.nextUrl.searchParams.get('organizationId');
   if (!organizationId) return NextResponse.json({ error: 'organizationId is required' }, { status: 400 });
-  const [row] = await db.select({ appointment: appointments, client: clients }).from(appointments).innerJoin(clients, eq(appointments.clientId, clients.id)).where(and(eq(appointments.id, id), eq(appointments.organizationId, organizationId)));
-  if (!row) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
-  return NextResponse.json(row);
+  const user = await identity(request);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  const [row] = await db.select({ appointment: appointments, client: clients, service: services, artistUserId: artists.userId }).from(appointments)
+    .innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(artists.organizationId, appointments.organizationId)))
+    .innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(clients.organizationId, appointments.organizationId)))
+    .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(services.organizationId, appointments.organizationId)))
+    .where(and(eq(appointments.id, id), eq(appointments.organizationId, organizationId)));
+  if (!row || !canAccessArtist(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
+  const paymentRows = await db.select().from(payments).where(and(eq(payments.appointmentId, id), eq(payments.organizationId, organizationId)));
+  const [externalWaivers, signedWaivers] = await Promise.all([
+    db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name })
+      .from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id))
+      .where(and(eq(externalWaiverAssignments.organizationId, organizationId), eq(externalWaiverAssignments.appointmentId, id))),
+    db.select({ id: waiverSubmissions.id, signedAt: waiverSubmissions.signedAt, templateName: waiverTemplates.name })
+      .from(waiverSubmissions).innerJoin(waiverTemplates, eq(waiverSubmissions.waiverTemplateId, waiverTemplates.id))
+      .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
+  ]);
+  return NextResponse.json({ appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, externalWaivers, signedWaivers });
 }
 
 async function handleDELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -20,14 +38,37 @@ async function handleDELETE(request: NextRequest, { params }: { params: Promise<
   if (!organizationId) return NextResponse.json({ error: 'organizationId is required' }, { status: 400 });
   const [appointment] = await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, organizationId)));
   if (!appointment) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
+  const user = await identity(request);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  const [artist] = await db.select({ userId: artists.userId }).from(artists).where(and(eq(artists.id, appointment.artistId), eq(artists.organizationId, organizationId))).limit(1);
+  if (!artist || !canAccessArtist(user.role, user.id, artist.userId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   const [updated] = await db.update(appointments).set({ status: 'CANCELLED', holdExpiresAt: null, updatedAt: new Date() }).where(eq(appointments.id, id)).returning();
-  const now = new Date();
-  await db.update(automationJobs).set({ status: 'CANCELLED', completedAt: now, lastErrorCode: 'APPOINTMENT_CANCELLED', lockedAt: null, lockExpiresAt: null, lockToken: null, updatedAt: now }).where(and(
-    eq(automationJobs.type, 'WAIVER_REMINDER'),
-    eq(automationJobs.appointmentId, id),
-    inArray(automationJobs.status, ['PENDING', 'RETRY', 'PROCESSING']),
-  ));
+  await cancelAppointmentLifecycleJobs(id);
   return NextResponse.json({ appointment: updated });
+}
+
+async function handlePATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const parsed = z.object({ organizationId: z.string().uuid(), action: z.literal('MARK_COMPLETE') }).strict().safeParse(await request.json());
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  const user = await identity(request);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  const [row] = await db.select({ appointment: appointments, artistUserId: artists.userId }).from(appointments)
+    .innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(artists.organizationId, appointments.organizationId)))
+    .where(and(eq(appointments.id, id), eq(appointments.organizationId, parsed.data.organizationId))).limit(1);
+  if (!row || !canAccessArtist(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
+  if (row.appointment.status === 'COMPLETED' && row.appointment.completedAt) {
+    const followups = await scheduleAppointmentCompletionFollowups(id, row.appointment.completedAt);
+    return NextResponse.json({ appointment: row.appointment, followups: followups.scheduled, duplicate: true });
+  }
+  if (row.appointment.status !== 'CONFIRMED') return NextResponse.json({ error: 'Only confirmed appointments can be marked complete.' }, { status: 409 });
+  const completedAt = new Date();
+  const [appointment] = await db.update(appointments).set({ status: 'COMPLETED', completedAt, updatedAt: completedAt })
+    .where(and(eq(appointments.id, id), eq(appointments.organizationId, parsed.data.organizationId), eq(appointments.status, 'CONFIRMED'))).returning();
+  if (!appointment) return NextResponse.json({ error: 'Appointment state changed before completion.' }, { status: 409 });
+  await cancelAppointmentPreCompletionJobs(id);
+  const followups = await scheduleAppointmentCompletionFollowups(id, completedAt);
+  return NextResponse.json({ appointment, followups: followups.scheduled });
 }
 
 async function handlePOST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -48,4 +89,5 @@ async function handlePOST(request: NextRequest, { params }: { params: Promise<{ 
 
 export const GET = protectedRoute(handleGET, false);
 export const DELETE = protectedRoute(handleDELETE, false);
+export const PATCH = protectedRoute(handlePATCH, false);
 export const POST = protectedRoute(handlePOST, false);

@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, or, isNull, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
 import { appointments, artists, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
@@ -11,6 +11,9 @@ import { signWaiver } from '@/packages/auth/waiver-token';
 import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
 import type { MaiaAgentContext } from './context-policy';
 import { resolveContextTimezone } from './read-only-policy';
+import { createDepositCheckout } from '@integrations/payments';
+import { resolveDepositPaymentProvider, venmoPaymentInstructions } from '@/packages/automations/lifecycle-policy';
+import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
 
 export type AgentContext = MaiaAgentContext;
 
@@ -153,6 +156,7 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
     depositRequired ? eq(appointments.status, 'PAYMENT_PENDING') : eq(appointments.status, 'CONFIRMED'),
   )).limit(1);
   if (existing) {
+    if (!depositRequired && existing.status === 'CONFIRMED') await scheduleConfirmedAppointmentAutomations(existing.id);
     return {
       appointmentId: existing.id,
       start: existing.startsAt.toISOString(),
@@ -161,6 +165,7 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
       status: existing.status,
       depositRequired,
       depositCents: existing.depositCents ?? 0,
+      paymentProvider: service.paymentProvider,
     };
   }
 
@@ -190,6 +195,7 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
       priceCents,
       depositCents,
       depositStatus: 'PENDING',
+      paymentProvider: service.paymentProvider,
       holdExpiresAt: null,
       schedulingProvider: internalScheduling ? 'INTERNAL' : 'SQUARE',
       providerBookingId: null,
@@ -202,6 +208,7 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
       status: appointment.status,
       depositRequired: true,
       depositCents: depositCents ?? 0,
+      paymentProvider: service.paymentProvider,
     };
   }
 
@@ -215,22 +222,24 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
       return tx.insert(appointments).values({
         organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id,
         startsAt: new Date(result.start), endsAt: new Date(result.end), status: 'CONFIRMED', priceCents,
-        depositCents: null, depositStatus: 'WAIVED', holdExpiresAt: null, schedulingProvider: result.provider, providerBookingId: result.providerBookingId,
+        depositCents: null, depositStatus: 'WAIVED', paymentProvider: service.paymentProvider, holdExpiresAt: null, schedulingProvider: result.provider, providerBookingId: result.providerBookingId,
         notes: 'Created by AI receptionist through connected scheduling provider.'
       }).returning();
     });
+    await scheduleConfirmedAppointmentAutomations(appointment.id);
     return { appointmentId: appointment.id, start: result.start, end: result.end, providerBookingId: result.providerBookingId, status: appointment.status, depositRequired: false, depositCents: 0 };
   }
 
   const [appointment] = await db.insert(appointments).values({
     organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id,
-    startsAt, endsAt, status: 'CONFIRMED', priceCents, depositCents: null, depositStatus: 'WAIVED', holdExpiresAt: null,
+    startsAt, endsAt, status: 'CONFIRMED', priceCents, depositCents: null, depositStatus: 'WAIVED', paymentProvider: service.paymentProvider, holdExpiresAt: null,
     schedulingProvider: 'INTERNAL', notes: 'Created by AI receptionist booking tool.'
   }).returning();
+  await scheduleConfirmedAppointmentAutomations(appointment.id);
   return { appointmentId: appointment.id, start: startsAt.toISOString(), end: endsAt.toISOString(), status: appointment.status, depositRequired: false, depositCents: 0 };
 }
 
-export async function createDepositLink(ctx: AgentContext, appointmentId: string) {
+export async function createDepositRequest(ctx: AgentContext, appointmentId: string) {
   const [appointment] = await db.select()
     .from(appointments)
     .where(and(
@@ -266,8 +275,44 @@ export async function createDepositLink(ctx: AgentContext, appointmentId: string
         .limit(1)
     : [];
 
-  if (service?.paymentProvider && service.paymentProvider !== 'SQUARE') {
-    throw new Error(`Payment provider ${service.paymentProvider} is not supported yet.`);
+  const provider = resolveDepositPaymentProvider(appointment.paymentProvider, service?.paymentProvider ?? null);
+  if (!provider) throw new Error('This service has an unsupported deposit provider.');
+  if (provider === 'VENMO_MANUAL') {
+    const [artist] = await db.select({ venmoEnabled: artists.venmoEnabled, venmoUsername: artists.venmoUsername, venmoPaymentUrl: artists.venmoPaymentUrl, venmoPaymentInstructions: artists.venmoPaymentInstructions })
+      .from(artists).where(and(eq(artists.id, ctx.artistId), eq(artists.organizationId, ctx.organizationId))).limit(1);
+    const instructions = venmoPaymentInstructions({
+      enabled: Boolean(artist?.venmoEnabled),
+      username: artist?.venmoUsername ?? null,
+      paymentUrl: artist?.venmoPaymentUrl ?? null,
+      instructions: artist?.venmoPaymentInstructions ?? null,
+    });
+    if (!instructions) throw new Error('Manual Venmo deposits are not configured for this artist.');
+    await db.transaction(async tx => {
+      await tx.execute(sql`SELECT id FROM appointments WHERE id = ${appointment.id} AND organization_id = ${ctx.organizationId} FOR UPDATE`);
+      const [existingPayment] = await tx.select().from(payments).where(and(eq(payments.organizationId, ctx.organizationId), eq(payments.appointmentId, appointment.id), eq(payments.provider, 'venmo_manual'), eq(payments.status, 'PENDING'))).orderBy(desc(payments.createdAt)).limit(1);
+      if (existingPayment) return [existingPayment];
+      return tx.insert(payments).values({ organizationId: ctx.organizationId, appointmentId: appointment.id, provider: 'venmo_manual', amountCents: appointment.depositCents!, status: 'PENDING', currency: 'usd' }).returning();
+    });
+    return { ...instructions, amountCents: appointment.depositCents, appointmentId: appointment.id };
+  }
+
+  if (!['SQUARE', 'STRIPE'].includes(provider)) throw new Error('This service has an unsupported deposit provider.');
+
+  if (provider === 'STRIPE') {
+    const [existingPayment] = await db.select().from(payments).where(and(
+      eq(payments.organizationId, ctx.organizationId), eq(payments.appointmentId, appointment.id), eq(payments.provider, 'stripe'), eq(payments.status, 'PENDING'),
+    )).orderBy(desc(payments.createdAt)).limit(1);
+    if (existingPayment?.providerCheckoutSessionId && existingPayment.providerPaymentIntentId) {
+      return { provider: 'STRIPE', url: existingPayment.providerPaymentIntentId, amountCents: appointment.depositCents, appointmentId: appointment.id, paymentStatus: 'PENDING' as const };
+    }
+    const session = await createDepositCheckout({
+      appointmentId: appointment.id, organizationId: ctx.organizationId, amountCents: appointment.depositCents,
+      customerEmail: (await db.select({ email: clients.email }).from(clients).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId))).limit(1))[0]?.email,
+      successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/?payment=success&appointment=${appointment.id}`,
+      cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/?payment=cancelled&appointment=${appointment.id}`,
+    });
+    await db.insert(payments).values({ organizationId: ctx.organizationId, appointmentId: appointment.id, provider: 'stripe', providerCheckoutSessionId: session.id, providerCheckoutLinkId: session.id, providerPaymentIntentId: session.url, amountCents: appointment.depositCents, status: 'PENDING' });
+    return { provider: 'STRIPE', url: session.url, amountCents: appointment.depositCents, appointmentId: appointment.id, paymentStatus: 'PENDING' as const };
   }
 
   const [connection] = await db.select()
@@ -304,6 +349,7 @@ export async function createDepositLink(ctx: AgentContext, appointmentId: string
       url: existingPayment.providerPaymentIntentId,
       amountCents: appointment.depositCents,
       appointmentId: appointment.id,
+      paymentStatus: 'PENDING' as const,
     };
   }
 
@@ -337,6 +383,7 @@ export async function createDepositLink(ctx: AgentContext, appointmentId: string
     url: link.url,
     amountCents: appointment.depositCents,
     appointmentId: appointment.id,
+    paymentStatus: 'PENDING' as const,
   };
 }
 

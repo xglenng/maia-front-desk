@@ -6,6 +6,7 @@ import { useSession } from '@/components/session-gate';
 type Artist = { id: string; displayName: string };
 type PricingType = 'FLAT' | 'HOURLY' | 'QUOTE';
 type DepositType = 'NONE' | 'FIXED' | 'PERCENT';
+type PaymentProvider = 'SQUARE' | 'STRIPE' | 'VENMO_MANUAL';
 type Service = {
   id: string;
   artistId: string;
@@ -21,6 +22,7 @@ type Service = {
   depositType: DepositType;
   depositAmountCents: number | null;
   depositPercent: number | null;
+  paymentProvider: PaymentProvider;
   requiresConsultation: boolean;
   requiresArtistApproval: boolean;
   active: boolean;
@@ -39,6 +41,7 @@ type Draft = {
   depositType: DepositType;
   depositAmount: string;
   depositPercent: string;
+  paymentProvider: PaymentProvider;
   requiresConsultation: boolean;
   requiresArtistApproval: boolean;
   active: boolean;
@@ -48,7 +51,7 @@ type Draft = {
 const blankDraft: Draft = {
   serviceType: '', category: '', name: '', description: '', durationMinutes: '30',
   pricingType: 'FLAT', basePrice: '', hourlyRate: '', startingAt: false,
-  depositType: 'NONE', depositAmount: '', depositPercent: '',
+  depositType: 'NONE', depositAmount: '', depositPercent: '', paymentProvider: 'SQUARE',
   requiresConsultation: false, requiresArtistApproval: false, active: true, sortOrder: '0',
 };
 const field = { width: '100%', boxSizing: 'border-box' as const, padding: 10, border: '1px solid #d9d3cc', borderRadius: 7, font: 'inherit' };
@@ -91,6 +94,7 @@ function toDraft(service?: Service): Draft {
     depositType: service.depositType,
     depositAmount: centsToInput(service.depositAmountCents),
     depositPercent: service.depositPercent == null ? '' : String(service.depositPercent),
+    paymentProvider: service.paymentProvider,
     requiresConsultation: service.requiresConsultation,
     requiresArtistApproval: service.requiresArtistApproval,
     active: service.active,
@@ -203,6 +207,7 @@ export default function ServicesSettingsPage() {
       depositType: draft.depositType,
       depositAmountCents: draft.depositType === 'FIXED' ? depositCents : null,
       depositPercent: draft.depositType === 'PERCENT' ? depositPercent : null,
+      paymentProvider: draft.paymentProvider,
       requiresConsultation: draft.requiresConsultation,
       requiresArtistApproval: draft.requiresArtistApproval,
       active: draft.active,
@@ -308,6 +313,11 @@ export default function ServicesSettingsPage() {
             <option value="NONE">No deposit</option><option value="FIXED">Fixed amount</option><option value="PERCENT">Percentage of service price</option>
           </select>
         </label>
+        {draft.depositType !== 'NONE' && <label style={labelStyle}>Deposit payment provider
+          <select value={draft.paymentProvider} onChange={event => setDraft({ ...draft, paymentProvider: event.target.value as PaymentProvider })} style={field}>
+            <option value="SQUARE">Square</option><option value="STRIPE">Stripe checkout</option><option value="VENMO_MANUAL">Venmo (manual confirmation)</option>
+          </select>
+        </label>}
         {draft.depositType === 'FIXED' && <label style={labelStyle}>Deposit amount (USD)
           <input type="number" min="0.01" step="0.01" inputMode="decimal" value={draft.depositAmount} onChange={event => setDraft({ ...draft, depositAmount: event.target.value })} style={field} />
         </label>}
@@ -348,7 +358,7 @@ export default function ServicesSettingsPage() {
           <div style={{ display: 'grid', gap: 8 }}>
             {group.map(service => <article key={service.id} style={serviceRow}>
               <div style={{ minWidth: 0 }}>
-                <strong>{service.name}</strong><div style={{ color: '#706b66', fontSize: 13, marginTop: 4 }}>{service.durationMinutes} min · {service.pricingType} · {formatPrice(service)}{service.requiresConsultation ? ' · Consultation required' : ''}{service.requiresArtistApproval ? ' · Approval required' : ''}</div>
+                <strong>{service.name}</strong><div style={{ color: '#706b66', fontSize: 13, marginTop: 4 }}>{service.durationMinutes} min · {service.pricingType} · {formatPrice(service)}{service.depositType !== 'NONE' ? ` · ${service.paymentProvider === 'VENMO_MANUAL' ? 'Venmo manual' : service.paymentProvider}` : ''}{service.requiresConsultation ? ' · Consultation required' : ''}{service.requiresArtistApproval ? ' · Approval required' : ''}</div>
                 {service.description && <p style={{ margin: '5px 0 0', color: '#706b66', fontSize: 13 }}>{service.description}</p>}
               </div>
               <span style={{ ...statusLabel, background: service.active ? '#e6f2ea' : '#eee', color: service.active ? '#2f7651' : '#68635e' }}>{service.active ? 'Active' : 'Inactive'}</span>

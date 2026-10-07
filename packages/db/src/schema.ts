@@ -54,12 +54,32 @@ export const artists = pgTable("artists", {
   receptionistInstructions: text("receptionist_instructions"),
   smsResponseDelaySeconds: integer("sms_response_delay_seconds").default(0).notNull(),
   metaResponseDelaySeconds: integer("meta_response_delay_seconds").default(0).notNull(),
-  webResponseDelaySeconds: integer("web_response_delay_seconds").default(0).notNull()
+  webResponseDelaySeconds: integer("web_response_delay_seconds").default(0).notNull(),
+  venmoEnabled: boolean("venmo_enabled").default(false).notNull(),
+  venmoUsername: text("venmo_username"),
+  venmoPaymentUrl: text("venmo_payment_url"),
+  venmoPaymentInstructions: text("venmo_payment_instructions"),
+  appointmentReminderEnabled: boolean("appointment_reminder_enabled").default(false).notNull(),
+  appointmentReminderMinutes: integer("appointment_reminder_minutes").default(1440).notNull(),
+  appointmentReminderShortNoticeMode: text("appointment_reminder_short_notice_mode").default("SKIP").notNull(),
+  appointmentWaiverSendEnabled: boolean("appointment_waiver_send_enabled").default(false).notNull(),
+  appointmentWaiverSendMinutes: integer("appointment_waiver_send_minutes").default(360).notNull(),
+  aftercareFollowupEnabled: boolean("aftercare_followup_enabled").default(false).notNull(),
+  aftercareFollowupHours: integer("aftercare_followup_hours").default(24).notNull(),
+  reviewFollowupEnabled: boolean("review_followup_enabled").default(false).notNull(),
+  reviewFollowupHours: integer("review_followup_hours").default(24).notNull(),
+  googleReviewUrl: text("google_review_url"),
+  reviewFollowupMessage: text("review_followup_message")
 }, table => ({
   receptionistToneCheck: check("artists_receptionist_tone_check", sql`${table.receptionistTone} IN ('WARM', 'PROFESSIONAL', 'FRIENDLY')`),
   smsDelayCheck: check("artists_sms_response_delay_check", sql`${table.smsResponseDelaySeconds} IN (0, 60, 120, 300)`),
   metaDelayCheck: check("artists_meta_response_delay_check", sql`${table.metaResponseDelaySeconds} IN (0, 60, 120, 300)`),
   webDelayCheck: check("artists_web_response_delay_check", sql`${table.webResponseDelaySeconds} = 0`),
+  reminderMinutesCheck: check("artists_appointment_reminder_minutes_check", sql`${table.appointmentReminderMinutes} IN (120, 360, 720, 1440, 2880)`),
+  reminderShortNoticeCheck: check("artists_appointment_reminder_short_notice_check", sql`${table.appointmentReminderShortNoticeMode} IN ('SKIP', 'SEND_AFTER_DELAY')`),
+  waiverSendMinutesCheck: check("artists_appointment_waiver_send_minutes_check", sql`${table.appointmentWaiverSendMinutes} IN (120, 240, 360, 720)`),
+  aftercareHoursCheck: check("artists_aftercare_followup_hours_check", sql`${table.aftercareFollowupHours} IN (12, 24, 48, 72)`),
+  reviewHoursCheck: check("artists_review_followup_hours_check", sql`${table.reviewFollowupHours} IN (24, 48, 72, 168)`),
 }));
 
 export const authOauthStates=pgTable('auth_oauth_states',{
@@ -347,7 +367,10 @@ export const appointments = pgTable("appointments", {
   priceCents: integer("price_cents"),
   depositCents: integer("deposit_cents"),
   depositStatus: text("deposit_status").default("PENDING").notNull(),
+  paymentProvider: text("payment_provider"),
   holdExpiresAt: timestamp("hold_expires_at"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  scheduleRevision: integer("schedule_revision").default(0).notNull(),
   calendarEventId: text("calendar_event_id"),
   schedulingProvider: text("scheduling_provider"),
   providerBookingId: text("provider_booking_id"),
@@ -476,9 +499,14 @@ export const payments = pgTable("payments", {
   amountCents: integer("amount_cents").notNull(),
   status: text("status").notNull().default("PENDING"),
   currency: text("currency").notNull().default("usd"),
+  confirmationMethod: text("confirmation_method"),
+  confirmedByUserId: uuid("confirmed_by_user_id").references(() => users.id),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  confirmationAuditCheck: check("payments_manual_confirmation_audit_check", sql`${table.confirmationMethod} IS DISTINCT FROM 'MANUAL' OR (${table.confirmedByUserId} IS NOT NULL AND ${table.confirmedAt} IS NOT NULL)`),
+}));
 
 export const waiverTemplates = pgTable("waiver_templates", {
   id: uuid("id").defaultRandom().primaryKey(),

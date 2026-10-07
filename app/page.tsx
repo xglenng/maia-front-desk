@@ -163,7 +163,7 @@ function Metric({ label, value, note, icon, positive }: { label: string; value: 
 
 function AppointmentRow({ appointment }: { appointment: Appointment }) {
   const status = appointment.status === "CONFIRMED" ? "Confirmed" : appointment.status === "AI_HOLD" ? "AI hold" : appointment.status === "TENTATIVE" ? "Deposit due" : appointment.status;
-  return <div className="appointment-row"><div className="time">{formatTime(appointment.startsAt)}</div><div className="appt-main"><strong>{appointment.client}</strong><span>{appointment.service} · {Math.max(1, Math.round((new Date(appointment.endsAt).getTime() - new Date(appointment.startsAt).getTime()) / 3600000))} hr</span></div><span className={`pill ${status === "Confirmed" ? "confirmed" : status === "AI hold" ? "hold" : "due"}`}>{status}</span><button className="more">•••</button></div>;
+  return <div className="appointment-row"><div className="time">{formatTime(appointment.startsAt)}</div><div className="appt-main"><strong>{appointment.client}</strong><span>{appointment.service} · {Math.max(1, Math.round((new Date(appointment.endsAt).getTime() - new Date(appointment.startsAt).getTime()) / 3600000))} hr</span></div><span className={`pill ${status === "Confirmed" ? "confirmed" : status === "AI hold" ? "hold" : "due"}`}>{status}</span><a className="more" href={`/appointments/${appointment.id}`} aria-label={`Manage appointment for ${appointment.client}`}>•••</a></div>;
 }
 
 function Conversation({ name, preview, lastMessageAt, unreadCount }: ConversationData) {
@@ -229,11 +229,11 @@ function CalendarView({
         <div className="day-column">
           {data.appointments.length
             ? data.appointments.map((a, i) =>
-                <div key={a.id} className={`calendar-card card-${i % 3}`}>
+                <a key={a.id} href={`/appointments/${a.id}`} className={`calendar-card card-${i % 3}`} style={{ textDecoration: 'none', color: 'inherit' }}>
                   <strong>{formatTime(a.startsAt)} · {a.client}</strong>
                   <span>{a.service}</span>
                   <small>{a.status}</small>
-                </div>
+                </a>
               )
             : <div className="empty-state">No appointments for this date.</div>}
         </div>

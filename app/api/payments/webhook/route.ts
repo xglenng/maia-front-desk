@@ -3,6 +3,8 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, payments } from '@db/schema';
 import { getStripe } from '@integrations/index';
+import { confirmAppointmentDeposit } from '@booking/deposit-confirmation.server';
+import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
 
 export async function POST(request: NextRequest) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -19,10 +21,18 @@ export async function POST(request: NextRequest) {
     const appointmentId = session.metadata?.appointmentId;
     const organizationId = session.metadata?.organizationId;
     if (appointmentId && organizationId) {
-      await db.transaction(async tx => {
-        await tx.update(payments).set({ status: 'PAID', providerPaymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : null, updatedAt: new Date() }).where(and(eq(payments.organizationId, organizationId), eq(payments.appointmentId, appointmentId), eq(payments.providerCheckoutSessionId, session.id)));
-        await tx.update(appointments).set({ status: 'CONFIRMED', depositStatus: 'PAID', holdExpiresAt: null, updatedAt: new Date() }).where(and(eq(appointments.organizationId, organizationId), eq(appointments.id, appointmentId), eq(appointments.status, 'TENTATIVE')));
-      });
+      const [localPayment] = await db.select().from(payments).where(and(eq(payments.organizationId, organizationId), eq(payments.appointmentId, appointmentId), eq(payments.providerCheckoutSessionId, session.id))).limit(1);
+      const [appointment] = await db.select().from(appointments).where(and(eq(appointments.organizationId, organizationId), eq(appointments.id, appointmentId))).limit(1);
+      if (localPayment && appointment?.status === 'PAYMENT_PENDING') {
+        await confirmAppointmentDeposit({ organizationId, appointmentId, paymentId: localPayment.id, providerPaymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : null, confirmationMethod: 'STRIPE_WEBHOOK' });
+      } else if (localPayment && appointment?.status === 'TENTATIVE') {
+        const now = new Date();
+        const [confirmed] = await db.transaction(async tx => {
+          await tx.update(payments).set({ status: 'PAID', confirmationMethod: 'STRIPE_WEBHOOK', confirmedAt: now, providerPaymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : null, updatedAt: now }).where(and(eq(payments.id, localPayment.id), eq(payments.organizationId, organizationId)));
+          return tx.update(appointments).set({ status: 'CONFIRMED', depositStatus: 'PAID', holdExpiresAt: null, updatedAt: now }).where(and(eq(appointments.organizationId, organizationId), eq(appointments.id, appointmentId), eq(appointments.status, 'TENTATIVE'))).returning();
+        });
+        if (confirmed) await scheduleConfirmedAppointmentAutomations(confirmed.id);
+      }
     }
   }
   if (event.type === 'checkout.session.expired') {

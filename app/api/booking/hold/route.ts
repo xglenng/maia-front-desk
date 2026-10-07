@@ -53,6 +53,7 @@ async function handlePOST(request: NextRequest) {
     priceCents: input.priceCents ?? service.basePriceCents ?? null,
     depositCents: input.depositCents ?? null,
     depositStatus: 'PENDING',
+    paymentProvider: service.paymentProvider,
     holdExpiresAt,
   }).returning();
 

@@ -14,8 +14,9 @@ export type OnboardingStep = {
 
 export type OnboardingFacts = {
   agentRuntimeReady: boolean;
+  stripeConfigured?: boolean;
   organization: { name: string; publicName: string | null; publicPhone: string | null; publicEmail: string | null; website: string | null } | null;
-  artists: Array<{ id: string; displayName: string; bookingEnabled: boolean; receptionistEnabled: boolean }>;
+  artists: Array<{ id: string; displayName: string; bookingEnabled: boolean; receptionistEnabled: boolean; venmoEnabled: boolean; venmoConfigured: boolean }>;
   services: Array<{ id: string; artistId: string; name: string; active: boolean; durationMinutes: number; pricingType: string; basePriceCents: number | null; hourlyRateCents: number | null; paymentProvider: string; depositType: string; depositAmountCents: number | null; depositPercent: number | null }>;
   locations: Array<{ id: string; name: string; isPrimary: boolean; active: boolean; businessHoursConfigured: boolean }>;
   knowledge: { visiblePolicyCount: number; faqCount: number; aftercareCount: number };
@@ -103,9 +104,16 @@ export function buildOnboardingReadiness(facts: OnboardingFacts) {
   const bookingReady = !bookingRequired || bookingStatus === 'READY';
 
   const depositServices = activeArtistServices.filter(hasDeposit);
-  const depositArtistIds = unique(depositServices.map(service => service.artistId));
-  const paymentBlockers = depositArtistIds.filter(artistId => !facts.schedulingConnections.some(connection => connection.artistId === artistId && connection.provider === 'SQUARE' && connection.status === 'CONNECTED' && Boolean(connection.locationId)));
-  const unsupportedPaymentProviders = unique(depositServices.filter(service => service.paymentProvider !== 'SQUARE').map(service => service.paymentProvider));
+  const paymentBlockers: string[] = [];
+  const unsupportedPaymentProviders = unique(depositServices.filter(service => !['SQUARE', 'STRIPE', 'VENMO_MANUAL'].includes(service.paymentProvider)).map(service => service.paymentProvider));
+  for (const service of depositServices) {
+    if (service.paymentProvider === 'SQUARE' && !facts.schedulingConnections.some(connection => connection.artistId === service.artistId && connection.provider === 'SQUARE' && connection.status === 'CONNECTED' && Boolean(connection.locationId))) paymentBlockers.push('Connect Square and choose a location for Square deposit services.');
+    if (service.paymentProvider === 'STRIPE' && !facts.stripeConfigured) paymentBlockers.push('Configure Stripe payments before using Stripe deposit services.');
+    if (service.paymentProvider === 'VENMO_MANUAL') {
+      const artist = artists.find(item => item.id === service.artistId);
+      if (!artist?.venmoEnabled || !artist.venmoConfigured) paymentBlockers.push(`Configure Venmo for ${artist?.displayName ?? 'an artist'} with a manual deposit service.`);
+    }
+  }
   const paymentStatus: FeatureStatus = !depositServices.length ? 'OPTIONAL' : unsupportedPaymentProviders.length ? 'ERROR' : paymentBlockers.length ? 'NOT_CONFIGURED' : 'READY';
   const paymentsReady = paymentStatus === 'READY' || paymentStatus === 'OPTIONAL';
 
@@ -150,7 +158,7 @@ export function buildOnboardingReadiness(facts: OnboardingFacts) {
     step('knowledge', 'Policies & knowledge', 'Optional guidance helps Maia answer studio-specific questions without guessing.', knowledgeStatus, 'OPTIONAL', '/settings/studio', []),
     step('receptionist', 'AI receptionist', 'Choose whether Maia is enabled, plus tone, greeting, response length, and bounded instructions.', enabledArtistIds.size ? 'COMPLETE' : 'NOT_STARTED', 'REQUIRED FOR MAIA', '/settings/studio', enabledArtistIds.size ? [] : ['Enable Maia for an artist.']),
     step('scheduling', 'Scheduling', 'Configure availability and provider mappings only if you want booking questions answered.', bookingStatus === 'READY' ? 'COMPLETE' : bookingStatus === 'ERROR' ? 'BLOCKED' : bookingRequired ? 'IN_PROGRESS' : 'OPTIONAL', bookingRequired ? 'REQUIRED ONLY FOR FEATURE' : 'OPTIONAL', '/settings/scheduling', [...bookingBlockers, ...bookingErrors]),
-    step('payments', 'Payments & deposits', 'Square is needed only when an active service requires a deposit.', paymentStatus === 'READY' ? 'COMPLETE' : paymentStatus === 'ERROR' ? 'BLOCKED' : paymentStatus === 'NOT_CONFIGURED' ? 'IN_PROGRESS' : 'OPTIONAL', depositServices.length ? 'REQUIRED ONLY FOR FEATURE' : 'OPTIONAL', '/settings/scheduling', unsupportedPaymentProviders.length ? [`Unsupported deposit payment provider: ${unsupportedPaymentProviders.join(', ')}.`] : paymentBlockers.length ? ['Connect Square and choose a location for deposit-enabled services.'] : []),
+    step('payments', 'Payments & deposits', 'Square, configured Stripe, or artist-configured manual Venmo is needed only when an active service requires a deposit.', paymentStatus === 'READY' ? 'COMPLETE' : paymentStatus === 'ERROR' ? 'BLOCKED' : paymentStatus === 'NOT_CONFIGURED' ? 'IN_PROGRESS' : 'OPTIONAL', depositServices.length ? 'REQUIRED ONLY FOR FEATURE' : 'OPTIONAL', '/settings/services', unsupportedPaymentProviders.length ? [`Unsupported deposit payment provider: ${unsupportedPaymentProviders.join(', ')}.`] : paymentBlockers),
     step('waivers', 'Waivers', 'Optional internal waiver templates or external waiver providers.', waiversConfigured ? 'COMPLETE' : 'OPTIONAL', 'OPTIONAL', '/waivers', []),
     step('sms', 'SMS & compliance', 'Optional. Outbound SMS is ready only when the number, Messaging Service, account, and A2P status are all approved.', smsState === 'READY_TO_SEND' ? 'COMPLETE' : ['REJECTED', 'ERROR'].includes(smsState) ? 'BLOCKED' : smsRequested ? 'IN_PROGRESS' : 'OPTIONAL', smsRequested ? 'REQUIRED ONLY FOR FEATURE' : 'OPTIONAL', '/onboarding', smsState === 'BUSINESS_PROFILE_INCOMPLETE' ? ['Complete the separate legal/compliance business profile.'] : smsState === 'SMS_SETUP_INCOMPLETE' ? ['Finish number, account, Messaging Service, and consent setup.'] : smsState === 'REGISTRATION_READY' ? ['Submit registration manually and wait for approval.'] : smsState === 'PENDING' ? ['Wait for carrier review.'] : smsState === 'APPROVED_SETUP_INCOMPLETE' ? ['A2P is approved, but the active primary number/account/Messaging Service combination is not ready.'] : smsState === 'MOCK_ONLY' ? ['Mock approval is for workflow testing only; live A2P approval is required before real SMS.'] : smsState === 'ERROR' ? ['Resolve the registration submission error.'] : smsState === 'REJECTED' ? ['Resolve the compliance rejection before sending.'] : []),
     step('social', 'Social channels', 'Optional. Connect Facebook or Instagram to reply to messages there.', socialStatus === 'READY' ? 'COMPLETE' : socialStatus === 'ERROR' ? 'BLOCKED' : 'OPTIONAL', 'OPTIONAL', '/channels', socialStatus === 'ERROR' ? ['Reconnect or resolve the social connection.'] : []),
@@ -161,7 +169,7 @@ export function buildOnboardingReadiness(facts: OnboardingFacts) {
   return {
     core: { ready: coreReady, blockers: coreBlockers },
     booking: { status: bookingStatus, ready: bookingReady, required: bookingRequired, blockers: unique([...bookingBlockers, ...bookingErrors]) },
-    payments: { status: paymentStatus, ready: paymentsReady, required: depositServices.length > 0, depositServiceCount: depositServices.length, blockers: paymentBlockers.length ? ['Connect Square for every artist with a deposit-enabled service.'] : [] },
+    payments: { status: paymentStatus, ready: paymentsReady, required: depositServices.length > 0, depositServiceCount: depositServices.length, blockers: unsupportedPaymentProviders.length ? [`Unsupported deposit payment provider: ${unsupportedPaymentProviders.join(', ')}.`] : paymentBlockers },
     sms: { status: smsState, readyToSend: smsReady, requested: smsRequested, complianceStatus, blockers: steps.find(item => item.id === 'sms')?.blockers ?? [] },
     social: { status: socialStatus, ready: socialStatus === 'READY', providers: unique(connectedSocial.map(connection => connection.provider)) },
     waivers: { status: waiversConfigured ? 'READY' as const : 'OPTIONAL' as const, configured: waiversConfigured, internalCount: facts.internalWaiverCount, externalCount: facts.externalWaiverCount, providerConnections: facts.waiverConnectionCount },

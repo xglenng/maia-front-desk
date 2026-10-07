@@ -10,7 +10,7 @@ const artistB = 'artist-b';
 const tenantA: OnboardingFacts = {
   agentRuntimeReady: true,
   organization: { name: 'Studio A Legal Name', publicName: 'Studio A Brand', publicPhone: '3035550100', publicEmail: null, website: null },
-  artists: [{ id: artistA, displayName: 'Artist A', bookingEnabled: true, receptionistEnabled: true }],
+  artists: [{ id: artistA, displayName: 'Artist A', bookingEnabled: true, receptionistEnabled: true, venmoEnabled: false, venmoConfigured: false }],
   services: [
     { id: 'tattoo-a', artistId: artistA, name: 'Tattoo Session', active: true, durationMinutes: 60, pricingType: 'HOURLY', basePriceCents: null, hourlyRateCents: 15000, paymentProvider: 'SQUARE', depositType: 'FIXED', depositAmountCents: 2500, depositPercent: null },
     { id: 'piercing-a', artistId: artistA, name: 'Piercing', active: true, durationMinutes: 30, pricingType: 'FLAT', basePriceCents: 5000, hourlyRateCents: null, paymentProvider: 'SQUARE', depositType: 'NONE', depositAmountCents: null, depositPercent: null },
@@ -36,7 +36,7 @@ const tenantA: OnboardingFacts = {
 const tenantB: OnboardingFacts = {
   agentRuntimeReady: true,
   organization: { name: 'Studio B', publicName: 'Studio B Brand', publicPhone: null, publicEmail: null, website: null },
-  artists: [{ id: artistB, displayName: 'Artist B', bookingEnabled: true, receptionistEnabled: true }],
+  artists: [{ id: artistB, displayName: 'Artist B', bookingEnabled: true, receptionistEnabled: true, venmoEnabled: false, venmoConfigured: false }],
   services: [{ id: 'tattoo-b', artistId: artistB, name: 'Tattoo Session', active: true, durationMinutes: 90, pricingType: 'QUOTE', basePriceCents: null, hourlyRateCents: null, paymentProvider: 'SQUARE', depositType: 'NONE', depositAmountCents: null, depositPercent: null }],
   locations: [],
   knowledge: { visiblePolicyCount: 0, faqCount: 0, aftercareCount: 0 },
@@ -91,11 +91,32 @@ test('a deposit-enabled artist is not payment-ready until its existing Square co
 });
 
 test('deposit services configured for an unsupported payment provider are not reported ready', () => {
-  const facts = { ...tenantA, services: tenantA.services.map(service => service.id === 'tattoo-a' ? { ...service, paymentProvider: 'STRIPE' } : service) };
+  const facts = { ...tenantA, services: tenantA.services.map(service => service.id === 'tattoo-a' ? { ...service, paymentProvider: 'LEGACY_PROVIDER' } : service) };
   const readiness = buildOnboardingReadiness(facts);
   assert.equal(readiness.readyForCoreMaia, true);
   assert.equal(readiness.payments.ready, false);
   assert.equal(readiness.payments.status, 'ERROR');
+});
+
+test('Stripe deposits require the server-side Stripe secret while configured Stripe is ready', () => {
+  const services = tenantA.services.map(service => service.id === 'tattoo-a' ? { ...service, paymentProvider: 'STRIPE' } : service);
+  assert.equal(buildOnboardingReadiness({ ...tenantA, services }).payments.status, 'NOT_CONFIGURED');
+  assert.equal(buildOnboardingReadiness({ ...tenantA, stripeConfigured: true, services }).payments.status, 'READY');
+});
+
+test('manual Venmo readiness uses only the assigned artist configuration and does not require Square', () => {
+  const facts: OnboardingFacts = {
+    ...tenantA,
+    artists: [{ ...tenantA.artists[0]!, venmoEnabled: true, venmoConfigured: true }],
+    services: tenantA.services.map(service => service.id === 'tattoo-a' ? { ...service, paymentProvider: 'VENMO_MANUAL' } : service),
+    schedulingConnections: [],
+  };
+  const ready = buildOnboardingReadiness(facts);
+  assert.equal(ready.payments.status, 'READY');
+  assert.equal(ready.readyForPayments, true);
+  const unconfigured = buildOnboardingReadiness({ ...facts, artists: [{ ...facts.artists[0]!, venmoEnabled: false, venmoConfigured: false }] });
+  assert.equal(unconfigured.payments.status, 'NOT_CONFIGURED');
+  assert.equal(unconfigured.readyForPayments, false);
 });
 
 test('a phone number alone never makes outbound SMS ready', () => {

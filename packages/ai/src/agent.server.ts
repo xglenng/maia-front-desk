@@ -7,7 +7,7 @@ import { db } from '@db/index';
 import { agentActions, agentRuns, artists, conversations, messages } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
 import { shouldRunAi } from '@/packages/inbox/state';
-import { createBookingHold, createDepositLink, escalate, getClient, getContextTimezone, getWaiverLink, sendMessage } from './tools';
+import { createBookingHold, createDepositRequest, escalate, getClient, getContextTimezone, getWaiverLink, sendMessage } from './tools';
 import { checkAvailability, getClientAppointmentsForReceptionist, getServicePricing, getStudioContext, getStudioPromptConfiguration, listArtists, searchServices } from './read-tools.server';
 import type { MaiaAgentContext } from './context-policy';
 
@@ -183,12 +183,12 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
             return clientResult;
           }),
         }),
-        createDepositLink: tool({
-          description: 'Create the existing Square deposit link only when createBookingHold returned depositRequired=true. Never call for a no-deposit or already-paid booking.',
+        create_deposit_request: tool({
+          description: 'Provide the configured deposit request only when createBookingHold returned depositRequired=true. Square and Stripe return a hosted checkout link; manual Venmo returns the artist-configured handle and instructions with paymentStatus=AWAITING_MANUAL_CONFIRMATION. Never say a Venmo payment was received or confirmed.',
           parameters: z.object({ appointmentId: z.string().uuid() }),
-          execute: audit('createDepositLink', async (args: { appointmentId: string }) => {
-            const result = await createDepositLink(context, args.appointmentId);
-            return { url: result.url, amountCents: result.amountCents, appointmentId: result.appointmentId };
+          execute: audit('create_deposit_request', async (args: { appointmentId: string }) => {
+            const result = await createDepositRequest(context, args.appointmentId);
+            return result;
           }),
         }),
         getWaiverLink: tool({

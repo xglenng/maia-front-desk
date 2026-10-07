@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
 import { appointments, artists, automationJobs, externalWaiverAssignments, externalWaiverEvents } from "@db/schema";
+import { cancelAppointmentPreCompletionJobs } from '@/packages/automations/lifecycle.server';
 
 type Context = { params: Promise<{ id: string }> };
 const schema = z.object({ action: z.enum(["MARK_COMPLETE", "MARK_REVIEWED", "VOID"]) });
@@ -22,6 +23,7 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
   const [assignment] = await db.update(externalWaiverAssignments).set({ status, ...(status === "COMPLETED" ? { completedAt: now } : {}), ...(status === "REVIEWED" ? { reviewedAt: now } : {}), updatedAt: now }).where(eq(externalWaiverAssignments.id, id)).returning();
   await db.insert(externalWaiverEvents).values({ organizationId: user.organization_id, assignmentId: id, userId: user.id, action: parsed.data.action, details: { previousStatus: row.assignment.status } });
   if (["COMPLETED", "REVIEWED", "VOID"].includes(status)) await db.update(automationJobs).set({ status: "CANCELLED", completedAt: now, lastErrorCode: "WAIVER_NO_LONGER_ELIGIBLE", lockedAt: null, lockExpiresAt: null, lockToken: null, updatedAt: now }).where(and(eq(automationJobs.type, "WAIVER_REMINDER"), eq(automationJobs.appointmentId, row.assignment.appointmentId), inArray(automationJobs.status, ["PENDING", "RETRY", "PROCESSING"])));
+  if (status === 'COMPLETED' || status === 'REVIEWED') await cancelAppointmentPreCompletionJobs(row.assignment.appointmentId, 'WAIVER_COMPLETED');
   return NextResponse.json({ assignment });
 }
 

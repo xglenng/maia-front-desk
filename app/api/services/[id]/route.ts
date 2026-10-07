@@ -21,6 +21,7 @@ const updateSchema = z.object({
   depositType: z.enum(['NONE', 'FIXED', 'PERCENT']).optional(),
   depositAmountCents: z.number().int().positive().nullable().optional(),
   depositPercent: z.number().int().min(1).max(100).nullable().optional(),
+  paymentProvider: z.enum(['SQUARE', 'STRIPE', 'VENMO_MANUAL']).optional(),
   requiresConsultation: z.boolean().optional(),
   requiresArtistApproval: z.boolean().optional(),
   active: z.boolean().optional(),

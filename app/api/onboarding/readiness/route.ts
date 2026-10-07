@@ -41,7 +41,7 @@ async function handleGET(request: NextRequest) {
   ] = await Promise.all([
     db.select({ name: organizations.name, slug: organizations.slug, publicName: organizations.publicName, publicPhone: organizations.publicPhone, publicEmail: organizations.publicEmail, website: organizations.website })
       .from(organizations).where(eq(organizations.id, organizationId)).limit(1),
-    db.select({ id: artists.id, displayName: artists.displayName, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled }).from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName)),
+    db.select({ id: artists.id, displayName: artists.displayName, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled, venmoEnabled: artists.venmoEnabled, venmoUsername: artists.venmoUsername, venmoPaymentInstructions: artists.venmoPaymentInstructions }).from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName)),
     db.select({ id: services.id, artistId: services.artistId, name: services.name, active: services.active, durationMinutes: services.durationMinutes, pricingType: services.pricingType, basePriceCents: services.basePriceCents, hourlyRateCents: services.hourlyRateCents, paymentProvider: services.paymentProvider, depositType: services.depositType, depositAmountCents: services.depositAmountCents, depositPercent: services.depositPercent }).from(services).where(eq(services.organizationId, organizationId)),
     db.select({ id: studioLocations.id, name: studioLocations.name, isPrimary: studioLocations.isPrimary, active: studioLocations.active, businessHoursConfigured: studioLocations.businessHoursConfigured }).from(studioLocations).where(eq(studioLocations.organizationId, organizationId)),
     db.select({ id: businessRules.id }).from(businessRules).where(and(eq(businessRules.organizationId, organizationId), eq(businessRules.active, true), eq(businessRules.visibility, 'CLIENT_VISIBLE'))),
@@ -83,8 +83,9 @@ async function handleGET(request: NextRequest) {
   }));
   const readiness = buildOnboardingReadiness({
     agentRuntimeReady: Boolean(process.env.OPENAI_API_KEY) && process.env.AI_PROVIDER !== 'mock',
+    stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET),
     organization,
-    artists: artistRows,
+    artists: artistRows.map(artist => ({ ...artist, venmoConfigured: Boolean(artist.venmoUsername && artist.venmoPaymentInstructions) })),
     services: serviceRows,
     locations: locationRows,
     knowledge: { visiblePolicyCount: visiblePolicies.length, faqCount: faqRows.length, aftercareCount: aftercareRows.length },

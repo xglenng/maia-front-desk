@@ -10,6 +10,7 @@ import { sendStudioSms } from '@integrations/studio-sms';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { classifyAutomationFailure, retryDelaySeconds, retryState } from './policy';
 import { findGeneratedMessage, finishAiResponse, renewAutomationJobLease, updateClaimedJob, type ClaimedAutomationJob } from './queue.server';
+import { processAppointmentAutomationJob } from './appointment-processor.server';
 
 function payloadRecord(job: ClaimedAutomationJob) {
   return job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload) ? job.payload as Record<string, unknown> : {};
@@ -53,7 +54,7 @@ async function processWaiverReminder(job: ClaimedAutomationJob, payload: Record<
       eq(appointments.artistId, job.artistId),
       eq(externalWaiverAssignments.clientId, job.clientId),
     )).limit(1);
-  if (!assignment || assignment.assignment.status !== 'SENT' || assignment.appointment.status === 'CANCELLED' || assignment.assignment.completedAt) {
+  if (!assignment || assignment.assignment.status !== 'SENT' || ['CANCELLED', 'CANCELED'].includes(assignment.appointment.status) || assignment.assignment.completedAt) {
     await completeJob(job, 'CANCELLED', 'WAIVER_NO_LONGER_ELIGIBLE');
     return { id: job.id, status: 'CANCELLED' };
   }
@@ -206,6 +207,7 @@ export async function processClaimedAutomationJob(job: ClaimedAutomationJob) {
   try {
     if (job.type === 'WAIVER_REMINDER') return await processWaiverReminder(job, payload);
     if (job.type === 'AI_RESPONSE') return await processAiResponse(job, payload);
+    if (['APPOINTMENT_REMINDER', 'APPOINTMENT_WAIVER_SEND', 'AFTERCARE_FOLLOWUP', 'REVIEW_FOLLOWUP'].includes(job.type)) return await processAppointmentAutomationJob(job);
     await completeJob(job, 'CANCELLED', 'UNSUPPORTED_JOB_TYPE');
     return { id: job.id, status: 'CANCELLED' };
   } catch (error) {

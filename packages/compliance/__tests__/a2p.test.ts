@@ -268,6 +268,9 @@ test("inbound routing accepts mapped pending temporary Twilio numbers without en
   assert.equal(isInboundPhoneRoutable(pending), true);
   const sendRoute = readFileSync("app/api/twilio/send/route.ts", "utf8");
   assert.match(sendRoute, /!number\.active \|\| !\["APPROVED", "MOCK_APPROVED"\]/);
+  const studioSms = readFileSync("packages/integrations/studio-sms.ts", "utf8");
+  assert.match(studioSms, /!maySendStudioSms\(number\.complianceStatus\)/);
+  assert.match(readFileSync("packages/integrations/studio-sms-policy.ts", "utf8"), /nodeEnvironment !== 'production'/);
 });
 
 test("inbound routing rejects unknown, unmapped, expired, and retired numbers", () => {
@@ -294,7 +297,7 @@ test("mapped pending numbers reach HELP without an inbound active filter or outb
   const sendRoute = readFileSync("app/api/twilio/send/route.ts", "utf8");
   assert.match(sendRoute, /!number\.active \|\| !\["APPROVED", "MOCK_APPROVED"\]/);
   const studioSms = readFileSync("packages/integrations/studio-sms.ts", "utf8");
-  assert.match(studioSms, /!\["APPROVED", "MOCK_APPROVED"\]/);
+  assert.match(studioSms, /!maySendStudioSms\(number\.complianceStatus\)/);
 });
 
 test("invalid Twilio signatures are diagnosed safely and still return 403 before message processing", () => {

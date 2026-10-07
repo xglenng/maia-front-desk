@@ -5,6 +5,7 @@ import { db } from "@db/index";
 import { automationJobs, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, waiverProviderConnections } from "@db/schema";
 import { decryptComplianceSecret } from "@/packages/compliance/secrets";
 import { findJotformAnswer, getJotformSubmission, parseJotformCredentials } from "@waivers/providers";
+import { cancelAppointmentPreCompletionJobs } from '@/packages/automations/lifecycle.server';
 
 type Context = { params: Promise<{ connectionId: string }> };
 
@@ -36,5 +37,6 @@ export async function POST(request: NextRequest, { params }: Context) {
     await tx.update(automationJobs).set({ status: "CANCELLED", completedAt: now, lastErrorCode: "WAIVER_NO_LONGER_ELIGIBLE", lockedAt: null, lockExpiresAt: null, lockToken: null, updatedAt: now }).where(and(eq(automationJobs.type, "WAIVER_REMINDER"), eq(automationJobs.appointmentId, row.assignment.appointmentId), inArray(automationJobs.status, ["PENDING", "RETRY", "PROCESSING"])));
     await tx.insert(externalWaiverEvents).values({ organizationId: connection.organizationId, assignmentId: row.assignment.id, action: "PROVIDER_COMPLETED", details: { provider: "JOTFORM", submissionId, formId: submissionFormId } });
   });
+  await cancelAppointmentPreCompletionJobs(row.assignment.appointmentId, 'WAIVER_COMPLETED');
   return NextResponse.json({ received: true });
 }
