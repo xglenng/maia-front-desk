@@ -1,8 +1,8 @@
 import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, calendarConnections, clients } from '@db/schema';
+import { appointments, automationJobs, calendarConnections, clients } from '@db/schema';
 import { GoogleCalendarAdapter } from '@integrations/index';
 
 async function handleGET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -21,6 +21,12 @@ async function handleDELETE(request: NextRequest, { params }: { params: Promise<
   const [appointment] = await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, organizationId)));
   if (!appointment) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   const [updated] = await db.update(appointments).set({ status: 'CANCELLED', holdExpiresAt: null, updatedAt: new Date() }).where(eq(appointments.id, id)).returning();
+  const now = new Date();
+  await db.update(automationJobs).set({ status: 'CANCELLED', completedAt: now, lastErrorCode: 'APPOINTMENT_CANCELLED', lockedAt: null, lockExpiresAt: null, lockToken: null, updatedAt: now }).where(and(
+    eq(automationJobs.type, 'WAIVER_REMINDER'),
+    eq(automationJobs.appointmentId, id),
+    inArray(automationJobs.status, ['PENDING', 'RETRY', 'PROCESSING']),
+  ));
   return NextResponse.json({ appointment: updated });
 }
 

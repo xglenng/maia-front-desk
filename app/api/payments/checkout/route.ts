@@ -1,10 +1,11 @@
-import { protectedRoute } from '@/packages/auth/server';
+import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, clients, payments } from '@db/schema';
+import { appointments, artists, clients, payments } from '@db/schema';
 import { createDepositCheckout } from '@integrations/index';
 import { z } from 'zod';
+import { canManageAppointment } from '@booking/confirmation-policy';
 
 const inputSchema = z.object({ organizationId: z.string().uuid(), appointmentId: z.string().uuid() });
 
@@ -12,8 +13,13 @@ async function handlePOST(request: NextRequest) {
   const parsed = inputSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { organizationId, appointmentId } = parsed.data;
-  const [row] = await db.select({ appointment: appointments, client: clients }).from(appointments).innerJoin(clients, eq(appointments.clientId, clients.id)).where(and(eq(appointments.id, appointmentId), eq(appointments.organizationId, organizationId)));
-  if (!row) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
+  const user = await identity(request);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  const [row] = await db.select({ appointment: appointments, client: clients, artistUserId: artists.userId }).from(appointments)
+    .innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(clients.organizationId, appointments.organizationId)))
+    .innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(artists.organizationId, appointments.organizationId)))
+    .where(and(eq(appointments.id, appointmentId), eq(appointments.organizationId, organizationId)));
+  if (!row || !canManageAppointment(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   const appointment = row.appointment;
   if (appointment.status !== 'TENTATIVE') return NextResponse.json({ error: 'Only tentative appointments can accept a deposit' }, { status: 409 });
   if (!appointment.depositCents || appointment.depositCents <= 0) return NextResponse.json({ error: 'Appointment has no deposit amount' }, { status: 400 });

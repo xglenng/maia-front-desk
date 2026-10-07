@@ -359,8 +359,8 @@ export async function getWaiverLink(ctx: AgentContext, appointmentId: string) {
   return { waiverUrl: `${url}&access=${encodeURIComponent(access)}`, waiverTemplateId: template.id, version: template.version };
 }
 
-export async function sendMessage(ctx: AgentContext, content: string) {
-  const [message] = await db.insert(messages).values({ conversationId: ctx.conversationId, senderType: 'AI', role: 'assistant', content, metadata: { source: 'ai-receptionist' } }).returning();
+export async function sendMessage(ctx: AgentContext, content: string, automationJobId?: string, automationInboundVersion?: number) {
+  const [message] = await db.insert(messages).values({ conversationId: ctx.conversationId, senderType: 'AI', role: 'assistant', content, metadata: { source: 'ai-receptionist', ...(automationJobId ? { automationJobId } : {}), ...(automationInboundVersion == null ? {} : { automationInboundVersion }) } }).returning();
   await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, ctx.conversationId));
   return message;
 }

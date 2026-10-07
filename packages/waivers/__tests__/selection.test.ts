@@ -45,9 +45,12 @@ test("Jotform completion is verified against the provider and an opaque secret",
 
 test("waiver reminders are tenant-sent and stop after terminal states", () => {
   const runner = readFileSync("app/api/automations/run/route.ts", "utf8");
+  const processor = readFileSync("packages/automations/processor.server.ts", "utf8");
   const completion = readFileSync("app/api/waiver-assignments/[id]/route.ts", "utf8");
-  assert.match(runner, /sendStudioSms/);
-  assert.match(runner, /waiverAssignmentId/);
+  assert.match(runner, /claimDueAutomationJobs/);
+  assert.match(processor, /sendStudioSms/);
+  assert.match(processor, /waiverAssignmentId/);
+  assert.match(processor, /WAIVER_NO_LONGER_ELIGIBLE/);
   assert.match(completion, /WAIVER_REMINDER/);
   assert.match(completion, /CANCELLED/);
 });

@@ -68,7 +68,18 @@ async function handlePOST(request: NextRequest) {
     if (!conversation) conversation = (await db.insert(conversations).values({ organizationId: user.organization_id, artistId: row.artist.id, clientId: row.client.id, channel: "SMS", status: "OPEN", aiEnabled: true, lastMessageAt: now }).returning())[0];
     await db.insert(messages).values({ conversationId: conversation.id, senderType: "SYSTEM", role: "assistant", content: body, externalMessageId: sent.sid, metadata: { waiverAssignmentId: assignment.id, provider: "twilio", studioPhone: sent.studioPhone } });
     await db.update(conversations).set({ lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, conversation.id));
-    if (dueAt.getTime() > Date.now() + 60_000) await db.insert(automationJobs).values({ organizationId: user.organization_id, artistId: row.artist.id, clientId: row.client.id, appointmentId: row.appointment.id, type: "WAIVER_REMINDER", channel: "SMS", runAt: dueAt, payload: { body: `${row.organization.name}: Reminder to complete your ${selected.name} before your appointment: ${waiverUrl} Reply STOP to opt out.`, waiverAssignmentId: assignment.id } });
+    if (dueAt.getTime() > Date.now() + 60_000) await db.insert(automationJobs).values({
+      organizationId: user.organization_id,
+      artistId: row.artist.id,
+      clientId: row.client.id,
+      appointmentId: row.appointment.id,
+      conversationId: conversation.id,
+      dedupeKey: `WAIVER_REMINDER:${assignment.id}`,
+      type: "WAIVER_REMINDER",
+      channel: "SMS",
+      runAt: dueAt,
+      payload: { waiverAssignmentId: assignment.id },
+    }).onConflictDoNothing({ target: [automationJobs.organizationId, automationJobs.dedupeKey] });
     return NextResponse.json({ assignment: { ...assignment, status: "SENT", sentAt: now }, form: selected, provider: { sid: sent.sid, status: sent.status } }, { status: 201 });
   } catch (error) {
     await db.update(externalWaiverAssignments).set({ status: "DELIVERY_FAILED", updatedAt: new Date(), providerMetadata: { error: error instanceof Error ? error.message : "SMS delivery failed" } }).where(eq(externalWaiverAssignments.id, assignment.id));

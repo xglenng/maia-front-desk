@@ -61,7 +61,7 @@ function withAudit<TArgs extends unknown[], TResult>(runId: string | undefined, 
   };
 }
 
-export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; messageAlreadyStored?: boolean }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
+export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; messageAlreadyStored?: boolean; automationGuard?: () => Promise<boolean>; automationJobId?: string; automationInboundVersion?: number }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
   const [artist] = await db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, responseLength: artists.responseLength, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
     .from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1);
   const [conversation] = await db.select().from(conversations).where(and(
@@ -73,6 +73,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
   if (!artist || !conversation) throw new Error('Agent context is no longer valid.');
   if (!shouldRunAi(conversation)) return { error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' };
   if (!artist.receptionistEnabled) return { error: 'The studio receptionist is disabled for this artist.', conversationId: conversation.id, mode: 'HUMAN' };
+  if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
 
   if (!input.messageAlreadyStored) await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
   await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversation.id));
@@ -90,7 +91,8 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         : text.includes('book') || text.includes('appointment')
           ? 'Which service would you like to book, and what timing works for you?'
           : 'Which service are you interested in, and what would you like help with?';
-      const message = await sendMessage(context, reply);
+      if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
+      const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
       await updateRun(runId, { success: true, latencyMs: Date.now() - startedAt });
       return { reply, conversationId: conversation.id, messageId: message.id, mode: 'mock' };
     }
@@ -115,7 +117,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     const history = await db.select({ role: messages.role, content: messages.content })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
     const conversationMessages = history.reverse().map(message => ({ role: message.role === 'assistant' ? 'assistant' as const : 'user' as const, content: message.content }));
-    const audit = <TArgs extends unknown[], TResult>(name: string, execute: (...args: TArgs) => Promise<TResult>) => withAudit(runId, name, execute);
+    const audit = <TArgs extends unknown[], TResult>(name: string, execute: (...args: TArgs) => Promise<TResult>) => withAudit(runId, name, async (...args: TArgs) => {
+      if (input.automationGuard && !await input.automationGuard()) throw new Error('AUTOMATION_SUPPRESSED');
+      return execute(...args);
+    });
 
     const result = await generateText({
       model: openai(modelName),
@@ -203,7 +208,8 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       },
     });
     const reply = result.text || 'I’m going to have the artist take a look at this.';
-    const message = await sendMessage(context, reply);
+    if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
+    const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
     await updateRun(runId, {
       success: true,
       latencyMs: Date.now() - startedAt,

@@ -51,9 +51,15 @@ export const artists = pgTable("artists", {
   receptionistEnabled: boolean("receptionist_enabled").default(true).notNull(),
   receptionistTone: text("receptionist_tone").$type<"WARM" | "PROFESSIONAL" | "FRIENDLY">().default("WARM").notNull(),
   receptionistGreeting: text("receptionist_greeting"),
-  receptionistInstructions: text("receptionist_instructions")
+  receptionistInstructions: text("receptionist_instructions"),
+  smsResponseDelaySeconds: integer("sms_response_delay_seconds").default(0).notNull(),
+  metaResponseDelaySeconds: integer("meta_response_delay_seconds").default(0).notNull(),
+  webResponseDelaySeconds: integer("web_response_delay_seconds").default(0).notNull()
 }, table => ({
   receptionistToneCheck: check("artists_receptionist_tone_check", sql`${table.receptionistTone} IN ('WARM', 'PROFESSIONAL', 'FRIENDLY')`),
+  smsDelayCheck: check("artists_sms_response_delay_check", sql`${table.smsResponseDelaySeconds} IN (0, 60, 120, 300)`),
+  metaDelayCheck: check("artists_meta_response_delay_check", sql`${table.metaResponseDelaySeconds} IN (0, 60, 120, 300)`),
+  webDelayCheck: check("artists_web_response_delay_check", sql`${table.webResponseDelaySeconds} = 0`),
 }));
 
 export const authOauthStates=pgTable('auth_oauth_states',{
@@ -361,6 +367,7 @@ export const conversations = pgTable("conversations", {
   status: text("status").default("OPEN").notNull(),
   aiEnabled: boolean("ai_enabled").default(true).notNull(),
   unreadCount: integer("unread_count").default(0).notNull(),
+  inboundVersion: integer("inbound_version").default(0).notNull(),
   lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
   lastReadAt: timestamp("last_read_at", { withTimezone: true }),
   humanTakeoverAt: timestamp("human_takeover_at", { withTimezone: true }),
@@ -661,15 +668,32 @@ export const automationJobs = pgTable("automation_jobs", {
   artistId: uuid("artist_id").references(() => artists.id).notNull(),
   clientId: uuid("client_id").references(() => clients.id).notNull(),
   appointmentId: uuid("appointment_id").references(() => appointments.id),
+  conversationId: uuid("conversation_id").references(() => conversations.id),
+  resultMessageId: uuid("result_message_id").references(() => messages.id),
+  dedupeKey: text("dedupe_key").notNull(),
   type: text("type").notNull(),
   channel: text("channel").notNull().default("SMS"),
-  runAt: timestamp("run_at").notNull(),
+  runAt: timestamp("run_at", { withTimezone: true }).notNull(),
   status: text("status").notNull().default("PENDING"),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(5).notNull(),
+  lockedAt: timestamp("locked_at", { withTimezone: true }),
+  lockExpiresAt: timestamp("lock_expires_at", { withTimezone: true }),
+  lockToken: uuid("lock_token"),
+  lastErrorCode: text("last_error_code"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   payload: jsonb("payload"),
-  sentAt: timestamp("sent_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+}, table => ({
+  dedupe: uniqueIndex("automation_jobs_organization_dedupe_uidx").on(table.organizationId, table.dedupeKey),
+  due: index("automation_jobs_due_idx").on(table.status, table.runAt, table.id),
+  conversation: index("automation_jobs_conversation_idx").on(table.conversationId, table.status),
+  resultMessageUnique: uniqueIndex("automation_jobs_result_message_uidx").on(table.resultMessageId).where(sql`${table.resultMessageId} IS NOT NULL`),
+  lifecycleCheck: check("automation_jobs_lifecycle_check", sql`${table.status} IN ('PENDING', 'PROCESSING', 'SENDING', 'RETRY', 'COMPLETED', 'FAILED', 'DELIVERY_UNKNOWN', 'CANCELLED')`),
+  attemptsCheck: check("automation_jobs_attempts_check", sql`${table.attemptCount} >= 0 AND ${table.maxAttempts} >= 1`),
+}));
 
 export const legalDocuments = pgTable("legal_documents", {
   id: uuid("id").defaultRandom().primaryKey(),

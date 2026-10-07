@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@db/index";
 import { automationJobs, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, waiverProviderConnections } from "@db/schema";
 import { decryptComplianceSecret } from "@/packages/compliance/secrets";
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: Context) {
   const now = new Date();
   await db.transaction(async tx => {
     await tx.update(externalWaiverAssignments).set({ status: "COMPLETED", completedAt: now, providerSubmissionId: submissionId, providerMetadata: { provider: "JOTFORM", formId: submissionFormId }, updatedAt: now }).where(eq(externalWaiverAssignments.id, row.assignment.id));
-    await tx.update(automationJobs).set({ status: "CANCELLED", updatedAt: now }).where(and(eq(automationJobs.type, "WAIVER_REMINDER"), eq(automationJobs.appointmentId, row.assignment.appointmentId), eq(automationJobs.status, "PENDING")));
+    await tx.update(automationJobs).set({ status: "CANCELLED", completedAt: now, lastErrorCode: "WAIVER_NO_LONGER_ELIGIBLE", lockedAt: null, lockExpiresAt: null, lockToken: null, updatedAt: now }).where(and(eq(automationJobs.type, "WAIVER_REMINDER"), eq(automationJobs.appointmentId, row.assignment.appointmentId), inArray(automationJobs.status, ["PENDING", "RETRY", "PROCESSING"])));
     await tx.insert(externalWaiverEvents).values({ organizationId: connection.organizationId, assignmentId: row.assignment.id, action: "PROVIDER_COMPLETED", details: { provider: "JOTFORM", submissionId, formId: submissionFormId } });
   });
   return NextResponse.json({ received: true });

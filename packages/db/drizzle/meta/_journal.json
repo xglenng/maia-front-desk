@@ -8,6 +8,13 @@
       "when": 1791331200000,
       "tag": "0000_studio_configuration_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791417600000,
+      "tag": "0001_durable_automation_and_ai_debounce",
+      "breakpoints": true
     }
   ]
 }

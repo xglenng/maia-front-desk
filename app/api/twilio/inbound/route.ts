@@ -8,6 +8,8 @@ import { decryptSecret, sendSms, twilioMessageStatusCallbackUrl, validateTwilioS
 import { shouldRunAi } from '@/packages/inbox/state';
 import { appBaseUrl, formOptInUrl, helpResponse, inboundConfirmationRequest, inboundConsentDecision, inboundOnlyConsentState, inboundSubscriptionConfirmation, isConsentFormReady, isPendingYesConfirmation, optOutConfirmation, pendingSmsConfirmationMatches, smsKeywordAction } from '@/packages/consent';
 import { isInboundPhoneRoutable } from '@integrations/twilio-routing';
+import { aiResponseDelaySeconds } from '@/packages/automations/policy';
+import { cancelUndeliveredAiResponses, enqueueAiResponse } from '@/packages/automations/queue.server';
 
 async function parseForm(request: NextRequest) {
   const form = await request.formData();
@@ -58,8 +60,9 @@ async function recordOutbound(conversationId: string, to: string, from: string, 
 }
 
 async function recordInbound(conversationId: string, text: string, messageSid: string | undefined, studioPhone: string, now: Date) {
-  await db.insert(messages).values({ conversationId, senderType: 'CLIENT', role: 'user', content: text, externalMessageId: messageSid, metadata: { provider: 'twilio', studioPhone } });
-  await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, lastInboundAt: now, lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, conversationId));
+  const [message] = await db.insert(messages).values({ conversationId, senderType: 'CLIENT', role: 'user', content: text, externalMessageId: messageSid, metadata: { provider: 'twilio', studioPhone } }).returning({ id: messages.id });
+  const [conversation] = await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, inboundVersion: sql`${conversations.inboundVersion} + 1`, lastInboundAt: now, lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, conversationId)).returning({ inboundVersion: conversations.inboundVersion });
+  return { messageId: message.id, inboundVersion: conversation.inboundVersion };
 }
 
 async function pendingConfirmation(conversationId: string) {
@@ -183,6 +186,7 @@ export async function POST(request: NextRequest) {
 
   if (action === 'STOP') {
     await recordInbound(conv.id, text, params.MessageSid, to, now);
+    await cancelUndeliveredAiResponses(conv.id, 'SMS_OPT_OUT');
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
     await db.update(clients).set({ smsOptIn: false, smsConsentStatus: 'OPTED_OUT', smsConsentCapturedAt: null, updatedAt: now }).where(and(eq(clients.id, client.id), eq(clients.organizationId, number.organizationId)));
     const pending = await pendingConfirmation(conv.id);
@@ -254,7 +258,7 @@ export async function POST(request: NextRequest) {
     return xmlResponse();
   }
 
-  await recordInbound(conv.id, text, params.MessageSid, to, now);
+  const latestInbound = await recordInbound(conv.id, text, params.MessageSid, to, now);
   conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
   const pending = surface?.form.mode === 'INBOUND_SMS_CONFIRMATION' && isConsentFormReady(surface.form)
     ? await pendingConfirmation(conv.id)
@@ -292,6 +296,11 @@ export async function POST(request: NextRequest) {
   if (decision === 'WAIT_FOR_YES') return xmlResponse();
 
   if (!shouldRunAi(conv)) return xmlResponse();
+  const delaySeconds = aiResponseDelaySeconds('SMS', artist);
+  if (delaySeconds > 0) {
+    await enqueueAiResponse({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, conversationId: conv.id, channel: 'SMS', latestInboundMessageId: latestInbound.messageId, latestInboundVersion: latestInbound.inboundVersion, delaySeconds, now });
+    return xmlResponse();
+  }
   const { context } = await resolveVerifiedChannelMaiaAgentContext({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, conversationId: conv.id }, 'SMS');
   const aiData = await runMaiaAgent(context, { message: text, messageAlreadyStored: true });
   if ('error' in aiData && (aiData.mode === 'HUMAN' || aiData.mode === 'CLOSED')) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });

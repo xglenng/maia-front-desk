@@ -1,10 +1,12 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@db/index";
-import { channelConnections, clientChannelIdentities, clients, conversations, messages } from "@db/schema";
+import { artists, channelConnections, clientChannelIdentities, clients, conversations, messages } from "@db/schema";
 import { decryptComplianceSecret } from "@/packages/compliance/secrets";
 import { resolveVerifiedChannelMaiaAgentContext } from "@/packages/ai/src/context.server";
 import { runMaiaAgent } from "@/packages/ai/src/agent.server";
 import { shouldRunAi } from "@/packages/inbox/state";
+import { aiResponseDelaySeconds } from "@/packages/automations/policy";
+import { enqueueAiResponse } from "@/packages/automations/queue.server";
 import { getSocialProfile, isMetaAuthError, sendMetaMessage, type SocialInboundEvent } from "./meta";
 
 export async function processSocialInbound(event: SocialInboundEvent, origin: string) {
@@ -26,9 +28,17 @@ export async function processSocialInbound(event: SocialInboundEvent, origin: st
   const [existing] = await db.select().from(conversations).where(and(eq(conversations.organizationId, connection.organizationId), eq(conversations.artistId, connection.artistId), eq(conversations.clientId, client.id), eq(conversations.channel, event.provider), eq(conversations.channelConnectionId, connection.id), eq(conversations.status, "OPEN"))).orderBy(asc(conversations.createdAt)).limit(1);
   const conversation = existing ?? (await db.insert(conversations).values({ organizationId: connection.organizationId, artistId: connection.artistId, clientId: client.id, channel: event.provider, channelConnectionId: connection.id, externalParticipantId: event.externalUserId, status: "OPEN", aiEnabled: true, lastMessageAt: new Date(event.timestamp) }).returning())[0];
   const inboundAt = new Date(event.timestamp);
-  await db.insert(messages).values({ conversationId: conversation.id, senderType: "CLIENT", role: "user", content: event.text, externalMessageId: event.externalMessageId, metadata: { provider: event.provider.toLowerCase(), externalAccountId: event.externalAccountId, attachments: event.attachments } });
-  await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, lastInboundAt: inboundAt, lastMessageAt: inboundAt, updatedAt: new Date() }).where(eq(conversations.id, conversation.id));
-  if (!shouldRunAi(conversation)) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
+  const [inboundMessage] = await db.insert(messages).values({ conversationId: conversation.id, senderType: "CLIENT", role: "user", content: event.text, externalMessageId: event.externalMessageId, metadata: { provider: event.provider.toLowerCase(), externalAccountId: event.externalAccountId, attachments: event.attachments } }).returning({ id: messages.id });
+  const [currentConversation] = await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, inboundVersion: sql`${conversations.inboundVersion} + 1`, lastInboundAt: inboundAt, lastMessageAt: inboundAt, updatedAt: new Date() }).where(eq(conversations.id, conversation.id)).returning();
+  if (!currentConversation || !shouldRunAi(currentConversation)) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
+  const [artist] = await db.select({ smsResponseDelaySeconds: artists.smsResponseDelaySeconds, metaResponseDelaySeconds: artists.metaResponseDelaySeconds, webResponseDelaySeconds: artists.webResponseDelaySeconds })
+    .from(artists).where(and(eq(artists.id, connection.artistId), eq(artists.organizationId, connection.organizationId))).limit(1);
+  if (!artist) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
+  const delaySeconds = aiResponseDelaySeconds(event.provider, artist);
+  if (delaySeconds > 0) {
+    await enqueueAiResponse({ organizationId: connection.organizationId, artistId: connection.artistId, clientId: client.id, conversationId: conversation.id, channel: event.provider, latestInboundMessageId: inboundMessage.id, latestInboundVersion: currentConversation.inboundVersion, delaySeconds, now: inboundAt });
+    return { accepted: true, conversationId: conversation.id, aiReplied: false, scheduled: true } as const;
+  }
   const { context } = await resolveVerifiedChannelMaiaAgentContext({ organizationId: connection.organizationId, artistId: connection.artistId, clientId: client.id, conversationId: conversation.id }, event.provider);
   const ai = await runMaiaAgent(context, { message: event.text, messageAlreadyStored: true });
   if ("error" in ai || !ai.reply) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;

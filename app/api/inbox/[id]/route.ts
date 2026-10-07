@@ -6,6 +6,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
 import { conversationEvents, conversations, messages, users } from "@db/schema";
+import { cancelUndeliveredAiResponses } from "@/packages/automations/queue.server";
 
 type Context = { params: Promise<{ id: string }> };
 const actionSchema = z.object({ action: z.enum(["TAKE_OVER", "RETURN_TO_AI", "MARK_READ", "CLOSE", "REOPEN"]) });
@@ -64,6 +65,7 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
     values.lastReadAt = now;
   }
   const [updated] = await db.update(conversations).set(values).where(eq(conversations.id, id)).returning();
+  if (!updated.aiEnabled || updated.status === "CLOSED") await cancelUndeliveredAiResponses(id, action === "TAKE_OVER" ? "HUMAN_TAKEOVER" : "CONVERSATION_CLOSED");
   await db.insert(conversationEvents).values({
     organizationId: access.user.organization_id,
     conversationId: id,

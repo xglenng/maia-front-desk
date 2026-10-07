@@ -1,7 +1,7 @@
 import { protectedRoute, identity } from "@/packages/auth/server";
 import { canAccessArtist } from "@/packages/inbox/state";
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
 import { appointments, artists, automationJobs, externalWaiverAssignments, externalWaiverEvents } from "@db/schema";
@@ -21,7 +21,7 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
   const status = parsed.data.action === "VOID" ? "VOID" : parsed.data.action === "MARK_REVIEWED" ? "REVIEWED" : "COMPLETED";
   const [assignment] = await db.update(externalWaiverAssignments).set({ status, ...(status === "COMPLETED" ? { completedAt: now } : {}), ...(status === "REVIEWED" ? { reviewedAt: now } : {}), updatedAt: now }).where(eq(externalWaiverAssignments.id, id)).returning();
   await db.insert(externalWaiverEvents).values({ organizationId: user.organization_id, assignmentId: id, userId: user.id, action: parsed.data.action, details: { previousStatus: row.assignment.status } });
-  if (["COMPLETED", "REVIEWED", "VOID"].includes(status)) await db.update(automationJobs).set({ status: "CANCELLED", updatedAt: now }).where(and(eq(automationJobs.type, "WAIVER_REMINDER"), eq(automationJobs.appointmentId, row.assignment.appointmentId), eq(automationJobs.status, "PENDING")));
+  if (["COMPLETED", "REVIEWED", "VOID"].includes(status)) await db.update(automationJobs).set({ status: "CANCELLED", completedAt: now, lastErrorCode: "WAIVER_NO_LONGER_ELIGIBLE", lockedAt: null, lockExpiresAt: null, lockToken: null, updatedAt: now }).where(and(eq(automationJobs.type, "WAIVER_REMINDER"), eq(automationJobs.appointmentId, row.assignment.appointmentId), inArray(automationJobs.status, ["PENDING", "RETRY", "PROCESSING"])));
   return NextResponse.json({ assignment });
 }
 
