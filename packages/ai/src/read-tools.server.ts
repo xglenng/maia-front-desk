@@ -1,9 +1,10 @@
 import 'server-only';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@db/index';
-import { artists, businessRules, organizations, services } from '@db/schema';
+import { artists, businessRules, organizations, services, studioAftercare, studioBusinessHours, studioFaqs, studioLocations } from '@db/schema';
 import type { MaiaAgentContext } from './context-policy';
 import { getClientAppointments, getContextTimezone, getSlots } from './tools';
+import { projectStudioAgentConfiguration } from '@/packages/studio/config-policy';
 import {
   buildAvailabilityRequest,
   publicArtistDtos,
@@ -11,7 +12,6 @@ import {
   resolveServiceForArtist,
   searchServiceRecords,
   servicePricingDto,
-  studioContextDto,
   type AvailabilityPeriod,
   type ServiceRecord,
   type ServiceSearchOptions,
@@ -52,20 +52,49 @@ async function loadPublicArtistRecords(organizationId: string) {
     .from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName));
 }
 
-export async function getStudioContext(context: MaiaAgentContext) {
-  const [[organization], [artist], rules, timezone] = await Promise.all([
-    db.select({ id: organizations.id, name: organizations.name, timezone: organizations.timezone }).from(organizations)
+export async function getStudioPromptConfiguration(context: MaiaAgentContext, query?: string, locationName?: string) {
+  const [[organization], [artist], rules, locations, faqs, aftercare, timezone] = await Promise.all([
+    db.select({ organizationId: organizations.id, publicName: organizations.publicName, publicPhone: organizations.publicPhone, publicEmail: organizations.publicEmail, website: organizations.website, timezone: organizations.timezone }).from(organizations)
       .where(eq(organizations.id, context.organizationId)).limit(1),
-    db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, bio: artists.bio, responseLength: artists.responseLength })
+    db.select({ organizationId: artists.organizationId, displayName: artists.displayName, bio: artists.bio, responseLength: artists.responseLength, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
       .from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1),
-    db.select({ organizationId: businessRules.organizationId, artistId: businessRules.artistId, category: businessRules.category, rule: businessRules.rule }).from(businessRules)
+    db.select({ id: businessRules.id, organizationId: businessRules.organizationId, artistId: businessRules.artistId, category: businessRules.category, rule: businessRules.rule, visibility: businessRules.visibility, priority: businessRules.priority, active: businessRules.active }).from(businessRules)
       .where(and(eq(businessRules.organizationId, context.organizationId), eq(businessRules.artistId, context.artistId), eq(businessRules.active, true)))
-      .orderBy(desc(businessRules.priority)),
+      .orderBy(desc(businessRules.priority)).limit(100),
+    db.select({ id: studioLocations.id, organizationId: studioLocations.organizationId, name: studioLocations.name, addressLine1: studioLocations.addressLine1, addressLine2: studioLocations.addressLine2, city: studioLocations.city, region: studioLocations.region, postalCode: studioLocations.postalCode, country: studioLocations.country, phone: studioLocations.phone, email: studioLocations.email, timezone: studioLocations.timezone, businessHoursConfigured: studioLocations.businessHoursConfigured, isPrimary: studioLocations.isPrimary, active: studioLocations.active }).from(studioLocations)
+      .where(and(eq(studioLocations.organizationId, context.organizationId), eq(studioLocations.active, true))).orderBy(desc(studioLocations.isPrimary), asc(studioLocations.name)).limit(20),
+    db.select({ id: studioFaqs.id, organizationId: studioFaqs.organizationId, locationId: studioFaqs.locationId, category: studioFaqs.category, question: studioFaqs.question, answer: studioFaqs.answer, active: studioFaqs.active, sortOrder: studioFaqs.sortOrder }).from(studioFaqs)
+      .where(and(eq(studioFaqs.organizationId, context.organizationId), eq(studioFaqs.active, true))).orderBy(asc(studioFaqs.sortOrder)).limit(100),
+    db.select({ id: studioAftercare.id, organizationId: studioAftercare.organizationId, locationId: studioAftercare.locationId, serviceType: studioAftercare.serviceType, category: studioAftercare.category, title: studioAftercare.title, instructions: studioAftercare.instructions, active: studioAftercare.active, sortOrder: studioAftercare.sortOrder }).from(studioAftercare)
+      .where(and(eq(studioAftercare.organizationId, context.organizationId), eq(studioAftercare.active, true))).orderBy(asc(studioAftercare.sortOrder)).limit(100),
     getContextTimezone(context.organizationId, context.artistId),
   ]);
-  const dto = studioContextDto({ organizationId: context.organizationId, organization, artist, timezone, rules });
-  if (!dto) throw new Error('Studio context is not available.');
-  return dto;
+  if (!organization || !artist) throw new Error('Studio context is not available.');
+  const locationIds = locations.map(location => location.id);
+  const hours = locationIds.length ? await db.select({ organizationId: studioBusinessHours.organizationId, locationId: studioBusinessHours.locationId, dayOfWeek: studioBusinessHours.dayOfWeek, startMinute: studioBusinessHours.startMinute, endMinute: studioBusinessHours.endMinute })
+    .from(studioBusinessHours).where(and(eq(studioBusinessHours.organizationId, context.organizationId), inArray(studioBusinessHours.locationId, locationIds)))
+    .orderBy(asc(studioBusinessHours.dayOfWeek), asc(studioBusinessHours.startMinute)).limit(200) : [];
+  const configuration = projectStudioAgentConfiguration({
+    organizationId: context.organizationId,
+    artistId: context.artistId,
+    profile: organization,
+    artist,
+    receptionist: { tone: artist.receptionistTone, greeting: artist.receptionistGreeting, instructions: artist.receptionistInstructions },
+    locations,
+    hours,
+    rules,
+    faqs,
+    aftercare,
+    query,
+    locationName,
+  });
+  if (!configuration) throw new Error('Studio context is not available.');
+  return configuration;
+}
+
+export async function getStudioContext(context: MaiaAgentContext, options: { query?: string; locationName?: string } = {}) {
+  const configuration = await getStudioPromptConfiguration(context, options.query, options.locationName);
+  return configuration.clientFacing;
 }
 
 export async function searchServices(context: MaiaAgentContext, options: ServiceSearchOptions = {}) {

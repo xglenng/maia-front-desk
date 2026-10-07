@@ -5,6 +5,7 @@ import { useSession } from '@/components/session-gate';
 
 type Artist = { id: string; displayName: string };
 type PricingType = 'FLAT' | 'HOURLY' | 'QUOTE';
+type DepositType = 'NONE' | 'FIXED' | 'PERCENT';
 type Service = {
   id: string;
   artistId: string;
@@ -17,6 +18,9 @@ type Service = {
   basePriceCents: number | null;
   hourlyRateCents: number | null;
   startingAt: boolean;
+  depositType: DepositType;
+  depositAmountCents: number | null;
+  depositPercent: number | null;
   requiresConsultation: boolean;
   requiresArtistApproval: boolean;
   active: boolean;
@@ -32,6 +36,9 @@ type Draft = {
   basePrice: string;
   hourlyRate: string;
   startingAt: boolean;
+  depositType: DepositType;
+  depositAmount: string;
+  depositPercent: string;
   requiresConsultation: boolean;
   requiresArtistApproval: boolean;
   active: boolean;
@@ -41,6 +48,7 @@ type Draft = {
 const blankDraft: Draft = {
   serviceType: '', category: '', name: '', description: '', durationMinutes: '30',
   pricingType: 'FLAT', basePrice: '', hourlyRate: '', startingAt: false,
+  depositType: 'NONE', depositAmount: '', depositPercent: '',
   requiresConsultation: false, requiresArtistApproval: false, active: true, sortOrder: '0',
 };
 const field = { width: '100%', boxSizing: 'border-box' as const, padding: 10, border: '1px solid #d9d3cc', borderRadius: 7, font: 'inherit' };
@@ -80,6 +88,9 @@ function toDraft(service?: Service): Draft {
     basePrice: centsToInput(service.basePriceCents),
     hourlyRate: centsToInput(service.hourlyRateCents),
     startingAt: service.startingAt,
+    depositType: service.depositType,
+    depositAmount: centsToInput(service.depositAmountCents),
+    depositPercent: service.depositPercent == null ? '' : String(service.depositPercent),
     requiresConsultation: service.requiresConsultation,
     requiresArtistApproval: service.requiresArtistApproval,
     active: service.active,
@@ -167,6 +178,16 @@ export default function ServicesSettingsPage() {
       setError('Enter a valid dollar amount with no more than two decimal places.');
       return;
     }
+    const depositCents = draft.depositType === 'FIXED' ? dollarsToCents(draft.depositAmount) : null;
+    if (draft.depositType === 'FIXED' && (depositCents === undefined || depositCents === null || depositCents <= 0)) {
+      setError('Enter a positive fixed deposit amount.');
+      return;
+    }
+    const depositPercent = draft.depositType === 'PERCENT' ? Number(draft.depositPercent) : null;
+    if (draft.depositType === 'PERCENT' && (!Number.isInteger(depositPercent) || depositPercent! < 1 || depositPercent! > 100)) {
+      setError('Enter a deposit percentage from 1 to 100.');
+      return;
+    }
     const body = {
       organizationId,
       ...(editingId ? {} : { artistId }),
@@ -179,6 +200,9 @@ export default function ServicesSettingsPage() {
       basePriceCents: draft.pricingType === 'FLAT' ? priceCents : null,
       hourlyRateCents: draft.pricingType === 'HOURLY' ? priceCents : null,
       startingAt: draft.startingAt,
+      depositType: draft.depositType,
+      depositAmountCents: draft.depositType === 'FIXED' ? depositCents : null,
+      depositPercent: draft.depositType === 'PERCENT' ? depositPercent : null,
       requiresConsultation: draft.requiresConsultation,
       requiresArtistApproval: draft.requiresArtistApproval,
       active: draft.active,
@@ -279,6 +303,17 @@ export default function ServicesSettingsPage() {
             <option value="FLAT">Flat price</option><option value="HOURLY">Hourly</option><option value="QUOTE">Quote</option>
           </select>
         </label>
+        <label style={labelStyle}>Deposit
+          <select value={draft.depositType} onChange={event => setDraft({ ...draft, depositType: event.target.value as DepositType })} style={field}>
+            <option value="NONE">No deposit</option><option value="FIXED">Fixed amount</option><option value="PERCENT">Percentage of service price</option>
+          </select>
+        </label>
+        {draft.depositType === 'FIXED' && <label style={labelStyle}>Deposit amount (USD)
+          <input type="number" min="0.01" step="0.01" inputMode="decimal" value={draft.depositAmount} onChange={event => setDraft({ ...draft, depositAmount: event.target.value })} style={field} />
+        </label>}
+        {draft.depositType === 'PERCENT' && <label style={labelStyle}>Deposit percentage
+          <input type="number" min="1" max="100" step="1" value={draft.depositPercent} onChange={event => setDraft({ ...draft, depositPercent: event.target.value })} style={field} />
+        </label>}
         {draft.pricingType === 'FLAT' && <label style={labelStyle}>Base price (USD)
           <input type="number" min="0" step="0.01" inputMode="decimal" value={draft.basePrice} onChange={event => setDraft({ ...draft, basePrice: event.target.value })} placeholder="60.00" style={field} />
         </label>}

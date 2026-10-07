@@ -1,12 +1,17 @@
 import {
-  pgTable, uuid, text, timestamp, boolean, integer, date, jsonb, bigint, index, uniqueIndex
+  pgTable, uuid, text, timestamp, boolean, integer, date, jsonb, bigint, index, uniqueIndex, foreignKey, check
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   timezone: text("timezone").notNull().default("America/Denver"),
+  publicName: text("public_name"),
+  publicPhone: text("public_phone"),
+  publicEmail: text("public_email"),
+  website: text("website"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
@@ -42,8 +47,14 @@ export const artists = pgTable("artists", {
   minimumPriceCents: integer("minimum_price_cents").default(15000).notNull(),
   hourlyRateCents: integer("hourly_rate_cents").default(20000).notNull(),
   aiMode: text("ai_mode").default("ASSISTED").notNull(),
-  responseLength: text("response_length").$type<"SHORT" | "STANDARD" | "DETAILED">().default("SHORT").notNull()
-});
+  responseLength: text("response_length").$type<"SHORT" | "STANDARD" | "DETAILED">().default("SHORT").notNull(),
+  receptionistEnabled: boolean("receptionist_enabled").default(true).notNull(),
+  receptionistTone: text("receptionist_tone").$type<"WARM" | "PROFESSIONAL" | "FRIENDLY">().default("WARM").notNull(),
+  receptionistGreeting: text("receptionist_greeting"),
+  receptionistInstructions: text("receptionist_instructions")
+}, table => ({
+  receptionistToneCheck: check("artists_receptionist_tone_check", sql`${table.receptionistTone} IN ('WARM', 'PROFESSIONAL', 'FRIENDLY')`),
+}));
 
 export const authOauthStates=pgTable('auth_oauth_states',{
   tokenHash:text('token_hash').primaryKey(),userId:uuid('user_id').notNull().references(()=>users.id),
@@ -190,15 +201,92 @@ export const availabilityRules = pgTable("availability_rules", {
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
+export const studioLocations = pgTable("studio_locations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  name: text("name").notNull(),
+  addressLine1: text("address_line_1"),
+  addressLine2: text("address_line_2"),
+  city: text("city"),
+  region: text("region"),
+  postalCode: text("postal_code"),
+  country: text("country"),
+  phone: text("phone"),
+  email: text("email"),
+  timezone: text("timezone").notNull(),
+  businessHoursConfigured: boolean("business_hours_configured").default(false).notNull(),
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  idOrganizationIndex: uniqueIndex("studio_locations_id_organization_idx").on(table.id, table.organizationId),
+  organizationIndex: index("studio_locations_organization_idx").on(table.organizationId),
+  primaryOrganizationIndex: uniqueIndex("studio_locations_one_primary_per_org_idx").on(table.organizationId).where(sql`${table.isPrimary} = true`),
+}));
+
+export const studioBusinessHours = pgTable("studio_business_hours", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  locationId: uuid("location_id").references(() => studioLocations.id, { onDelete: "cascade" }).notNull(),
+  dayOfWeek: integer("day_of_week").notNull(),
+  startMinute: integer("start_minute").notNull(),
+  endMinute: integer("end_minute").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  locationDayIndex: index("studio_business_hours_location_day_idx").on(table.organizationId, table.locationId, table.dayOfWeek),
+  tenantLocationReference: foreignKey({ columns: [table.locationId, table.organizationId], foreignColumns: [studioLocations.id, studioLocations.organizationId] }).onDelete("cascade"),
+  validWeekday: check("studio_business_hours_weekday_check", sql`${table.dayOfWeek} BETWEEN 0 AND 6`),
+  validStart: check("studio_business_hours_start_check", sql`${table.startMinute} BETWEEN 0 AND 1439`),
+  validEnd: check("studio_business_hours_end_check", sql`${table.endMinute} BETWEEN 1 AND 1440`),
+  validRange: check("studio_business_hours_valid_range_check", sql`${table.startMinute} < ${table.endMinute}`),
+}));
+
 export const businessRules = pgTable("business_rules", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
   artistId: uuid("artist_id").references(() => artists.id).notNull(),
   category: text("category").notNull(),
   rule: text("rule").notNull(),
+  visibility: text("visibility").$type<"CLIENT_VISIBLE" | "AI_INTERNAL">().default("AI_INTERNAL").notNull(),
   priority: integer("priority").default(100).notNull(),
   active: boolean("active").default(true).notNull()
-});
+}, table => ({
+  visibilityCheck: check("business_rules_visibility_check", sql`${table.visibility} IN ('CLIENT_VISIBLE', 'AI_INTERNAL')`),
+}));
+
+export const studioFaqs = pgTable("studio_faqs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  locationId: uuid("location_id").references(() => studioLocations.id, { onDelete: "set null" }),
+  category: text("category"),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  active: boolean("active").default(true).notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  organizationIndex: index("studio_faqs_organization_idx").on(table.organizationId, table.active, table.sortOrder),
+  tenantLocationReference: foreignKey({ columns: [table.locationId, table.organizationId], foreignColumns: [studioLocations.id, studioLocations.organizationId] }).onDelete("cascade"),
+}));
+
+export const studioAftercare = pgTable("studio_aftercare", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  locationId: uuid("location_id").references(() => studioLocations.id, { onDelete: "set null" }),
+  serviceType: text("service_type"),
+  category: text("category"),
+  title: text("title").notNull(),
+  instructions: text("instructions").notNull(),
+  active: boolean("active").default(true).notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  organizationIndex: index("studio_aftercare_organization_idx").on(table.organizationId, table.active, table.sortOrder),
+  tenantLocationReference: foreignKey({ columns: [table.locationId, table.organizationId], foreignColumns: [studioLocations.id, studioLocations.organizationId] }).onDelete("cascade"),
+}));
 
 export const channelConnections = pgTable("channel_connections", {
   id: uuid("id").defaultRandom().primaryKey(),

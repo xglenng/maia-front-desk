@@ -10,7 +10,6 @@ import {
   resolveServiceForArtist,
   searchServiceRecords,
   servicePricingDto,
-  studioContextDto,
   type ArtistRecord,
   type ServiceRecord,
 } from '../src/read-only-policy';
@@ -81,30 +80,6 @@ test('same-named services expose only the trusted organization price', () => {
   assert.equal(studioBService, null);
   assert.equal(servicePricingDto(studioAService).amountCents, 5000);
   assert.notEqual(servicePricingDto(studioAService).amountCents, 8500);
-});
-
-test('studio context rejects foreign organizations and filters foreign artist rules', () => {
-  const base = {
-    organizationId: orgA,
-    organization: { id: orgA, name: 'Studio A' },
-    artist: { id: artistA, organizationId: orgA, displayName: 'Alex Rivera', bio: 'Public bio', responseLength: 'SHORT' },
-    timezone: 'America/Denver',
-    rules: [
-      { organizationId: orgA, artistId: artistA, category: 'POLICY', rule: 'Configured rule.' },
-      { organizationId: orgB, artistId: artistOther, category: 'POLICY', rule: 'Foreign tenant secret.' },
-    ],
-  };
-  const dto = studioContextDto(base);
-  assert.deepEqual(dto, {
-    studioName: 'Studio A',
-    timezone: 'America/Denver',
-    artist: { name: 'Alex Rivera', bio: 'Public bio' },
-    receptionist: { responseLength: 'SHORT' },
-    businessRules: [{ category: 'POLICY', rule: 'Configured rule.' }],
-  });
-  assert.equal(JSON.stringify(dto).includes('Foreign tenant'), false);
-  assert.equal(studioContextDto({ ...base, organization: { id: orgB, name: 'Studio B' } }), null);
-  assert.equal(studioContextDto({ ...base, artist: { ...base.artist, organizationId: orgB } }), null);
 });
 
 test('pricing DTO preserves flat, starting-at, hourly, quote, and configured deposit semantics', () => {

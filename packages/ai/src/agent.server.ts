@@ -8,7 +8,7 @@ import { agentActions, agentRuns, artists, conversations, messages } from '@db/s
 import { buildSystemPrompt } from '@ai/system-prompt';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { createBookingHold, createDepositLink, escalate, getClient, getContextTimezone, getWaiverLink, sendMessage } from './tools';
-import { checkAvailability, getClientAppointmentsForReceptionist, getServicePricing, getStudioContext, listArtists, searchServices } from './read-tools.server';
+import { checkAvailability, getClientAppointmentsForReceptionist, getServicePricing, getStudioContext, getStudioPromptConfiguration, listArtists, searchServices } from './read-tools.server';
 import type { MaiaAgentContext } from './context-policy';
 
 export type MaiaAgentResult = {
@@ -62,7 +62,8 @@ function withAudit<TArgs extends unknown[], TResult>(runId: string | undefined, 
 }
 
 export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; messageAlreadyStored?: boolean }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
-  const [artist] = await db.select().from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1);
+  const [artist] = await db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, responseLength: artists.responseLength, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
+    .from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1);
   const [conversation] = await db.select().from(conversations).where(and(
     eq(conversations.id, context.conversationId),
     eq(conversations.organizationId, context.organizationId),
@@ -71,6 +72,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
   )).limit(1);
   if (!artist || !conversation) throw new Error('Agent context is no longer valid.');
   if (!shouldRunAi(conversation)) return { error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' };
+  if (!artist.receptionistEnabled) return { error: 'The studio receptionist is disabled for this artist.', conversationId: conversation.id, mode: 'HUMAN' };
 
   if (!input.messageAlreadyStored) await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
   await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversation.id));
@@ -92,7 +94,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       return { reply, conversationId: conversation.id, messageId: message.id, mode: 'mock' };
     }
 
-    const providerTimezone = await getContextTimezone(context.organizationId, context.artistId);
+    const [providerTimezone, studioConfiguration] = await Promise.all([
+      getContextTimezone(context.organizationId, context.artistId),
+      getStudioPromptConfiguration(context, input.message),
+    ]);
     const currentDateTime = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'long' }).format(new Date());
     const system = buildSystemPrompt({
       artistName: artist.displayName,
@@ -100,6 +105,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       providerTimezone,
       channel: context.channel,
       responseLength: artist.responseLength,
+      clientFacingContext: studioConfiguration.clientFacing,
+      internalInstructions: studioConfiguration.internalInstructions,
+      receptionistGuidance: studioConfiguration.receptionistGuidance,
     });
 
     const history = await db.select({ role: messages.role, content: messages.content })
@@ -115,9 +123,12 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       tools: {
         getClient: tool({ description: 'Read the current client name when needed for a natural receptionist response. Returns only first and last name.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
         get_studio_context: tool({
-          description: 'Read the current studio name, provider-local timezone, current artist public profile, receptionist response setting, and active business rules. Use for studio details or policies; only configured facts are returned.',
-          parameters: z.object({}),
-          execute: audit('get_studio_context', async () => getStudioContext(context)),
+          description: 'Read configured public studio profile, location hours, client-visible policies, relevant FAQs, and aftercare. Use for studio questions; internal instructions are never returned by this client-facing tool. Optionally provide the topic and location the client asked about.',
+          parameters: z.object({
+            query: z.string().trim().min(1).max(200).optional().describe('Short topic such as piercing age, cancellation, address, or aftercare.'),
+            locationName: z.string().trim().min(1).max(120).optional().describe('Optional configured location name when a client asks about a specific location.'),
+          }),
+          execute: audit('get_studio_context', async (args: { query?: string; locationName?: string }) => getStudioContext(context, args)),
         }),
         search_services: tool({
           description: 'Discover active services that could satisfy a client request. Pass a concise natural-language service idea and optional free-form service type, category, or artist preference. Categories are tenant-defined; do not assume a fixed vocabulary. This tool does not return prices; use get_service_pricing for a known result.',

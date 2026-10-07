@@ -33,25 +33,6 @@ export type ArtistRecord = {
   bookingEnabled?: boolean;
 };
 
-export function studioContextDto(input: {
-  organizationId: string;
-  organization: { id: string; name: string } | null;
-  artist: { id: string; organizationId: string; displayName: string; bio: string | null; responseLength: string } | null;
-  timezone: string;
-  rules: Array<{ organizationId: string; artistId: string; category: string; rule: string }>;
-}) {
-  if (!input.organization || input.organization.id !== input.organizationId || !input.artist || input.artist.organizationId !== input.organizationId) return null;
-  return {
-    studioName: input.organization.name,
-    timezone: input.timezone,
-    artist: { name: input.artist.displayName, ...(input.artist.bio ? { bio: input.artist.bio } : {}) },
-    receptionist: { responseLength: input.artist.responseLength },
-    businessRules: input.rules
-      .filter(rule => rule.organizationId === input.organizationId && rule.artistId === input.artist!.id)
-      .map(rule => ({ category: rule.category, rule: rule.rule })),
-  };
-}
-
 export type ServiceSearchOptions = {
   query?: string;
   serviceType?: string;
@@ -161,9 +142,9 @@ export function servicePricingDto(record: ServiceRecord) {
   const amountCents = pricingType === 'FLAT' ? record.basePriceCents : pricingType === 'HOURLY' ? record.hourlyRateCents : null;
   const depositType = record.depositType.toUpperCase();
   const deposit = depositType === 'FIXED'
-    ? { type: 'FIXED' as const, ...(record.depositAmountCents != null && Number.isSafeInteger(record.depositAmountCents) && record.depositAmountCents >= 0 ? { amountCents: record.depositAmountCents } : {}) }
+    ? { type: 'FIXED' as const, ...(record.depositAmountCents != null && Number.isSafeInteger(record.depositAmountCents) && record.depositAmountCents > 0 ? { amountCents: record.depositAmountCents } : {}) }
     : depositType === 'PERCENT'
-      ? { type: 'PERCENT' as const, ...(record.depositPercent != null && Number.isSafeInteger(record.depositPercent) && record.depositPercent >= 0 && record.depositPercent <= 100 ? { percent: record.depositPercent } : {}) }
+      ? { type: 'PERCENT' as const, ...(record.depositPercent != null && Number.isSafeInteger(record.depositPercent) && record.depositPercent >= 1 && record.depositPercent <= 100 ? { percent: record.depositPercent } : {}) }
       : { type: depositType === 'NONE' ? 'NONE' as const : 'UNKNOWN' as const };
   return {
     serviceId: record.id,

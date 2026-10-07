@@ -2,7 +2,7 @@ import 'server-only';
 import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
-import { appointments, artists, businessRules, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
+import { appointments, artists, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
 import { createSchedulingBooking, getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
 import { SquareApiClient } from '@/packages/scheduling/square/client';
 import { squareAccessToken } from '@/packages/scheduling/square/credentials';
@@ -94,17 +94,6 @@ export async function getClientAppointments(ctx: AgentContext) {
     depositCents: appointment.depositCents ?? 0,
     depositStatus: appointment.depositStatus,
   }));
-}
-
-export async function getArtistContext(ctx: AgentContext) {
-  const [artist] = await db.select().from(artists).where(and(eq(artists.id, ctx.artistId), eq(artists.organizationId, ctx.organizationId)));
-  if (!artist) throw new Error('Artist not found');
-  const rules = await db.select().from(businessRules).where(and(eq(businessRules.artistId, ctx.artistId), eq(businessRules.organizationId, ctx.organizationId), eq(businessRules.active, true))).orderBy(desc(businessRules.priority));
-  return { artist, rules };
-}
-
-export async function getServiceCatalog(ctx: AgentContext) {
-  return db.select().from(services).where(and(eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
 }
 
 export async function getContextTimezone(organizationId: string, artistId: string) {

@@ -5,6 +5,7 @@ import { db } from '@db/index';
 import { services } from '@db/schema';
 import { z } from 'zod';
 import { normalizeServicePricing } from './pricing';
+import { normalizeServiceDeposit, validServiceDeposit } from '@/packages/studio/deposit-policy';
 
 const serviceFields = {
   serviceType: z.string().trim().min(1).max(40).transform(value => value.toUpperCase()),
@@ -16,6 +17,9 @@ const serviceFields = {
   basePriceCents: z.number().int().nonnegative().nullable().optional(),
   hourlyRateCents: z.number().int().nonnegative().nullable().optional(),
   startingAt: z.boolean(),
+  depositType: z.enum(['NONE', 'FIXED', 'PERCENT']),
+  depositAmountCents: z.number().int().positive().nullable().optional(),
+  depositPercent: z.number().int().min(1).max(100).nullable().optional(),
   requiresConsultation: z.boolean(),
   requiresArtistApproval: z.boolean(),
   active: z.boolean(),
@@ -27,6 +31,7 @@ const createServiceSchema = z.object({
   artistId: z.string().uuid(),
   ...serviceFields,
   startingAt: serviceFields.startingAt.optional(),
+  depositType: serviceFields.depositType.optional(),
   requiresConsultation: serviceFields.requiresConsultation.optional(),
   requiresArtistApproval: serviceFields.requiresArtistApproval.optional(),
   active: serviceFields.active.optional(),
@@ -48,7 +53,9 @@ async function handleGET(request: NextRequest) {
 async function handlePOST(request: NextRequest) {
   const parsed = createServiceSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const [service] = await db.insert(services).values({ ...parsed.data, ...normalizeServicePricing(parsed.data) }).returning();
+  const deposit = normalizeServiceDeposit(parsed.data);
+  if (!validServiceDeposit(deposit)) return NextResponse.json({ error: 'Configure no deposit, a positive fixed amount, or a percentage from 1 to 100.' }, { status: 400 });
+  const [service] = await db.insert(services).values({ ...parsed.data, ...normalizeServicePricing(parsed.data), ...deposit }).returning();
   return NextResponse.json({ service }, { status: 201 });
 }
 

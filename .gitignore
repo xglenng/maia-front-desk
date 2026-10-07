@@ -3,6 +3,5 @@ node_modules
 .env
 .env.local
 .DS_Store
-packages/db/drizzle
 .env.prod
 .env.mocktsconfig.tsbuildinfo
