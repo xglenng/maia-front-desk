@@ -35,6 +35,12 @@ function context(organizationId: string, artistId: string) {
     profile: organizationId === orgA
       ? { organizationId: orgA, publicName: 'Studio A Brand', publicPhone: '3035550100', publicEmail: 'hello@studio-a.example', website: 'https://studio-a.example', timezone: 'America/Denver' }
       : { organizationId: orgB, publicName: 'Studio B Brand', publicPhone: null, publicEmail: null, website: null, timezone: 'America/New_York' },
+    artist: organizationId === orgA
+      ? { organizationId: orgA, displayName: 'Artist A', bio: 'Studio A artist.', responseLength: 'SHORT' }
+      : { organizationId: orgB, displayName: 'Artist B', bio: 'Studio B artist.', responseLength: 'DETAILED' },
+    receptionist: organizationId === orgA
+      ? { tone: 'WARM', greeting: 'Welcome to Studio A.', instructions: 'Keep responses concise for Studio A.' }
+      : { tone: 'PROFESSIONAL', greeting: 'Welcome to Studio B.', instructions: 'Use detailed Studio B explanations.' },
     locations,
     hours: [
       { organizationId: orgA, locationId: locationA, dayOfWeek: 1, startMinute: 600, endMinute: 1020 },
@@ -55,11 +61,15 @@ test('studio A and B Agent-facing configuration contain only their tenant inform
   assert.match(serializedA, /Studio A Brand/);
   assert.match(serializedA, /Studio A aftercare instructions/);
   assert.match(serializedA, /Studio A requires a parent/);
+  assert.match(serializedA, /Keep responses concise for Studio A/);
+  assert.match(serializedA, /WARM/);
   assert.equal(serializedA.includes('Studio B'), false);
   assert.equal(serializedA.includes('Other City'), false);
   assert.match(serializedB, /Studio B Brand/);
   assert.match(serializedB, /Studio B aftercare instructions/);
   assert.match(serializedB, /Studio B preparation answer/);
+  assert.match(serializedB, /Use detailed Studio B explanations/);
+  assert.match(serializedB, /PROFESSIONAL/);
   assert.equal(serializedB.includes('Studio A'), false);
   assert.equal(serializedB.includes('Denver'), false);
 });
@@ -107,6 +117,19 @@ test('selected location limits location-specific hours and aftercare', () => {
   assert.deepEqual(result?.clientFacing.locations.map(location => location.name), ['Downtown']);
   assert.deepEqual(result?.clientFacing.locations[0]?.businessHours, [{ day: 'Monday', opens: '10:00', closes: '17:00' }]);
   assert.deepEqual(result?.clientFacing.aftercare.map(entry => entry.title), ['Piercing aftercare']);
+});
+
+test('an unknown location preference never falls back to another location address or hours', () => {
+  const result = projectStudioAgentConfiguration({
+    organizationId: orgA,
+    artistId: artistA,
+    profile: { organizationId: orgA, publicName: 'Studio A Brand', publicPhone: null, publicEmail: null, website: null, timezone: 'America/Denver' },
+    locations,
+    hours: [{ organizationId: orgA, locationId: locationA, dayOfWeek: 1, startMinute: 600, endMinute: 1020 }],
+    rules, faqs, aftercare,
+    locationName: 'Unknown neighborhood',
+  });
+  assert.deepEqual(result?.clientFacing.locations, []);
 });
 
 test('context distinguishes unconfigured hours from configured closed-all-week hours', () => {

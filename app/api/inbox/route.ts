@@ -1,6 +1,6 @@
 import { protectedRoute, identity } from "@/packages/auth/server";
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@db/index";
 import { artists, clients, conversations, messages } from "@db/schema";
 
@@ -9,7 +9,7 @@ async function handleGET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const mode = request.nextUrl.searchParams.get("mode");
   const unreadOnly = request.nextUrl.searchParams.get("unread") === "true";
-  const conditions = [eq(conversations.organizationId, user.organization_id)];
+  const conditions = [eq(conversations.organizationId, user.organization_id), ne(conversations.channel, 'WEB_TEST')];
   if (user.role === "ARTIST") conditions.push(eq(artists.userId, user.id));
   if (mode === "ai") conditions.push(eq(conversations.aiEnabled, true));
   if (mode === "human") conditions.push(eq(conversations.aiEnabled, false));

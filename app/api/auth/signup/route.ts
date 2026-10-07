@@ -103,8 +103,8 @@ export async function POST(req: NextRequest) {
     }
 
     const organizationResult = await client.query(
-      `INSERT INTO organizations(name, slug, timezone)
-       VALUES($1, $2, $3)
+      `INSERT INTO organizations(name, slug, timezone, public_name)
+       VALUES($1, $2, $3, $1)
        RETURNING id, name, slug`,
       [studioName, slug, timezone]
     );

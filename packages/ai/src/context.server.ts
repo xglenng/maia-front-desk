@@ -83,7 +83,9 @@ export async function resolveAuthenticatedMaiaAgentContext(request: NextRequest,
   if (!mayResolveArtistContext({ principal: user, organizationId: selection.organizationId, artistOrganizationId: artist.organizationId, artistUserId: artist.userId })) {
     throw new MaiaAgentContextError('Artist context is not authorized.', 403);
   }
-  return resolveRecords(selection, undefined, true);
+  const resolved = await resolveRecords(selection, undefined, true);
+  if (resolved.context.channel === 'WEB_TEST' && user.role !== 'OWNER') throw new MaiaAgentContextError('Owner access is required for Test Maia.', 403);
+  return resolved;
 }
 
 // Call only after the channel adapter has authenticated its webhook and resolved

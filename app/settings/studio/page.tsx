@@ -27,7 +27,7 @@ type Location = {
 type Rule = { id?: string; artistId: string; category: string; rule: string; visibility: Visibility; priority: number; active: boolean };
 type Faq = { id?: string; locationId: string | null; category: string | null; question: string; answer: string; active: boolean; sortOrder: number };
 type Aftercare = { id?: string; locationId: string | null; serviceType: string | null; category: string | null; title: string; instructions: string; active: boolean; sortOrder: number };
-type ArtistSettings = { artistId: string; displayName: string; receptionistEnabled: boolean; receptionistTone: Tone; receptionistGreeting: string | null; receptionistInstructions: string | null; responseLength: ResponseLength };
+type ArtistSettings = { artistId: string; displayName: string; bio: string | null; bookingEnabled: boolean; receptionistEnabled: boolean; receptionistTone: Tone; receptionistGreeting: string | null; receptionistInstructions: string | null; responseLength: ResponseLength };
 type Config = { profile: { publicName: string | null; publicPhone: string | null; publicEmail: string | null; website: string | null; timezone: string }; rules: Rule[]; faqs: Faq[]; aftercare: Aftercare[]; artists: ArtistSettings[] };
 
 type LocationDraft = Omit<Location, 'id' | 'hours'> & { id?: string; hours: Hours[] };
@@ -57,6 +57,9 @@ export default function StudioSettingsPage() {
   const [locationDraft, setLocationDraft] = useState<LocationDraft>({ ...emptyLocation });
   const [selectedLocation, setSelectedLocation] = useState('');
   const [selectedArtist, setSelectedArtist] = useState('');
+  const [addingArtist, setAddingArtist] = useState(false);
+  const [newArtistName, setNewArtistName] = useState('');
+  const [newArtistBio, setNewArtistBio] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -104,7 +107,7 @@ export default function StudioSettingsPage() {
           rules: config.rules,
           faqs: config.faqs.map(faq => ({ ...faq, category: nullable(faq.category) })),
           aftercare: config.aftercare.map(item => ({ ...item, category: nullable(item.category), serviceType: nullable(item.serviceType) })),
-          artists: config.artists.map(({ displayName: _displayName, ...artist }) => ({ ...artist, receptionistGreeting: nullable(artist.receptionistGreeting), receptionistInstructions: nullable(artist.receptionistInstructions) })),
+          artists: config.artists.map(artist => ({ ...artist, bio: nullable(artist.bio), receptionistGreeting: nullable(artist.receptionistGreeting), receptionistInstructions: nullable(artist.receptionistInstructions) })),
         }),
       }));
       setNotice('Studio configuration saved.');
@@ -136,7 +139,7 @@ export default function StudioSettingsPage() {
     if (!organizationId || saving) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      const { id, hours, ...values } = locationDraft;
+      const { id, hours, businessHoursConfigured: _businessHoursConfigured, ...values } = locationDraft;
       const response = await fetch('/api/studio/locations', {
         method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ organizationId, ...(id ? { locationId: id } : {}), ...values, hours }),
@@ -149,6 +152,25 @@ export default function StudioSettingsPage() {
       setLocationDraft({ ...result.location, hours: result.location.hours.map((hour: Hours) => ({ ...hour })) });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save location.');
+    } finally { setSaving(false); }
+  }
+
+  async function createArtist(event: FormEvent) {
+    event.preventDefault();
+    if (!organizationId || saving) return;
+    setSaving(true); setError(''); setNotice('');
+    try {
+      const result = await readJson(await fetch('/api/studio/artists', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId, displayName: newArtistName, bio: nullable(newArtistBio), bookingEnabled: true }),
+      }));
+      await load();
+      setSelectedArtist(result.artist.artistId);
+      setAddingArtist(false);
+      setNewArtistName(''); setNewArtistBio('');
+      setNotice('Artist profile created.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to create artist profile.');
     } finally { setSaving(false); }
   }
 
@@ -250,15 +272,19 @@ export default function StudioSettingsPage() {
       </section>
 
       <section style={panel}>
-        <h2 style={{ marginTop: 0 }}>AI receptionist</h2>
+        <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Artist &amp; AI receptionist</h2><p style={{ color: '#706b66' }}>Artist ownership and receptionist settings remain artist-scoped.</p></div><button type="button" onClick={() => setAddingArtist(value => !value)} style={secondary}>{addingArtist ? 'Cancel' : 'Add artist'}</button></div>
+        {addingArtist && <form onSubmit={createArtist} style={{ ...panel, padding: 14 }}><div style={grid}><label style={label}>Artist display name<input required minLength={2} maxLength={120} value={newArtistName} onChange={event => setNewArtistName(event.target.value)} style={field} /></label><label style={label}>Public bio<textarea maxLength={1200} rows={2} value={newArtistBio} onChange={event => setNewArtistBio(event.target.value)} style={field} /></label></div><button type="submit" disabled={saving} style={{ ...button, marginTop: 10 }}>{saving ? 'Creating…' : 'Create artist'}</button></form>}
         <label style={label}>Artist profile
           <select value={selectedArtist} onChange={event => setSelectedArtist(event.target.value)} style={field}>{config.artists.map(artist => <option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select>
         </label>
         {activeArtist && <>
           <div style={toggleRow}>
+            <label><input type="checkbox" checked={activeArtist.bookingEnabled} onChange={event => updateArtist({ bookingEnabled: event.target.checked })} /> Booking enabled</label>
             <label><input type="checkbox" checked={activeArtist.receptionistEnabled} onChange={event => updateArtist({ receptionistEnabled: event.target.checked })} /> Receptionist enabled</label>
           </div>
           <div style={{ ...grid, marginTop: 14 }}>
+            <label style={label}>Artist display name<input maxLength={120} value={activeArtist.displayName} onChange={event => updateArtist({ displayName: event.target.value })} style={field} /></label>
+            <label style={{ ...label, gridColumn: '1 / -1' }}>Public bio<textarea maxLength={1200} rows={3} value={activeArtist.bio || ''} onChange={event => updateArtist({ bio: event.target.value })} style={field} /></label>
             <label style={label}>Response length<select value={activeArtist.responseLength} onChange={event => updateArtist({ responseLength: event.target.value as ResponseLength })} style={field}><option value="SHORT">Short</option><option value="STANDARD">Standard</option><option value="DETAILED">Detailed</option></select></label>
             <label style={label}>Tone<select value={activeArtist.receptionistTone} onChange={event => updateArtist({ receptionistTone: event.target.value as Tone })} style={field}><option value="WARM">Warm</option><option value="PROFESSIONAL">Professional</option><option value="FRIENDLY">Friendly</option></select></label>
             <label style={{ ...label, gridColumn: '1 / -1' }}>Greeting guidance<textarea maxLength={240} rows={2} value={activeArtist.receptionistGreeting || ''} onChange={event => updateArtist({ receptionistGreeting: event.target.value })} style={field} /></label>

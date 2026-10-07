@@ -53,6 +53,9 @@ const aftercareSchema = z.object({
 
 const artistSettingsSchema = z.object({
   artistId: z.string().uuid(),
+  displayName: z.string().trim().min(2).max(120),
+  bio: nullableText(1200),
+  bookingEnabled: z.boolean(),
   receptionistEnabled: z.boolean(),
   receptionistTone: z.enum(['WARM', 'PROFESSIONAL', 'FRIENDLY']),
   receptionistGreeting: nullableText(240),
@@ -94,7 +97,7 @@ async function handleGET(request: NextRequest) {
       .from(studioFaqs).where(eq(studioFaqs.organizationId, organizationId)).orderBy(asc(studioFaqs.sortOrder)),
     db.select({ id: studioAftercare.id, locationId: studioAftercare.locationId, serviceType: studioAftercare.serviceType, category: studioAftercare.category, title: studioAftercare.title, instructions: studioAftercare.instructions, active: studioAftercare.active, sortOrder: studioAftercare.sortOrder })
       .from(studioAftercare).where(eq(studioAftercare.organizationId, organizationId)).orderBy(asc(studioAftercare.sortOrder)),
-    db.select({ artistId: artists.id, displayName: artists.displayName, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions, responseLength: artists.responseLength })
+    db.select({ artistId: artists.id, displayName: artists.displayName, bio: artists.bio, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions, responseLength: artists.responseLength })
       .from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName)),
   ]);
   if (!profile) return NextResponse.json({ error: 'Studio not found.' }, { status: 404 });

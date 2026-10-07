@@ -78,11 +78,12 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
   await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversation.id));
 
   const modelName = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const mockMode = process.env.AI_PROVIDER === 'mock' || !process.env.OPENAI_API_KEY;
   const startedAt = Date.now();
-  const runId = await auditRun(context, process.env.AI_PROVIDER === 'mock' ? 'mock' : modelName);
+  const runId = await auditRun(context, mockMode ? 'mock' : modelName);
 
   try {
-    if (process.env.AI_PROVIDER === 'mock' || !process.env.OPENAI_API_KEY) {
+    if (mockMode) {
       const text = input.message.toLowerCase();
       const reply = text.includes('price') || text.includes('cost')
         ? 'Which service are you asking about? I need the service details to answer accurately.'
@@ -108,6 +109,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       clientFacingContext: studioConfiguration.clientFacing,
       internalInstructions: studioConfiguration.internalInstructions,
       receptionistGuidance: studioConfiguration.receptionistGuidance,
+      testMode: context.channel === 'WEB_TEST',
     });
 
     const history = await db.select({ role: messages.role, content: messages.content })
@@ -166,6 +168,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({}),
           execute: audit('get_client_appointments', async () => getClientAppointmentsForReceptionist(context)),
         }),
+        ...(context.channel === 'WEB_TEST' ? {} : {
         createBookingHold: tool({
           description: 'Create a booking only after the client explicitly selects one specific slot returned by check_availability. Pass its canonical startsAt as start. This existing booking action is distinct from the read-only availability lookup. Inspect depositRequired and do not create a deposit link unless it is true.',
           parameters: z.object({ serviceId: z.string().uuid(), start: z.string() }),
@@ -196,6 +199,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({ reason: z.string().min(1).max(500) }),
           execute: audit('escalateToArtist', async (args: { reason: string }) => escalate(context, args.reason)),
         }),
+        }),
       },
     });
     const reply = result.text || 'I’m going to have the artist take a look at this.';
@@ -211,8 +215,8 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       conversationId: conversation.id,
       messageId: message.id,
       mode: 'live',
-      toolCalls: result.steps.flatMap(step => step.toolCalls ?? []).map(call => call.toolName),
-      toolResults: result.steps.flatMap(step => step.toolResults ?? []).map(toolResult => toolResult.toolName),
+      toolCalls: result.steps.flatMap(step => (step.toolCalls ?? []).flatMap(call => call?.toolName ? [call.toolName] : [])),
+      toolResults: result.steps.flatMap(step => (step.toolResults ?? []).flatMap(toolResult => toolResult?.toolName ? [toolResult.toolName] : [])),
     };
   } catch (error) {
     await updateRun(runId, { success: false, latencyMs: Date.now() - startedAt, error: 'AgentExecutionError' });

@@ -14,7 +14,7 @@ const updateSchema = z.object({
 async function handleGET(request: NextRequest) {
   const organizationId = request.nextUrl.searchParams.get("organizationId");
   if (!organizationId) return NextResponse.json({ error: "organizationId is required" }, { status: 400 });
-  const artistRows = await db.select({ id: artists.id, displayName: artists.displayName, responseLength: artists.responseLength })
+  const artistRows = await db.select({ id: artists.id, displayName: artists.displayName, responseLength: artists.responseLength, aiMode: artists.aiMode, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled })
     .from(artists)
     .where(eq(artists.organizationId, organizationId))
     .orderBy(asc(artists.displayName));

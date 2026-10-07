@@ -1,13 +1,15 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useSession } from '@/components/session-gate';
 
-type Artist = { id: string; organizationId: string; displayName: string; aiMode: string; };
-type Client = { id: string; organizationId: string; firstName: string; lastName: string; email?: string | null; };
+type Artist = { id: string; displayName: string; aiMode: string; receptionistEnabled: boolean; };
+type Client = { id: string; firstName: string; lastName: string; };
 type Message = { id: string; senderType: string; role: string; content: string; createdAt: string; };
 type Activity = { label: string; detail?: string; kind: 'ok' | 'pending' | 'info' | 'error'; };
 
 export default function AiTestPage() {
+  const user = useSession();
   const [artists, setArtists] = useState<Artist[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [artistId, setArtistId] = useState('');
@@ -33,30 +35,48 @@ export default function AiTestPage() {
   }
 
   useEffect(() => {
-    fetch('/api/dashboard')
-      .then(r => r.json())
-      .then(data => {
-        const artist: Artist | undefined = data.artist;
-        const loadedClients: Client[] = data.clients ?? [];
-        if (artist) {
-          setArtists([artist]);
-          setArtistId(artist.id);
-          setOrganizationId(artist.organizationId);
-        }
-        setClients(loadedClients);
-        if (loadedClients[0]) setClientId(loadedClients[0].id);
+    if (!user || user.role !== 'OWNER') { setLoading(false); return; }
+    const organization = user.organization_id;
+    setOrganizationId(organization);
+    fetch(`/api/ai/settings?organizationId=${encodeURIComponent(organization)}`, { cache: 'no-store' })
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to load studio artists.');
+        const loaded = (data.artists ?? []) as Artist[];
+        setArtists(loaded);
+        setArtistId(loaded[0]?.id || '');
       })
-      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load test data'))
+      .catch(reason => setError(reason instanceof Error ? reason.message : 'Failed to load test data'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [user?.id, user?.role, user?.organization_id]);
 
   useEffect(() => {
-    if (!organizationId || !artistId || !clientId) return;
-    setActiveConversationId('');
-    setMessages([]);
-    void loadConversation();
+    if (!organizationId || !artistId) return;
+    void startTestSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizationId, artistId, clientId]);
+  }, [organizationId, artistId]);
+
+  async function startTestSession(newConversation = false) {
+    const requestId = ++conversationRequestRef.current;
+    setLoading(true); setError(''); setMessages([]); setActiveConversationId('');
+    try {
+      const response = await fetch('/api/onboarding/test-session', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId, artistId, newConversation }),
+      });
+      const data = await response.json();
+      if (requestId !== conversationRequestRef.current) return;
+      if (!response.ok) throw new Error(data.error || 'Unable to start the safe Maia test session.');
+      setClientId(data.client.id);
+      setClients([data.client]);
+      setActiveConversationId(data.conversation.id);
+      setMessages([]);
+      setActivities([{ label: 'Read-only tenant test session', detail: data.artist.displayName, kind: 'info' }]);
+    } catch (reason) {
+      if (requestId !== conversationRequestRef.current) return;
+      setError(reason instanceof Error ? reason.message : 'Unable to start Maia test session.');
+    } finally { if (requestId === conversationRequestRef.current) setLoading(false); }
+  }
 
   async function loadConversation(requestedConversationId?: string) {
     const requestId = ++conversationRequestRef.current;
@@ -68,18 +88,7 @@ export default function AiTestPage() {
     if (requestId !== conversationRequestRef.current) return;
     if (!response.ok) return setError(data.error ?? 'Failed to load conversation');
     if (!data.conversation) {
-      const createResponse = await fetch('/api/ai/conversation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId, artistId, clientId }),
-      });
-      const created = await createResponse.json();
-      if (requestId !== conversationRequestRef.current) return;
-      if (!createResponse.ok) return setError(created.error ?? 'Failed to create conversation');
-      setActiveConversationId(created.conversation.id);
-      setMessages(created.messages ?? []);
-      setActivities([{ label: 'New conversation', detail: created.conversation.id, kind: 'info' }]);
-      return;
+      return setError('The preview conversation is unavailable. Reset the Test Maia session to start a new one.');
     }
     setActiveConversationId(data.conversation.id);
     setMessages(data.messages ?? []);
@@ -125,37 +134,23 @@ export default function AiTestPage() {
   }
 
   async function resetConversation() {
-    if (!organizationId || !artistId || !clientId || sending || resetting) return;
-    conversationRequestRef.current += 1;
+    if (!organizationId || !artistId || sending || resetting) return;
     setResetting(true);
-    setError('');
-    try {
-      const response = await fetch('/api/ai/conversation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId, artistId, clientId }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? 'Failed to start a fresh conversation');
-      setActiveConversationId(data.conversation.id);
-      setMessages(data.messages ?? []);
-      setActivities([{ label: 'Conversation reset', detail: data.conversation.id, kind: 'info' }]);
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : 'Failed to start a fresh conversation';
-      setError(detail);
-      setActivities(prev => [...prev, { label: 'Reset failed', detail, kind: 'error' }]);
-    } finally {
-      setResetting(false);
-    }
+    await startTestSession(true);
+    setActivities([{ label: 'Read-only test conversation reset', kind: 'info' }]);
+    setResetting(false);
   }
+
+  if (!user) return null;
+  if (user.role !== 'OWNER') return <main style={{ maxWidth: 900, margin: '0 auto', padding: 32 }}><h1>Test Maia</h1><p>Owner access is required for onboarding tests.</p></main>;
 
   return (
     <main style={{ minHeight: '100vh', padding: 28, background: '#f4f5f7', color: '#171717' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         <header style={{ marginBottom: 22 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.5, color: '#666' }}>INKFLOW · DEVELOPER TOOL</div>
-          <h1 style={{ margin: '6px 0', fontSize: 32 }}>AI Receptionist Sandbox</h1>
-          <p style={{ margin: 0, color: '#666' }}>Test the real receptionist endpoint, database conversation history, booking tools, deposits, waivers, and escalation before connecting Twilio.</p>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.5, color: '#666' }}>MAIA · ONBOARDING TEST</div>
+          <h1 style={{ margin: '6px 0', fontSize: 32 }}>Test Maia</h1>
+          <p style={{ margin: 0, color: '#666' }}>This uses the selected artist&apos;s saved studio configuration, services, knowledge, and the same trusted Agent context. Test sessions are read-only and cannot create bookings, payments, waivers, or external messages.</p>
         </header>
 
         <section style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 18, marginBottom: 18 }}>
@@ -163,9 +158,7 @@ export default function AiTestPage() {
             <label style={{ display: 'grid', gap: 5, minWidth: 190, fontSize: 12, fontWeight: 700 }}>ARTIST
               <select value={artistId} onChange={e => setArtistId(e.target.value)} disabled={loading || sending || resetting} style={selectStyle}>{artists.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)}</select>
             </label>
-            <label style={{ display: 'grid', gap: 5, minWidth: 190, fontSize: 12, fontWeight: 700 }}>TEST CLIENT
-              <select value={clientId} onChange={e => setClientId(e.target.value)} disabled={loading || sending || resetting} style={selectStyle}>{clients.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}</select>
-            </label>
+            <div style={{ display: 'grid', gap: 4, alignSelf: 'end', minWidth: 190, fontSize: 12, color: '#666' }}>Preview profile<strong>{selectedClient ? `${selectedClient.firstName} ${selectedClient.lastName}` : 'Preparing…'}</strong></div>
             <div style={{ marginLeft: 'auto', alignSelf: 'end', fontSize: 12, color: '#666' }}>
               Mode: <strong>{selectedArtist?.aiMode ?? '—'}</strong> · AI: <strong>{process.env.NEXT_PUBLIC_AI_PROVIDER ?? 'server configured'}</strong>
             </div>

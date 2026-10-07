@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session-gate";
+import { ReadinessPanel } from './readiness-panel';
 
 type Status = "NOT_STARTED" | "IN_PROGRESS" | "PENDING_APPROVAL" | "APPROVED" | "ACTION_REQUIRED";
 type Step = { id: string; title: string; description: string; status: Status; href?: string };
@@ -62,7 +63,7 @@ export default function OnboardingPage() {
     const response = await fetch("/api/onboarding", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, ...body }) });
     const payload = await response.json(); setBusy(false);
     if (!response.ok) return setMessage(payload.missing?.length ? `Still required: ${payload.missing.join(", ")}` : payload.error || "Update failed.");
-    setData(payload); setMessage(body.action === "ACTIVATE" ? "Studio activated. The receptionist is ready for the controlled production pilot." : "Activation checklist updated.");
+    setData(payload); setMessage(body.action === "ACTIVATE" ? "SMS activation recorded. Core and feature readiness are reported separately above." : "SMS activation checklist updated.");
   }
 
   const a2pApproved = ["APPROVED", "MOCK_APPROVED"].includes(activation?.complianceStatus || "");
@@ -71,6 +72,9 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (activation?.testClients.length && !activation.testClients.some(client => client.id === testClientId)) setTestClientId(activation.testClients[0].id);
   }, [activation, testClientId]);
+
+  if (!user) return null;
+  if (user.role !== 'OWNER') return <main style={{ maxWidth: 900, margin: '0 auto', padding: 32 }}><h1>Studio setup</h1><p>Owner access is required to manage organization onboarding.</p><a href="/">Return to dashboard</a></main>;
 
   async function sendTestSms() {
     if (!activation || !testClientId) return;
@@ -84,9 +88,11 @@ export default function OnboardingPage() {
   return <main style={{ maxWidth: 980, margin: "0 auto", padding: "38px 20px 80px", color: "#181716", fontFamily: "Arial, sans-serif" }}>
     <p><a href="/settings" style={{ color: "#8f2f22" }}>← Owner settings</a></p>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <div><p style={{ margin: 0, color: "#8f2f22", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Sprint 7.3</p><h1 style={{ margin: "7px 0" }}>Studio activation</h1><p style={{ maxWidth: 650, color: "#6f6b66", lineHeight: 1.55 }}>Complete every production gate in order. Each artist now needs a public, verifiable SMS opt-in form before campaign submission or activation.</p></div>
-      {activation?.status === "LIVE" && <span style={{ padding: "9px 13px", borderRadius: 20, background: "#e6f2ea", color: "#2f7651", fontWeight: 800 }}>● LIVE</span>}
+      <div><p style={{ margin: 0, color: "#8f2f22", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Studio setup</p><h1 style={{ margin: "7px 0" }}>Get Maia ready</h1><p style={{ maxWidth: 650, color: "#6f6b66", lineHeight: 1.55 }}>Configure core studio knowledge first. Booking, deposits, SMS, waivers, and social channels have separate readiness and are required only for the features you use.</p></div>
+      {activation?.status === "LIVE" && <span style={{ padding: "9px 13px", borderRadius: 20, background: "#e6f2ea", color: "#2f7651", fontWeight: 800 }}>● SMS LIVE</span>}
     </div>
+
+    <ReadinessPanel />
 
     <section style={{ ...card, marginTop: 22 }}>
       <label style={{ display: "block", fontSize: 13, fontWeight: 700 }}>Artist
@@ -94,12 +100,13 @@ export default function OnboardingPage() {
           <option value="">Select an artist</option>{data?.artists.map(artist => <option key={artist.id} value={artist.id}>{artist.displayName}</option>)}
         </select>
       </label>
-      {activation && <><div style={{ display: "flex", justifyContent: "space-between", marginTop: 18, fontSize: 13 }}><strong>{activation.completed} of {activation.total} steps complete</strong><span>{percentage}%</span></div><div style={{ height: 9, background: "#eeeae5", borderRadius: 10, marginTop: 8, overflow: "hidden" }}><div style={{ width: `${percentage}%`, height: "100%", background: activation.status === "LIVE" ? "#2f7651" : "#8f2f22", transition: "width .2s" }} /></div></>}
+      {activation && <><div style={{ display: "flex", justifyContent: "space-between", marginTop: 18, fontSize: 13 }}><strong>{activation.completed} of {activation.total} SMS checks complete</strong><span>{percentage}%</span></div><div style={{ height: 9, background: "#eeeae5", borderRadius: 10, marginTop: 8, overflow: "hidden" }}><div style={{ width: `${percentage}%`, height: "100%", background: activation.status === "LIVE" ? "#2f7651" : "#8f2f22", transition: "width .2s" }} /></div></>}
     </section>
 
     {activation && <>
       <section style={{ ...card, marginTop: 16 }}>
-        <h2 style={{ marginTop: 0, fontSize: 18 }}>Number plan</h2><p style={{ color: "#6f6b66", fontSize: 13 }}>Start with a safe Twilio number. Select porting only when this artist intends to move an established business number.</p>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>SMS activation (optional)</h2><p style={{ color: "#6f6b66", fontSize: 13 }}>Only continue if this studio plans to use outbound SMS. Maia does not submit A2P registration automatically; outbound readiness comes from actual approval and number state.</p>
+        <h3 style={{ fontSize: 15 }}>Number plan</h3><p style={{ color: "#6f6b66", fontSize: 13 }}>Start with a safe Twilio number. Select porting only when this artist intends to move an established business number.</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button disabled={busy} onClick={() => command({ action: "SET_NUMBER_STRATEGY", numberStrategy: "TEMPORARY" })} style={{ ...button, background: activation.numberStrategy === "TEMPORARY" ? "#181716" : "#fff", color: activation.numberStrategy === "TEMPORARY" ? "#fff" : "#181716" }}>Use a Twilio number</button>
           <button disabled={busy} onClick={() => command({ action: "SET_NUMBER_STRATEGY", numberStrategy: "PORT_EXISTING" })} style={{ ...button, background: activation.numberStrategy === "PORT_EXISTING" ? "#181716" : "#fff", color: activation.numberStrategy === "PORT_EXISTING" ? "#fff" : "#181716" }}>Port an existing number</button>
@@ -120,7 +127,7 @@ export default function OnboardingPage() {
       </div>
 
       <section style={{ ...card, marginTop: 16 }}>
-        <h2 style={{ marginTop: 0 }}>Production test checklist</h2><p style={{ color: "#6f6b66", fontSize: 13 }}>Use a real opted-in test phone. Receiving or sending a live Twilio message is detected automatically; the buttons also let the owner record a verified test.</p>
+        <h2 style={{ marginTop: 0 }}>SMS production test checklist</h2><p style={{ color: "#6f6b66", fontSize: 13 }}>Use a real opted-in test phone. Receiving or sending a live Twilio message is detected automatically; the buttons also let the owner record a verified test.</p>
         <TestRow title="Inbound SMS" detail={activation.phoneNumber ? `Text START to ${activation.phoneNumber}, then refresh this page.` : "Provision a studio number first."} passed={activation.tests.inboundSms} auto={activation.tests.inboundAutoDetected} disabled={busy || !activation.phoneNumber} onPass={() => command({ action: "MARK_TEST_PASSED", test: "INBOUND_SMS" })} />
         <TestRow title="Outbound SMS" detail="Send a compliant test to an opted-in client, then confirm it arrives." passed={activation.tests.outboundSms} auto={activation.tests.outboundAutoDetected} disabled={busy || !a2pApproved} onPass={() => command({ action: "MARK_TEST_PASSED", test: "OUTBOUND_SMS" })} />
         {!activation.tests.outboundSms && <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, padding: "0 0 15px" }}><select value={testClientId} onChange={event => setTestClientId(event.target.value)} disabled={!a2pApproved || busy} style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}><option value="">Select an opted-in test client</option>{activation.testClients.map(client => <option key={client.id} value={client.id}>{client.name} · {client.phone}</option>)}</select><button disabled={!a2pApproved || !testClientId || busy} onClick={sendTestSms} style={button}>Send test SMS</button>{activation.testClients.length === 0 && <p style={{ gridColumn: "1 / -1", color: "#8f2f22", fontSize: 12, margin: 0 }}>Text START to the studio number first. That creates an opted-in test client you can select here.</p>}</div>}
@@ -129,13 +136,13 @@ export default function OnboardingPage() {
       </section>
 
       <section style={{ ...card, marginTop: 16, borderColor: activation.readyToActivate ? "#93bda2" : "#e5e0da" }}>
-        <h2 style={{ marginTop: 0 }}>Final activation</h2>
-        {activation.status === "LIVE" ? <p style={{ color: "#2f7651", fontWeight: 700 }}>This studio is activated{activation.activatedAt ? ` as of ${new Date(activation.activatedAt).toLocaleString()}` : ""}.</p> : activation.readyToActivate ? <p>Every required check passed. Activation is explicit and will not change or release any phone number.</p> : <p style={{ color: "#6f6b66" }}>Complete: {activation.missing.join(", ")}.</p>}
-        {activation.status !== "LIVE" && <button disabled={busy || !activation.readyToActivate} onClick={() => { if (window.confirm("Activate this studio for the controlled production pilot?")) void command({ action: "ACTIVATE" }); }} style={{ ...button, border: 0, background: activation.readyToActivate ? "#2f7651" : "#aaa", color: "#fff" }}>Activate studio</button>}
+        <h2 style={{ marginTop: 0 }}>SMS activation</h2>
+        {activation.status === "LIVE" ? <p style={{ color: "#2f7651", fontWeight: 700 }}>SMS activation recorded{activation.activatedAt ? ` as of ${new Date(activation.activatedAt).toLocaleString()}` : ""}. Other feature readiness is shown above.</p> : activation.readyToActivate ? <p>Every SMS-specific check passed. Activation is explicit and will not change or release any phone number.</p> : <p style={{ color: "#6f6b66" }}>Complete: {activation.missing.join(", ")}.</p>}
+        {activation.status !== "LIVE" && <button disabled={busy || !activation.readyToActivate} onClick={() => { if (window.confirm("Activate SMS for this artist?")) void command({ action: "ACTIVATE" }); }} style={{ ...button, border: 0, background: activation.readyToActivate ? "#2f7651" : "#aaa", color: "#fff" }}>Activate SMS</button>}
       </section>
     </>}
 
-    {!activation && !busy && data?.artists.length === 0 && <section style={{ ...card, marginTop: 16 }}>No artist exists for this studio yet. Seed or create an artist before activation.</section>}
+    {!activation && !busy && data?.artists.length === 0 && <section style={{ ...card, marginTop: 16 }}>No artist profile exists yet. Create the first artist from Studio Configuration to continue.</section>}
     {busy && <p style={{ color: "#6f6b66" }}>Updating activation status…</p>}
     {message && <div style={{ ...card, marginTop: 16, borderColor: "#c9ada4" }}>{message}</div>}
   </main>;

@@ -1,9 +1,11 @@
-import { protectedRoute } from '@/packages/auth/server';
-import { NextResponse } from "next/server";
-import { and, asc, count, desc, eq, gte, inArray, lt } from "drizzle-orm";
+import { identity, protectedRoute } from '@/packages/auth/server';
+import { NextRequest, NextResponse } from "next/server";
+import { and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import { db } from "@db/index";
 import { artists, clients, conversations, messages, appointments, services, organizations } from "@db/schema";
 import { localDateTimeToUtc } from '@/packages/scheduling/square/time';
+import { canAccessArtist } from '@/packages/inbox/state';
+import { ONBOARDING_PREVIEW_CLIENT_NOTE } from '@/packages/onboarding/readiness';
 
 function dayBounds(dateParam: string | null, timezone: string) {
   const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
@@ -22,17 +24,28 @@ function dayBounds(dateParam: string | null, timezone: string) {
   return { date, start, end };
 }
 
-async function handleGET(request: Request) {
+async function handleGET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-
-    // MVP tenant selection: first seeded artist. Replace with authenticated org/artist context in Sprint 3.
+    const organizationId = searchParams.get('organizationId');
+    const requestedArtistId = searchParams.get('artistId');
+    if (!organizationId) return NextResponse.json({ error: 'Organization context is required.' }, { status: 400 });
+    const user = await identity(request);
+    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+    const artistConditions = [eq(artists.organizationId, organizationId)];
+    if (requestedArtistId) artistConditions.push(eq(artists.id, requestedArtistId));
+    else if (user.role === 'ARTIST') artistConditions.push(eq(artists.userId, user.id));
     const [artist] = await db.select({
       id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName,
       aiMode: artists.aiMode, bookingEnabled: artists.bookingEnabled,
-    }).from(artists).where(eq(artists.organizationId, searchParams.get('organizationId')!)).orderBy(asc(artists.displayName)).limit(1);
+    }).from(artists).where(and(...artistConditions)).orderBy(asc(artists.displayName)).limit(1);
 
-    if (!artist) return NextResponse.json({ error: "No artist found. Run npm run db:seed." }, { status: 404 });
+    if (!artist) return NextResponse.json({ error: "No artist profile is configured for this studio yet.", setupUrl: '/settings/studio' }, { status: 404 });
+    const [artistAccess] = await db.select({ userId: artists.userId }).from(artists)
+      .where(and(eq(artists.id, artist.id), eq(artists.organizationId, organizationId))).limit(1);
+    if (!canAccessArtist(user.role, user.id, artistAccess?.userId ?? null)) {
+      return NextResponse.json({ error: 'Artist access is not authorized.' }, { status: 403 });
+    }
 
     const [org] = await db.select({ name: organizations.name, timezone: organizations.timezone })
       .from(organizations).where(eq(organizations.id, artist.organizationId)).limit(1);
@@ -49,7 +62,7 @@ async function handleGET(request: Request) {
     }).from(appointments)
       .innerJoin(clients, eq(appointments.clientId, clients.id))
       .leftJoin(services, eq(appointments.serviceId, services.id))
-      .where(and(eq(appointments.artistId, artist.id), gte(appointments.startsAt, start), lt(appointments.startsAt, end)))
+      .where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), gte(appointments.startsAt, start), lt(appointments.startsAt, end)))
       .orderBy(asc(appointments.startsAt));
 
     const recentConversations = await db.select({
@@ -57,7 +70,7 @@ async function handleGET(request: Request) {
       status: conversations.status, aiEnabled: conversations.aiEnabled, unreadCount: conversations.unreadCount, lastMessageAt: conversations.lastMessageAt,
     }).from(conversations)
       .innerJoin(clients, eq(conversations.clientId, clients.id))
-      .where(eq(conversations.artistId, artist.id))
+      .where(and(eq(conversations.organizationId, organizationId), eq(conversations.artistId, artist.id), ne(conversations.channel, 'WEB_TEST')))
       .orderBy(desc(conversations.lastMessageAt))
       .limit(10);
 
@@ -68,12 +81,12 @@ async function handleGET(request: Request) {
 
     const allClients = await db.select({
       id: clients.id, firstName: clients.firstName, lastName: clients.lastName, email: clients.email, phone: clients.phone, createdAt: clients.createdAt,
-    }).from(clients).where(eq(clients.organizationId, artist.organizationId)).orderBy(desc(clients.createdAt)).limit(100);
+    }).from(clients).where(and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)))).orderBy(desc(clients.createdAt)).limit(100);
 
     const [allApptCount, bookedAppts, collectedAppts, clientCount] = await Promise.all([
-      db.select({ count: count() }).from(appointments).where(and(eq(appointments.artistId, artist.id), gte(appointments.startsAt, start), lt(appointments.startsAt, end))),
-      db.select({ count: count() }).from(appointments).where(and(eq(appointments.artistId, artist.id), eq(appointments.status, "CONFIRMED"))),
-      db.select({ count: count() }).from(appointments).where(and(eq(appointments.artistId, artist.id), eq(appointments.depositStatus, "PAID"))),
+      db.select({ count: count() }).from(appointments).where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), gte(appointments.startsAt, start), lt(appointments.startsAt, end))),
+      db.select({ count: count() }).from(appointments).where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), eq(appointments.status, "CONFIRMED"))),
+      db.select({ count: count() }).from(appointments).where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), eq(appointments.depositStatus, "PAID"))),
       db.select({ count: count() }).from(clients).where(eq(clients.organizationId, artist.organizationId)),
     ]);
 

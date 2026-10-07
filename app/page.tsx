@@ -109,7 +109,7 @@ export default function Home() {
           <div className="top-actions"><button className="icon-btn">⌕</button><button className="icon-btn">◔</button><button className="primary-btn">+ New appointment</button></div>
         </header>
 
-        {loading && !data ? <div className="content"><div className="panel"><h2>Loading dashboard…</h2><p>Reading live data from PostgreSQL.</p></div></div> : error ? <div className="content"><div className="panel"><h2>Dashboard unavailable</h2><p>{error}</p><p>Make sure PostgreSQL is running and run <code>npm run db:seed</code>.</p></div></div> : data ? <>
+        {loading && !data ? <div className="content"><div className="panel"><h2>Loading dashboard…</h2><p>Reading live data from PostgreSQL.</p></div></div> : error ? <div className="content"><div className="panel"><h2>Dashboard unavailable</h2><p>{error}</p><p>Check studio setup and database availability, then try again.</p></div></div> : data ? <>
           {view === "Overview" && <Overview data={data} onNavigate={setView} />}
           {view === "Calendar" && <CalendarView
               data={data}

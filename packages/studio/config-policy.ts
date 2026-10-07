@@ -59,7 +59,7 @@ export type StudioAftercareRecord = {
 };
 
 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const stopWords = new Set(['a', 'an', 'and', 'are', 'can', 'do', 'does', 'for', 'get', 'how', 'i', 'is', 'me', 'of', 'please', 'the', 'to', 'what', 'you']);
+const stopWords = new Set(['a', 'an', 'and', 'are', 'can', 'do', 'does', 'for', 'get', 'how', 'i', 'is', 'me', 'of', 'one', 'please', 'the', 'to', 'what', 'you']);
 
 function terms(value: string | undefined) {
   return (value ?? '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/)
@@ -124,14 +124,14 @@ export function projectStudioAgentConfiguration(input: {
   const requestedLocations = requestedLocationTerms.length
     ? locations.filter(location => scoreText(location.name, requestedLocationTerms) === requestedLocationTerms.length)
     : [];
-  const selectedLocation = requestedLocations.length === 1
-    ? requestedLocations[0]
+  const selectedLocation = requestedLocationTerms.length
+    ? requestedLocations.length === 1 ? requestedLocations[0] : null
     : locations.find(location => location.isPrimary) ?? null;
   const locationHours = (location: StudioLocationRecord) => input.hours
     .filter(hours => hours.organizationId === input.organizationId && hours.locationId === location.id)
     .sort((left, right) => left.dayOfWeek - right.dayOfWeek || left.startMinute - right.startMinute)
     .map(hours => ({ day: dayNames[hours.dayOfWeek] ?? 'Unknown', opens: timeLabel(hours.startMinute), closes: timeLabel(hours.endMinute) }));
-  const visibleLocations = (selectedLocation ? [selectedLocation] : locations).slice(0, 6);
+  const visibleLocations = (selectedLocation ? [selectedLocation] : requestedLocationTerms.length ? [] : locations).slice(0, 6);
   const commonLocationKnowledge = (locationId: string | null) => locationId == null || (selectedLocation != null && locationId === selectedLocation.id);
 
   const clientPolicies = input.rules

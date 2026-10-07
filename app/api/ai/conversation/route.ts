@@ -1,4 +1,4 @@
-import { protectedRoute } from '@/packages/auth/server';
+import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, asc,desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -25,6 +25,7 @@ async function handleGET(request: NextRequest) {
     : await db.select().from(conversations).where(and(eq(conversations.organizationId, organizationId), eq(conversations.artistId, artistId), eq(conversations.clientId, clientId), eq(conversations.channel, 'WEB'), eq(conversations.status, 'OPEN'))).orderBy(desc(conversations.createdAt)).limit(1);
 
   if (!conversation) return NextResponse.json({ conversation: null, messages: [] });
+  if (conversation.channel === 'WEB_TEST' && (await identity(request))?.role !== 'OWNER') return NextResponse.json({ error: 'Test Maia is owner-only.' }, { status: 403 });
 
   const conversationMessages = await db.select().from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(asc(messages.createdAt));
   return NextResponse.json({ conversation, client, messages: conversationMessages });
