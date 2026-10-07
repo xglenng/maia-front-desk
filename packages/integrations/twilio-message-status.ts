@@ -1,5 +1,6 @@
 const statuses = new Set(["accepted", "queued", "sending", "sent", "delivered", "undelivered", "failed", "canceled"]);
 const terminalStatuses = new Set(["delivered", "undelivered", "failed", "canceled"]);
+export const STATUS_CALLBACK_LOOKUP_DELAYS_MS = [50, 100, 200, 400] as const;
 
 export function normalizeTwilioMessageStatus(value: string) {
   const status = value.trim().toLowerCase();

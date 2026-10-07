@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@db';
 import { artistConsentForms, artists, clients, complianceProfiles, conversations, legalDocuments, messages, organizations, phoneNumbers, smsConsentEvidence, twilioAccounts } from '@db/schema';
-import { decryptSecret, sendSms, validateTwilioSignature } from '@integrations/twilio';
+import { decryptSecret, sendSms, twilioMessageStatusCallbackUrl, validateTwilioSignature } from '@integrations/twilio';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { appBaseUrl, formOptInUrl, helpResponse, inboundConfirmationRequest, inboundConsentDecision, inboundOnlyConsentState, inboundSubscriptionConfirmation, isConsentFormReady, isPendingYesConfirmation, optOutConfirmation, pendingSmsConfirmationMatches, smsKeywordAction } from '@/packages/consent';
 import { isInboundPhoneRoutable } from '@integrations/twilio-routing';
@@ -30,10 +30,10 @@ function logInbound(step: string, details: Record<string, unknown> = {}) {
   console.info(JSON.stringify({ event: 'twilio_inbound', step, ...details }));
 }
 
-async function sendInboundReply(to: string, from: string, body: string, account: { accountSid: string; authToken?: string } | undefined, replyType: string, messagingServiceSid?: string | null) {
+async function sendInboundReply(to: string, from: string, body: string, account: { accountSid: string; authToken?: string } | undefined, replyType: string, messagingServiceSid?: string | null, localMessageId?: string) {
   logInbound('outbound_reply_attempted', { replyType, to: maskedPhone(to), from: maskedPhone(from) });
   try {
-    const sent = await sendSms({ to, body, accountSid: account?.accountSid, authToken: account?.authToken, ...(messagingServiceSid ? { messagingServiceSid } : { from }) });
+    const sent = await sendSms({ to, body, accountSid: account?.accountSid, authToken: account?.authToken, statusCallback: twilioMessageStatusCallbackUrl(localMessageId), ...(messagingServiceSid ? { messagingServiceSid } : { from }) });
     logInbound('outbound_reply_succeeded', { replyType, to: maskedPhone(to), from: maskedPhone(from), status: sent.status });
     return sent;
   } catch (error) {
@@ -43,8 +43,17 @@ async function sendInboundReply(to: string, from: string, body: string, account:
 }
 
 async function recordOutbound(conversationId: string, to: string, from: string, body: string, account: { accountSid: string; authToken?: string } | undefined, replyType = 'keyword_response', messagingServiceSid?: string | null) {
-  const sent = await sendInboundReply(to, from, body, account, replyType, messagingServiceSid);
-  await db.insert(messages).values({ conversationId, senderType: 'SYSTEM', role: 'assistant', content: body, externalMessageId: sent.sid, metadata: { provider: 'twilio', status: sent.status, studioPhone: from } });
+  const [message] = await db.insert(messages).values({ conversationId, senderType: 'SYSTEM', role: 'assistant', content: body, metadata: { provider: 'twilio', studioPhone: from, apiStatus: 'submitting' } }).returning({ id: messages.id });
+  try {
+    const sent = await sendInboundReply(to, from, body, account, replyType, messagingServiceSid, message.id);
+    await db.update(messages).set({
+      externalMessageId: sent.sid,
+      metadata: sql`COALESCE(${messages.metadata}, '{}'::jsonb) || jsonb_build_object('provider'::text, 'twilio'::text, 'studioPhone'::text, ${from}::text, 'apiStatus'::text, ${sent.status}::text)`,
+    }).where(eq(messages.id, message.id));
+  } catch (error) {
+    await db.update(messages).set({ metadata: sql`COALESCE(${messages.metadata}, '{}'::jsonb) || jsonb_build_object('apiStatus'::text, 'failed'::text)` }).where(eq(messages.id, message.id));
+    throw error;
+  }
 }
 
 async function recordInbound(conversationId: string, text: string, messageSid: string | undefined, studioPhone: string, now: Date) {
@@ -267,9 +276,11 @@ export async function POST(request: NextRequest) {
       metadata: { provider: 'twilio', studioPhone: to, consentConfirmation: confirmationState }
     }).returning();
     try {
-      const sent = await sendInboundReply(from, to, confirmationRequest, account ? { accountSid: account.accountSid, authToken } : undefined, 'YES_REQUEST', number.twilioMessagingServiceSid);
-      const metadata = pendingMessage.metadata && typeof pendingMessage.metadata === 'object' ? pendingMessage.metadata as Record<string, unknown> : {};
-      await db.update(messages).set({ externalMessageId: sent.sid, metadata: { ...metadata, status: sent.status } }).where(eq(messages.id, pendingMessage.id));
+      const sent = await sendInboundReply(from, to, confirmationRequest, account ? { accountSid: account.accountSid, authToken } : undefined, 'YES_REQUEST', number.twilioMessagingServiceSid, pendingMessage.id);
+      await db.update(messages).set({
+        externalMessageId: sent.sid,
+        metadata: sql`COALESCE(${messages.metadata}, '{}'::jsonb) || jsonb_build_object('apiStatus'::text, ${sent.status}::text)`,
+      }).where(eq(messages.id, pendingMessage.id));
     } catch (error) {
       const metadata = pendingMessage.metadata && typeof pendingMessage.metadata === 'object' ? pendingMessage.metadata as Record<string, unknown> : {};
       await db.update(messages).set({ metadata: { ...metadata, consentConfirmation: { ...confirmationState, status: 'FAILED' } } }).where(eq(messages.id, pendingMessage.id));
@@ -286,10 +297,10 @@ export async function POST(request: NextRequest) {
   if (aiRes.status === 409 && (aiData.mode === 'HUMAN' || aiData.mode === 'CLOSED')) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   if (!aiRes.ok || !aiData.reply) return new NextResponse('AI processing failed', { status: 500 });
   if (client.smsConsentStatus !== 'OPTED_OUT') {
-    const sent = await sendInboundReply(from, to, aiData.reply, account ? { accountSid: account.accountSid, authToken } : undefined, 'AI_REPLY', number.twilioMessagingServiceSid);
+    const sent = await sendInboundReply(from, to, aiData.reply, account ? { accountSid: account.accountSid, authToken } : undefined, 'AI_REPLY', number.twilioMessagingServiceSid, aiData.messageId);
     if (aiData.messageId) await db.update(messages).set({
       externalMessageId: sent.sid,
-      metadata: sql`COALESCE(${messages.metadata}, '{}'::jsonb) || jsonb_build_object('provider', 'twilio', 'studioPhone', ${to}, 'apiStatus', ${sent.status})`,
+      metadata: sql`COALESCE(${messages.metadata}, '{}'::jsonb) || jsonb_build_object('provider'::text, 'twilio'::text, 'studioPhone'::text, ${to}::text, 'apiStatus'::text, ${sent.status}::text)`,
     }).where(eq(messages.id, aiData.messageId));
   }
   return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });

@@ -90,9 +90,12 @@ export async function addNumberToMessagingService(accountSid: string, authToken:
   });
 }
 
-export function twilioMessageStatusCallbackUrl() {
+export function twilioMessageStatusCallbackUrl(messageId?: string) {
   const base = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
-  return base ? `${base.replace(/\/$/, '')}/api/twilio/message-status` : undefined;
+  if (!base) return undefined;
+  const callback = new URL(`${base.replace(/\/$/, '')}/api/twilio/message-status`);
+  if (messageId) callback.searchParams.set('messageId', messageId);
+  return callback.toString();
 }
 
 export async function sendSms(input: { to: string; body: string; from?: string; accountSid?: string; authToken?: string; messagingServiceSid?: string; statusCallback?: string }) {

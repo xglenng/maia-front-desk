@@ -5,7 +5,7 @@ import { registrationReadiness, type A2pRegistrationInput } from "../a2p";
 import { assertCampaignPublicUrls, campaignPreview } from "../campaign";
 import { createCampaign } from "@integrations/twilio-compliance";
 import { sendSms, twilioMessageStatusCallbackUrl } from "@integrations/twilio";
-import { normalizeTwilioMessageStatus, shouldApplyTwilioMessageStatus } from "@integrations/twilio-message-status";
+import { normalizeTwilioMessageStatus, shouldApplyTwilioMessageStatus, STATUS_CALLBACK_LOOKUP_DELAYS_MS } from "@integrations/twilio-message-status";
 import { isInboundPhoneRoutable } from "@integrations/twilio-routing";
 
 test("registration readiness identifies missing campaign data", () => {
@@ -179,6 +179,7 @@ test("outbound SMS uses its artist Messaging Service and status callback URL", a
   });
   try {
     assert.equal(twilioMessageStatusCallbackUrl(), "https://maia.example.com/api/twilio/message-status");
+    assert.equal(twilioMessageStatusCallbackUrl("11111111-1111-4111-8111-111111111111"), "https://maia.example.com/api/twilio/message-status?messageId=11111111-1111-4111-8111-111111111111");
     await sendSms({ accountSid: "AC_TEST", authToken: "test-token", to: "+15555550100", body: "test", messagingServiceSid: "MG_ARTIST" });
     assert.equal(form.get("MessagingServiceSid"), "MG_ARTIST");
     assert.equal(form.get("StatusCallback"), "https://maia.example.com/api/twilio/message-status");
@@ -198,6 +199,7 @@ test("Twilio delivery states advance monotonically and terminal callbacks cannot
   assert.equal(shouldApplyTwilioMessageStatus("failed", "delivered"), false);
   assert.equal(shouldApplyTwilioMessageStatus("undelivered", "delivered"), false);
   assert.equal(shouldApplyTwilioMessageStatus("queued", "not-a-status"), false);
+  assert.deepEqual(STATUS_CALLBACK_LOOKUP_DELAYS_MS, [50, 100, 200, 400]);
 });
 
 test("message status callback is signed, tenant-scoped, idempotent, and stores only status metadata", () => {
@@ -206,6 +208,12 @@ test("message status callback is signed, tenant-scoped, idempotent, and stores o
   assert.match(callback, /twilioAccounts\.accountSid, accountSid/);
   assert.match(callback, /c\.organization_id = \$2/);
   assert.match(callback, /account\?\.organizationId \|\| null/);
+  assert.match(callback, /request\.nextUrl\.searchParams\.get\("messageId"\)/);
+  assert.match(callback, /WHERE m\.id = \$1::uuid/);
+  assert.match(callback, /m\.external_message_id IS NULL OR m\.external_message_id = \$3::text/);
+  assert.match(callback, /status: incomingStatus/);
+  assert.match(callback, /status: 202/);
+  assert.match(callback, /STATUS_CALLBACK_LOOKUP_DELAYS_MS\.length \+ 1/);
   assert.match(callback, /FOR UPDATE OF m/);
   assert.match(callback, /shouldApplyTwilioMessageStatus\(/);
   assert.match(callback, /ErrorCode/);
@@ -243,7 +251,9 @@ test("HELP is handled before AI and hosted checkbox evidence is recorded directl
   assert.match(inbound, /pendingSmsConfirmationMatches\(pending\.confirmation, scope\)/);
   assert.match(inbound, /OptOutType/);
   assert.match(inbound, /decision === 'SUPPRESS'\) return xmlResponse\(\)/);
-  assert.match(inbound, /apiStatus', \$\{sent\.status\}/);
+  assert.match(inbound, /'apiStatus'::text, \$\{sent\.status\}::text/);
+  assert.match(inbound, /twilioMessageStatusCallbackUrl\(localMessageId\)/);
+  assert.match(inbound, /'AI_REPLY', number\.twilioMessagingServiceSid, aiData\.messageId\)/);
   assert.match(booking, /consented: input\.smsConsent/);
   assert.match(booking, /source: "HOSTED_WEB_FORM"/);
   assert.match(booking, /hostedConsentState\(input\.smsConsent, now\)/);
