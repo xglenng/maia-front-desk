@@ -36,7 +36,7 @@ test("inbound webhook honors takeover and deduplicates Twilio retries", () => {
   assert.match(source, /messages\.externalMessageId, params\.MessageSid/);
   assert.match(source, /if \(!shouldRunAi\(conv\)\)/);
   assert.match(source, /messageAlreadyStored: true/);
-  assert.ok(source.indexOf("if (!shouldRunAi(conv))") < source.indexOf("const aiRes = await runAi"));
+  assert.ok(source.indexOf("if (!shouldRunAi(conv))") < source.indexOf("const aiData = await runMaiaAgent"));
 });
 
 test("manual replies require a human-controlled conversation", () => {

@@ -1,3 +1,4 @@
+import 'server-only';
 import { and, desc, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
@@ -8,16 +9,13 @@ import { squareAccessToken } from '@/packages/scheduling/square/credentials';
 import { presentAvailabilitySlot } from '@/packages/scheduling/presentation';
 import { signWaiver } from '@/packages/auth/waiver-token';
 import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
+import type { MaiaAgentContext } from './context-policy';
 
-export type AgentContext = {
-  organizationId: string;
-  artistId: string;
-  conversationId: string;
-  clientId: string;
-};
+export type AgentContext = MaiaAgentContext;
 
 export async function getClient(ctx: AgentContext) {
-  const [client] = await db.select().from(clients).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
+  const [client] = await db.select({ firstName: clients.firstName, lastName: clients.lastName })
+    .from(clients).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
   if (!client) throw new Error('Client not found');
   return client;
 }
@@ -51,8 +49,6 @@ export async function getClientAppointments(ctx: AgentContext) {
     priceCents: appointments.priceCents,
     depositCents: appointments.depositCents,
     depositStatus: appointments.depositStatus,
-    schedulingProvider: appointments.schedulingProvider,
-    providerBookingId: appointments.providerBookingId,
   })
     .from(appointments)
     .leftJoin(services, eq(appointments.serviceId, services.id))
@@ -92,8 +88,6 @@ export async function getClientAppointments(ctx: AgentContext) {
     ),
     depositCents: appointment.depositCents ?? 0,
     depositStatus: appointment.depositStatus,
-    schedulingProvider: appointment.schedulingProvider,
-    providerBookingId: appointment.providerBookingId,
   }));
 }
 

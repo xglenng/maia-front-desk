@@ -1,140 +1,25 @@
-import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, asc, desc, eq } from 'drizzle-orm';
-import { generateText, tool } from 'ai';
-import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import { db } from '@db/index';
-import { artists, businessRules, clients, conversations, messages, organizations, schedulingConnections } from '@db/schema';
-import { buildSystemPrompt } from '@ai/system-prompt';
-import { createBookingHold, createDepositLink, escalate, getArtistContext, getClient, getClientAppointments, getServiceCatalog, getSlots, getWaiverLink, sendMessage, type AgentContext } from '@ai/tools';
-import { shouldRunAi } from '@/packages/inbox/state';
+import { agentContextSelectionSchema } from './context-policy';
+import { MaiaAgentContextError, resolveAuthenticatedMaiaAgentContext } from './context.server';
+import { runMaiaAgent } from './agent.server';
 
-const inputSchema = z.object({
-  message: z.string().min(1).max(4000),
-  organizationId: z.string().uuid(),
-  artistId: z.string().uuid(),
-  clientId: z.string().uuid().optional(),
-  conversationId: z.string().uuid().optional(),
-});
+const inputSchema = agentContextSelectionSchema.extend({ message: z.string().min(1).max(4000) });
 
-async function getOrCreateConversation(input: z.infer<typeof inputSchema>) {
-  let clientId = input.clientId;
-  if (!clientId) {
-    const [client] = await db.select().from(clients).where(eq(clients.organizationId, input.organizationId)).orderBy(asc(clients.createdAt)).limit(1);
-    if (!client) throw new Error('No client exists. Create a client first.');
-    clientId = client.id;
-  }
-  const [client] = await db.select().from(clients).where(and(eq(clients.id, clientId), eq(clients.organizationId, input.organizationId)));
-  if (!client) throw new Error('Client not found.');
-  if (input.conversationId) {
-    const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), eq(conversations.artistId, input.artistId), eq(conversations.clientId, clientId)));
-    if (!conversation) throw new Error('Conversation not found.');
-    return { conversation, client };
-  }
-  const [existing] = await db.select().from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.artistId, input.artistId), eq(conversations.clientId, clientId), eq(conversations.status, 'OPEN'))).orderBy(asc(conversations.createdAt)).limit(1);
-  if (existing) return { conversation: existing, client };
-  const [conversation] = await db.insert(conversations).values({ organizationId: input.organizationId, artistId: input.artistId, clientId, channel: 'WEB', aiEnabled: true, status: 'OPEN', lastMessageAt: new Date() }).returning();
-  return { conversation, client };
-}
-
-export async function handlePOST(request: NextRequest, options: { messageAlreadyStored?: boolean } = {}) {
-  const parsed = inputSchema.safeParse(await request.json());
+export async function handlePOST(request: NextRequest) {
+  let body: unknown;
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 }); }
+  const parsed = inputSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const input = parsed.data;
   try {
-    const [artist] = await db.select().from(artists).where(and(eq(artists.id, input.artistId), eq(artists.organizationId, input.organizationId)));
-    if (!artist) return NextResponse.json({ error: 'Artist not found' }, { status: 404 });
-    const { conversation, client } = await getOrCreateConversation(input);
-    if (!shouldRunAi(conversation)) {
-      return NextResponse.json({ error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' }, { status: 409 });
-    }
-    const ctx: AgentContext = { organizationId: input.organizationId, artistId: input.artistId, conversationId: conversation.id, clientId: client.id };
-    if (!options.messageAlreadyStored) await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
-    await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversation.id));
-
-    if (process.env.AI_PROVIDER === 'mock' || !process.env.OPENAI_API_KEY) {
-      const text = input.message.toLowerCase();
-      const reply = text.includes('price') || text.includes('cost')
-        ? 'Which service are you asking about? I need the service details to answer accurately.'
-        : text.includes('book') || text.includes('appointment')
-          ? 'Which service would you like to book, and what timing works for you?'
-          : 'Which service are you interested in, and what would you like help with?';
-      const message = await sendMessage(ctx, reply);
-      return NextResponse.json({ reply, conversationId: conversation.id, messageId: message.id, mode: 'mock' });
-    }
-
-    const { rules } = await getArtistContext(ctx);
-    const serviceCatalog = await getServiceCatalog(ctx);
-    const [[organization], [connection]] = await Promise.all([
-      db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, input.organizationId)).limit(1),
-      db.select({ locationTimezone: schedulingConnections.locationTimezone }).from(schedulingConnections).where(and(eq(schedulingConnections.organizationId, input.organizationId), eq(schedulingConnections.artistId, input.artistId))).limit(1),
-    ]);
-    const providerTimezone = connection?.locationTimezone || organization?.timezone || 'UTC';
-    const currentDateTime = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'long' }).format(new Date());
-    const system = buildSystemPrompt({ artistName: artist.displayName, hourlyRateCents: artist.hourlyRateCents, minimumPriceCents: artist.minimumPriceCents, rules: rules.map(r => r.rule), services: serviceCatalog.map(service => {
-      const pricing = [
-        `${service.durationMinutes} minutes`,
-        service.pricingType,
-        service.basePriceCents != null ? `base $${(service.basePriceCents / 100).toFixed(2)}${service.startingAt ? ' starting at' : ''}` : null,
-        service.hourlyRateCents != null ? `hourly $${(service.hourlyRateCents / 100).toFixed(2)}` : null
-      ].filter(Boolean).join(', ');
-      return `[SERVICE_ID: ${service.id}] ${service.serviceType ? `${service.serviceType} - ` : ''}${service.name}${service.description ? ` (${service.description})` : ''}: ${pricing}`;
-    }), currentDateTime, providerTimezone, channel: conversation.channel, responseLength: artist.responseLength });
-
-    const history = await db.select({ role: messages.role, content: messages.content })
-      .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
-    const conversationMessages = history.reverse().map(m => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, content: m.content }));
-
-    const result = await generateText({
-      model: openai(process.env.OPENAI_MODEL || 'gpt-4o-mini'),
-      system,
-      messages: conversationMessages,
-      maxSteps: 6,
-      tools: {
-        getClient: tool({ description: 'Get the current client profile.', parameters: z.object({}), execute: async () => getClient(ctx) }),
-        getServices: tool({ description: 'List active services offered by this provider.', parameters: z.object({}), execute: async () => getServiceCatalog(ctx) }),
-        getClientAppointments: tool({
-          description: 'Retrieve this client\'s existing upcoming appointments. Use this before answering questions about an existing booking, appointment time, booking status, deposit amount, deposit status, waiver, or when the client asks for a deposit or payment link again. Do not search availability or create another booking when the client is referring to an existing appointment. Use the returned appointmentId with createDepositLink or getWaiverLink.',
-          parameters: z.object({}),
-          execute: async () => {
-            const result = await getClientAppointments(ctx);
-            console.log(JSON.stringify({
-              event: 'ai_get_client_appointments',
-              conversationId: ctx.conversationId,
-              clientId: ctx.clientId,
-              appointments: result,
-            }));
-            return result;
-          },
-        }),
-        getAvailableSlots: tool({ description: 'Always use this before answering an availability or scheduling question when enough timing information exists. Check the full local date window when only a date is given. Pass the exact Maia SERVICE_ID and configured duration when the service is known. Results include canonical UTC start/end values plus localStart/localEnd display values in the configured timezone; use localStart/localEnd when describing times and retain start/end for booking. Preserve result status: AVAILABLE has returned slots, NO_AVAILABILITY means no matching times, NOT_CONFIGURED means availability is not configured, SERVICE_NOT_MAPPED means online availability for this service is not configured, and PROVIDER_ERROR means availability could not be verified. Never convert configuration or provider errors into NO_AVAILABILITY.', parameters: z.object({ serviceId: z.string().uuid().optional(), durationMinutes: z.number().int().positive().max(1440), from: z.string(), to: z.string() }), execute: async (args) => getSlots(ctx, args) }),
-        createBookingHold: tool({ description: 'Create a booking only after the client selects a specific returned availability slot. For internal scheduling this creates a temporary hold; for a connected provider it creates the provider booking using the canonical UTC slot. Never invent or reconstruct the start time. Inspect the returned depositRequired value. If depositRequired is false, the booking is complete and you must NOT call createDepositLink. If depositRequired is true, use createDepositLink to collect the required deposit.', parameters: z.object({ serviceId: z.string().uuid(), start: z.string(), depositCents: z.number().int().nonnegative().optional(), priceCents: z.number().int().nonnegative().optional() }), execute: async (args) => createBookingHold(ctx, args) }),
-        createDepositLink: tool({ description: 'Create the real Square-hosted deposit payment link only when createBookingHold returned depositRequired=true. Send the returned url to the client as their secure deposit payment link. Never call this tool when depositRequired=false or depositCents is zero.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => {
-          console.log(JSON.stringify({
-            event: 'ai_create_deposit_link',
-            conversationId: ctx.conversationId,
-            clientId: ctx.clientId,
-            appointmentId: args.appointmentId,
-          }));
-          return createDepositLink(ctx, args.appointmentId);
-        } }),
-        getWaiverLink: tool({ description: 'Get the current waiver signing URL for an appointment.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: async (args) => getWaiverLink(ctx, args.appointmentId) }),
-        escalateToArtist: tool({ description: 'Escalate uncertain, medical, legal, unusual, or artist-approval-required questions.', parameters: z.object({ reason: z.string().min(1) }), execute: async (args) => escalate(ctx, args.reason) }),
-      },
-    });
-    const reply = result.text || 'I’m going to have the artist take a look at this.';
-    const message = await sendMessage(ctx, reply);
-    return NextResponse.json({
-      reply,
-      conversationId: conversation.id,
-      messageId: message.id,
-      mode: 'live',
-      toolCalls: result.steps.flatMap(step => step.toolCalls ?? []).map(call => call.toolName),
-      toolResults: result.steps.flatMap(step => step.toolResults ?? []).map(toolResult => toolResult.toolName),
-    });
+    const { context } = await resolveAuthenticatedMaiaAgentContext(request, input);
+    const result = await runMaiaAgent(context, { message: input.message });
+    return NextResponse.json(result, { status: 'error' in result ? 409 : 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'AI receptionist failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = error instanceof MaiaAgentContextError ? error.status : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

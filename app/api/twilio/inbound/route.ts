@@ -1,4 +1,5 @@
-import { handlePOST as runAi } from '@/packages/ai/src/http';
+import { resolveVerifiedChannelMaiaAgentContext } from '@/packages/ai/src/context.server';
+import { runMaiaAgent } from '@/packages/ai/src/agent.server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@db';
@@ -291,11 +292,10 @@ export async function POST(request: NextRequest) {
   if (decision === 'WAIT_FOR_YES') return xmlResponse();
 
   if (!shouldRunAi(conv)) return xmlResponse();
-  const base = appBaseUrl();
-  const aiRes = await runAi(new NextRequest(`${base}/api/ai/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, conversationId: conv.id }) }), { messageAlreadyStored: true });
-  const aiData = await aiRes.json();
-  if (aiRes.status === 409 && (aiData.mode === 'HUMAN' || aiData.mode === 'CLOSED')) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
-  if (!aiRes.ok || !aiData.reply) return new NextResponse('AI processing failed', { status: 500 });
+  const { context } = await resolveVerifiedChannelMaiaAgentContext({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, conversationId: conv.id }, 'SMS');
+  const aiData = await runMaiaAgent(context, { message: text, messageAlreadyStored: true });
+  if ('error' in aiData && (aiData.mode === 'HUMAN' || aiData.mode === 'CLOSED')) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
+  if ('error' in aiData || !aiData.reply) return new NextResponse('AI processing failed', { status: 500 });
   if (client.smsConsentStatus !== 'OPTED_OUT') {
     const sent = await sendInboundReply(from, to, aiData.reply, account ? { accountSid: account.accountSid, authToken } : undefined, 'AI_REPLY', number.twilioMessagingServiceSid, aiData.messageId);
     if (aiData.messageId) await db.update(messages).set({

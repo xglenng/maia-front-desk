@@ -245,7 +245,7 @@ test("registration API is authoritative and the client only renders its campaign
 test("HELP is handled before AI and hosted checkbox evidence is recorded directly", () => {
   const inbound = readFileSync("app/api/twilio/inbound/route.ts", "utf8");
   const booking = readFileSync("app/api/public/booking-inquiries/route.ts", "utf8");
-  assert.ok(inbound.indexOf("if (action === 'HELP')") < inbound.indexOf("await runAi("));
+  assert.ok(inbound.indexOf("if (action === 'HELP')") < inbound.indexOf("const aiData = await runMaiaAgent("));
   assert.match(inbound, /helpResponse\(surface\?\.organization\.name/);
   assert.match(inbound, /source: 'INBOUND_SMS_CONFIRMATION'/);
   assert.match(inbound, /pendingSmsConfirmationMatches\(pending\.confirmation, scope\)/);

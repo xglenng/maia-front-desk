@@ -1,9 +1,9 @@
-import { NextRequest } from "next/server";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@db/index";
 import { channelConnections, clientChannelIdentities, clients, conversations, messages } from "@db/schema";
 import { decryptComplianceSecret } from "@/packages/compliance/secrets";
-import { handlePOST as runAi } from "@/packages/ai/src/http";
+import { resolveVerifiedChannelMaiaAgentContext } from "@/packages/ai/src/context.server";
+import { runMaiaAgent } from "@/packages/ai/src/agent.server";
 import { shouldRunAi } from "@/packages/inbox/state";
 import { getSocialProfile, isMetaAuthError, sendMetaMessage, type SocialInboundEvent } from "./meta";
 
@@ -29,9 +29,9 @@ export async function processSocialInbound(event: SocialInboundEvent, origin: st
   await db.insert(messages).values({ conversationId: conversation.id, senderType: "CLIENT", role: "user", content: event.text, externalMessageId: event.externalMessageId, metadata: { provider: event.provider.toLowerCase(), externalAccountId: event.externalAccountId, attachments: event.attachments } });
   await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, lastInboundAt: inboundAt, lastMessageAt: inboundAt, updatedAt: new Date() }).where(eq(conversations.id, conversation.id));
   if (!shouldRunAi(conversation)) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
-  const aiResponse = await runAi(new NextRequest(`${origin}/api/ai/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: event.text, organizationId: connection.organizationId, artistId: connection.artistId, clientId: client.id, conversationId: conversation.id }) }), { messageAlreadyStored: true });
-  const ai = await aiResponse.json() as { reply?: string; messageId?: string; mode?: string };
-  if (!aiResponse.ok || !ai.reply) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
+  const { context } = await resolveVerifiedChannelMaiaAgentContext({ organizationId: connection.organizationId, artistId: connection.artistId, clientId: client.id, conversationId: conversation.id }, event.provider);
+  const ai = await runMaiaAgent(context, { message: event.text, messageAlreadyStored: true });
+  if ("error" in ai || !ai.reply) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
   let sent;
   try { sent = await sendMetaMessage({ externalAccountId: connection.externalAccountId, recipientId: event.externalUserId, accessToken, text: ai.reply }); }
   catch (error) {
