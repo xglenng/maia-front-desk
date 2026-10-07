@@ -10,6 +10,7 @@ import { presentAvailabilitySlot } from '@/packages/scheduling/presentation';
 import { signWaiver } from '@/packages/auth/waiver-token';
 import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
 import type { MaiaAgentContext } from './context-policy';
+import { resolveContextTimezone } from './read-only-policy';
 
 export type AgentContext = MaiaAgentContext;
 
@@ -50,8 +51,12 @@ export async function getClientAppointments(ctx: AgentContext) {
     depositCents: appointments.depositCents,
     depositStatus: appointments.depositStatus,
   })
-    .from(appointments)
-    .leftJoin(services, eq(appointments.serviceId, services.id))
+      .from(appointments)
+      .leftJoin(services, and(
+        eq(appointments.serviceId, services.id),
+        eq(services.organizationId, ctx.organizationId),
+        eq(services.artistId, ctx.artistId),
+      ))
     .where(and(
       eq(appointments.organizationId, ctx.organizationId),
       eq(appointments.artistId, ctx.artistId),
@@ -102,13 +107,19 @@ export async function getServiceCatalog(ctx: AgentContext) {
   return db.select().from(services).where(and(eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
 }
 
-export async function getSlots(ctx: AgentContext, input: { serviceId?: string; durationMinutes: number; from: string; to: string }) {
+export async function getContextTimezone(organizationId: string, artistId: string) {
   const [organization, connection] = await Promise.all([
-    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, ctx.organizationId)).limit(1),
-    db.select({ locationTimezone: schedulingConnections.locationTimezone }).from(schedulingConnections).where(and(eq(schedulingConnections.organizationId, ctx.organizationId), eq(schedulingConnections.artistId, ctx.artistId))).limit(1),
+    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, organizationId)).limit(1),
+    db.select({ locationTimezone: schedulingConnections.locationTimezone }).from(schedulingConnections).where(and(eq(schedulingConnections.organizationId, organizationId), eq(schedulingConnections.artistId, artistId))).limit(1),
   ]);
-  const timeZone = connection[0]?.locationTimezone || organization[0]?.timezone || 'UTC';
-  const result = await getSchedulingAvailability(ctx.organizationId, ctx.artistId, { ...input, now: new Date() });
+  return resolveContextTimezone(connection[0]?.locationTimezone, organization[0]?.timezone);
+}
+
+export async function getSlots(ctx: AgentContext, input: { serviceId?: string; durationMinutes: number; from: string; to: string; artistId?: string; now?: Date }) {
+  const artistId = input.artistId ?? ctx.artistId;
+  const { artistId: _selectedArtistId, ...availabilityInput } = input;
+  const timeZone = await getContextTimezone(ctx.organizationId, artistId);
+  const result = await getSchedulingAvailability(ctx.organizationId, artistId, { ...availabilityInput, now: input.now ?? new Date() });
   if (result.status !== 'AVAILABLE') return result;
   return { ...result, slots: result.slots.map(slot => presentAvailabilitySlot(slot, timeZone)) };
 }

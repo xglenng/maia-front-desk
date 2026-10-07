@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, availabilityRules } from '@db/schema';
+import { appointments, availabilityRules, organizations, schedulingConnections } from '@db/schema';
 import { getAvailableSlots } from '@booking/index';
 import type { AvailabilityRequest, AvailabilityResult, ProviderAvailabilityInput, SchedulingProvider } from './types';
 
@@ -15,12 +15,20 @@ export async function getInternalAvailability(
     return { status: 'PROVIDER_ERROR', slots: [], message: 'Availability could not be verified right now.' };
   }
 
-  const rules = await db.select().from(availabilityRules).where(and(
-    eq(availabilityRules.organizationId, organizationId),
-    eq(availabilityRules.artistId, artistId),
-    eq(availabilityRules.active, true),
-  ));
-  const now = new Date();
+  const [[organization], [connection], rules] = await Promise.all([
+    db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, organizationId)).limit(1),
+    db.select({ locationTimezone: schedulingConnections.locationTimezone }).from(schedulingConnections).where(and(
+      eq(schedulingConnections.organizationId, organizationId),
+      eq(schedulingConnections.artistId, artistId),
+    )).limit(1),
+    db.select().from(availabilityRules).where(and(
+      eq(availabilityRules.organizationId, organizationId),
+      eq(availabilityRules.artistId, artistId),
+      eq(availabilityRules.active, true),
+    )),
+  ]);
+  const timeZone = connection?.locationTimezone || organization?.timezone || 'UTC';
+  const now = input.now ?? new Date();
   const busyRows = await db.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt }).from(appointments).where(and(
     eq(appointments.organizationId, organizationId),
     eq(appointments.artistId, artistId),
@@ -32,7 +40,7 @@ export async function getInternalAvailability(
       and(or(eq(appointments.status, 'TENTATIVE'), eq(appointments.status, 'AI_HOLD')), or(isNull(appointments.holdExpiresAt), gte(appointments.holdExpiresAt, now))),
     ),
   ));
-  const slots = getAvailableSlots(rules, busyRows, { from, to, durationMinutes: input.durationMinutes, slotIntervalMinutes: 30 })
+  const slots = getAvailableSlots(rules, busyRows, { from, to, durationMinutes: input.durationMinutes, slotIntervalMinutes: 30, timeZone, now })
     .slice(0, 20)
     .map(slot => ({ start: slot.startsAt.toISOString(), end: slot.endsAt.toISOString() }));
   return slots.length ? { status: 'AVAILABLE', slots } : { status: 'NO_AVAILABILITY', slots: [] };

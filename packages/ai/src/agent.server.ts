@@ -4,10 +4,11 @@ import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { db } from '@db/index';
-import { agentActions, agentRuns, artists, conversations, messages, organizations, schedulingConnections } from '@db/schema';
+import { agentActions, agentRuns, artists, conversations, messages } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
 import { shouldRunAi } from '@/packages/inbox/state';
-import { createBookingHold, createDepositLink, escalate, getArtistContext, getClient, getClientAppointments, getServiceCatalog, getSlots, getWaiverLink, sendMessage } from './tools';
+import { createBookingHold, createDepositLink, escalate, getClient, getContextTimezone, getWaiverLink, sendMessage } from './tools';
+import { checkAvailability, getClientAppointmentsForReceptionist, getServicePricing, getStudioContext, listArtists, searchServices } from './read-tools.server';
 import type { MaiaAgentContext } from './context-policy';
 
 export type MaiaAgentResult = {
@@ -21,7 +22,8 @@ export type MaiaAgentResult = {
 
 async function auditRun(context: MaiaAgentContext, model: string) {
   try {
-    const [run] = await db.insert(agentRuns).values({ conversationId: context.conversationId, model, success: true }).returning({ id: agentRuns.id });
+    const safeModel = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(model) ? model : 'configured-model';
+    const [run] = await db.insert(agentRuns).values({ conversationId: context.conversationId, model: safeModel, success: true }).returning({ id: agentRuns.id });
     return run?.id;
   } catch {
     return undefined;
@@ -90,28 +92,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       return { reply, conversationId: conversation.id, messageId: message.id, mode: 'mock' };
     }
 
-    const { rules } = await getArtistContext(context);
-    const serviceCatalog = await getServiceCatalog(context);
-    const [[organization], [connection]] = await Promise.all([
-      db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, context.organizationId)).limit(1),
-      db.select({ locationTimezone: schedulingConnections.locationTimezone }).from(schedulingConnections).where(and(eq(schedulingConnections.organizationId, context.organizationId), eq(schedulingConnections.artistId, context.artistId))).limit(1),
-    ]);
-    const providerTimezone = connection?.locationTimezone || organization?.timezone || 'UTC';
+    const providerTimezone = await getContextTimezone(context.organizationId, context.artistId);
     const currentDateTime = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'long' }).format(new Date());
     const system = buildSystemPrompt({
       artistName: artist.displayName,
-      hourlyRateCents: artist.hourlyRateCents,
-      minimumPriceCents: artist.minimumPriceCents,
-      rules: rules.map(rule => rule.rule),
-      services: serviceCatalog.map(service => {
-        const pricing = [
-          `${service.durationMinutes} minutes`,
-          service.pricingType,
-          service.basePriceCents != null ? `base $${(service.basePriceCents / 100).toFixed(2)}${service.startingAt ? ' starting at' : ''}` : null,
-          service.hourlyRateCents != null ? `hourly $${(service.hourlyRateCents / 100).toFixed(2)}` : null,
-        ].filter(Boolean).join(', ');
-        return `[SERVICE_ID: ${service.id}] ${service.serviceType ? `${service.serviceType} - ` : ''}${service.name}${service.description ? ` (${service.description})` : ''}: ${pricing}`;
-      }),
       currentDateTime,
       providerTimezone,
       channel: context.channel,
@@ -129,30 +113,78 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       messages: conversationMessages,
       maxSteps: 6,
       tools: {
-        getClient: tool({ description: 'Get the current client profile.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
-        getServices: tool({ description: 'List active services offered by this provider.', parameters: z.object({}), execute: audit('getServices', async () => getServiceCatalog(context)) }),
-        getClientAppointments: tool({
-          description: 'Retrieve this client\'s existing upcoming appointments. Use this before answering questions about an existing booking, appointment time, booking status, deposit amount, deposit status, waiver, or when the client asks for a deposit or payment link again. Do not search availability or create another booking when the client is referring to an existing appointment. Use the returned appointmentId with createDepositLink or getWaiverLink.',
+        getClient: tool({ description: 'Read the current client name when needed for a natural receptionist response. Returns only first and last name.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
+        get_studio_context: tool({
+          description: 'Read the current studio name, provider-local timezone, current artist public profile, receptionist response setting, and active business rules. Use for studio details or policies; only configured facts are returned.',
           parameters: z.object({}),
-          execute: audit('getClientAppointments', async () => getClientAppointments(context)),
+          execute: audit('get_studio_context', async () => getStudioContext(context)),
         }),
-        getAvailableSlots: tool({
-          description: 'Always use this before answering an availability or scheduling question when enough timing information exists. Check the full local date window when only a date is given. Pass the exact Maia SERVICE_ID and configured duration when the service is known. Results include canonical UTC start/end values plus localStart/localEnd display values in the configured timezone; use localStart/localEnd when describing times and retain start/end for booking. Preserve result status: AVAILABLE has returned slots, NO_AVAILABILITY means no matching times, NOT_CONFIGURED means availability is not configured, SERVICE_NOT_MAPPED means online availability for this service is not configured, and PROVIDER_ERROR means availability could not be verified. Never convert configuration or provider errors into NO_AVAILABILITY.',
-          parameters: z.object({ serviceId: z.string().uuid().optional(), durationMinutes: z.number().int().positive().max(1440), from: z.string(), to: z.string() }),
-          execute: audit('getAvailableSlots', async (args: { serviceId?: string; durationMinutes: number; from: string; to: string }) => getSlots(context, args)),
+        search_services: tool({
+          description: 'Discover active services that could satisfy a client request. Pass a concise natural-language service idea and optional free-form service type, category, or artist preference. Categories are tenant-defined; do not assume a fixed vocabulary. This tool does not return prices; use get_service_pricing for a known result.',
+          parameters: z.object({
+            query: z.string().trim().min(1).max(160).optional().describe('Short service idea, such as fine-line tattoo, nostril piercing, or jewelry change.'),
+            serviceType: z.string().trim().min(1).max(80).optional().describe('Optional tenant-defined service type filter.'),
+            category: z.string().trim().min(1).max(80).optional().describe('Optional free-form category filter.'),
+            artistPreference: z.string().trim().min(1).max(100).optional().describe('Optional public artist name preference.'),
+          }),
+          execute: audit('search_services', async (args: { query?: string; serviceType?: string; category?: string; artistPreference?: string }) => searchServices(context, args)),
+        }),
+        get_service_pricing: tool({
+          description: 'Return configured flat, hourly, starting-at, or quote-required pricing for a service already identified by search_services. Never guess or substitute studio-wide pricing.',
+          parameters: z.object({ serviceId: z.string().uuid().describe('The serviceId returned by search_services.') }),
+          execute: audit('get_service_pricing', async (args: { serviceId: string }) => getServicePricing(context, args.serviceId)),
+        }),
+        list_artists: tool({
+          description: 'List public studio artists for a client asking who can perform a service or asking about another artist. Optionally filter using a serviceId returned by search_services. Does not reveal contact, login, or provider account details.',
+          parameters: z.object({ serviceId: z.string().uuid().optional().describe('Optional serviceId from search_services.') }),
+          execute: audit('list_artists', async (args: { serviceId?: string }) => listArtists(context, args.serviceId)),
+        }),
+        check_availability: tool({
+          description: 'Read real open slots for a previously identified active service. Pass studio-local ISO calendar date(s), not a duration or provider details. The tool derives service duration, timezone, artist scope, and scheduling provider. This tool never creates a booking, hold, payment, or message.',
+          parameters: z.object({
+            serviceId: z.string().uuid().describe('The selected serviceId returned by search_services.'),
+            fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).describe('Inclusive start date in YYYY-MM-DD format, interpreted in the selected studio timezone.'),
+            toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional().describe('Optional inclusive end date; the complete range may span at most 31 calendar days.'),
+            artistPreference: z.string().trim().min(1).max(100).optional().describe('Optional public artist name, normally selected from list_artists.'),
+            timePeriod: z.enum(['morning', 'afternoon', 'evening']).optional().describe('Optional local slot-start preference: morning 06:00-12:00, afternoon 12:00-17:00, evening 17:00-22:00.'),
+          }),
+          execute: audit('check_availability', async (args: { serviceId: string; fromDate: string; toDate?: string; artistPreference?: string; timePeriod?: 'morning' | 'afternoon' | 'evening' }) => checkAvailability(context, args)),
+        }),
+        get_client_appointments: tool({
+          description: 'Read this conversation client\'s existing upcoming appointments when they ask about an existing booking, time, deposit status, or waiver. Use the returned appointmentId only with the corresponding existing deposit or waiver tool when the client requests that action.',
+          parameters: z.object({}),
+          execute: audit('get_client_appointments', async () => getClientAppointmentsForReceptionist(context)),
         }),
         createBookingHold: tool({
-          description: 'Create a booking only after the client selects a specific returned availability slot. For internal scheduling this creates a temporary hold; for a connected provider it creates the provider booking using the canonical UTC slot. Never invent or reconstruct the start time. Inspect the returned depositRequired value. If depositRequired is false, the booking is complete and you must NOT call createDepositLink. If depositRequired is true, use createDepositLink to collect the required deposit.',
-          parameters: z.object({ serviceId: z.string().uuid(), start: z.string(), depositCents: z.number().int().nonnegative().optional(), priceCents: z.number().int().nonnegative().optional() }),
-          execute: audit('createBookingHold', async (args: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) => createBookingHold(context, args)),
+          description: 'Create a booking only after the client explicitly selects one specific slot returned by check_availability. Pass its canonical startsAt as start. This existing booking action is distinct from the read-only availability lookup. Inspect depositRequired and do not create a deposit link unless it is true.',
+          parameters: z.object({ serviceId: z.string().uuid(), start: z.string() }),
+          execute: audit('createBookingHold', async (args: { serviceId: string; start: string }) => {
+            const result = await createBookingHold(context, args);
+            const { providerBookingId: _providerBookingId, ...clientResult } = result;
+            return clientResult;
+          }),
         }),
         createDepositLink: tool({
-          description: 'Create the real Square-hosted deposit payment link only when createBookingHold returned depositRequired=true. Send the returned url to the client as their secure deposit payment link. Never call this tool when depositRequired=false or depositCents is zero.',
+          description: 'Create the existing Square deposit link only when createBookingHold returned depositRequired=true. Never call for a no-deposit or already-paid booking.',
           parameters: z.object({ appointmentId: z.string().uuid() }),
-          execute: audit('createDepositLink', async (args: { appointmentId: string }) => createDepositLink(context, args.appointmentId)),
+          execute: audit('createDepositLink', async (args: { appointmentId: string }) => {
+            const result = await createDepositLink(context, args.appointmentId);
+            return { url: result.url, amountCents: result.amountCents, appointmentId: result.appointmentId };
+          }),
         }),
-        getWaiverLink: tool({ description: 'Get the current waiver signing URL for an appointment.', parameters: z.object({ appointmentId: z.string().uuid() }), execute: audit('getWaiverLink', async (args: { appointmentId: string }) => getWaiverLink(context, args.appointmentId)) }),
-        escalateToArtist: tool({ description: 'Escalate uncertain, medical, legal, unusual, or artist-approval-required questions.', parameters: z.object({ reason: z.string().min(1) }), execute: audit('escalateToArtist', async (args: { reason: string }) => escalate(context, args.reason)) }),
+        getWaiverLink: tool({
+          description: 'Return the existing waiver signing URL for an appointment when the client asks to complete its waiver.',
+          parameters: z.object({ appointmentId: z.string().uuid() }),
+          execute: audit('getWaiverLink', async (args: { appointmentId: string }) => {
+            const result = await getWaiverLink(context, args.appointmentId);
+            return { waiverUrl: result.waiverUrl };
+          }),
+        }),
+        escalateToArtist: tool({
+          description: 'Hand off uncertain, medical, legal, unusual, or artist-approval-required requests to the artist. Use when a human decision is needed; do not provide medical or legal advice.',
+          parameters: z.object({ reason: z.string().min(1).max(500) }),
+          execute: audit('escalateToArtist', async (args: { reason: string }) => escalate(context, args.reason)),
+        }),
       },
     });
     const reply = result.text || 'I’m going to have the artist take a look at this.';
@@ -172,8 +204,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       toolResults: result.steps.flatMap(step => step.toolResults ?? []).map(toolResult => toolResult.toolName),
     };
   } catch (error) {
-    const errorType = error instanceof Error ? error.name.slice(0, 100) : 'UnknownError';
-    await updateRun(runId, { success: false, latencyMs: Date.now() - startedAt, error: errorType });
+    await updateRun(runId, { success: false, latencyMs: Date.now() - startedAt, error: 'AgentExecutionError' });
     throw error;
   }
 }

@@ -22,4 +22,6 @@ export type AvailabilityOptions = {
   slotIntervalMinutes?: number;
   bufferBeforeMinutes?: number;
   bufferAfterMinutes?: number;
+  timeZone?: string;
+  now?: Date;
 };
