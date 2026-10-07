@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { registrationReadiness, type A2pRegistrationInput } from "../a2p";
 import { assertCampaignPublicUrls, campaignPreview } from "../campaign";
 import { createCampaign } from "@integrations/twilio-compliance";
+import { sendSms, twilioMessageStatusCallbackUrl } from "@integrations/twilio";
+import { normalizeTwilioMessageStatus, shouldApplyTwilioMessageStatus } from "@integrations/twilio-message-status";
 import { isInboundPhoneRoutable } from "@integrations/twilio-routing";
 
 test("registration readiness identifies missing campaign data", () => {
@@ -167,6 +169,56 @@ test("createCampaign sends the exact previewed fields and public consent URL", a
   assert.match(form.get("MessageFlow") || "", /https:\/\/maia\.example\.com\/book\/studio\/artist/);
 });
 
+test("outbound SMS uses its artist Messaging Service and status callback URL", async t => {
+  const previousBase = process.env.TWILIO_WEBHOOK_BASE_URL;
+  process.env.TWILIO_WEBHOOK_BASE_URL = "https://maia.example.com/";
+  let form = new URLSearchParams();
+  t.mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+    form = new URLSearchParams(String(init?.body || ""));
+    return new Response(JSON.stringify({ sid: "SM_TEST", status: "queued", to: "+15555550100", from: "+15555550199" }), { status: 201, headers: { "Content-Type": "application/json" } });
+  });
+  try {
+    assert.equal(twilioMessageStatusCallbackUrl(), "https://maia.example.com/api/twilio/message-status");
+    await sendSms({ accountSid: "AC_TEST", authToken: "test-token", to: "+15555550100", body: "test", messagingServiceSid: "MG_ARTIST" });
+    assert.equal(form.get("MessagingServiceSid"), "MG_ARTIST");
+    assert.equal(form.get("StatusCallback"), "https://maia.example.com/api/twilio/message-status");
+    assert.equal(form.has("From"), false);
+  } finally {
+    if (previousBase === undefined) delete process.env.TWILIO_WEBHOOK_BASE_URL;
+    else process.env.TWILIO_WEBHOOK_BASE_URL = previousBase;
+  }
+});
+
+test("Twilio delivery states advance monotonically and terminal callbacks cannot regress", () => {
+  assert.equal(normalizeTwilioMessageStatus("QUEUED"), "queued");
+  assert.equal(shouldApplyTwilioMessageStatus("queued", "sent"), true);
+  assert.equal(shouldApplyTwilioMessageStatus("sent", "delivered"), true);
+  assert.equal(shouldApplyTwilioMessageStatus("delivered", "delivered"), false);
+  assert.equal(shouldApplyTwilioMessageStatus("delivered", "sent"), false);
+  assert.equal(shouldApplyTwilioMessageStatus("failed", "delivered"), false);
+  assert.equal(shouldApplyTwilioMessageStatus("undelivered", "delivered"), false);
+  assert.equal(shouldApplyTwilioMessageStatus("queued", "not-a-status"), false);
+});
+
+test("message status callback is signed, tenant-scoped, idempotent, and stores only status metadata", () => {
+  const callback = readFileSync("app/api/twilio/message-status/route.ts", "utf8");
+  assert.match(callback, /validateTwilioSignature\(/);
+  assert.match(callback, /twilioAccounts\.accountSid, accountSid/);
+  assert.match(callback, /c\.organization_id = \$2/);
+  assert.match(callback, /account\?\.organizationId \|\| null/);
+  assert.match(callback, /FOR UPDATE OF m/);
+  assert.match(callback, /shouldApplyTwilioMessageStatus\(/);
+  assert.match(callback, /ErrorCode/);
+  assert.match(callback, /deliveryUpdatedAt/);
+  assert.doesNotMatch(callback, /params\.(Body|To|From)|authToken.*details/);
+});
+
+test("inbound outbound replies use the artist Messaging Service when available", () => {
+  const inbound = readFileSync("app/api/twilio/inbound/route.ts", "utf8");
+  assert.match(inbound, /messagingServiceSid \? \{ messagingServiceSid \} : \{ from \}/);
+  assert.match(inbound, /number\.twilioMessagingServiceSid\)/);
+});
+
 test("registration API is authoritative and the client only renders its campaign preview", () => {
   const api = readFileSync("app/api/compliance/registration/route.ts", "utf8");
   const page = readFileSync("app/compliance/registration/page.tsx", "utf8");
@@ -191,6 +243,7 @@ test("HELP is handled before AI and hosted checkbox evidence is recorded directl
   assert.match(inbound, /pendingSmsConfirmationMatches\(pending\.confirmation, scope\)/);
   assert.match(inbound, /OptOutType/);
   assert.match(inbound, /decision === 'SUPPRESS'\) return xmlResponse\(\)/);
+  assert.match(inbound, /apiStatus', \$\{sent\.status\}/);
   assert.match(booking, /consented: input\.smsConsent/);
   assert.match(booking, /source: "HOSTED_WEB_FORM"/);
   assert.match(booking, /hostedConsentState\(input\.smsConsent, now\)/);
@@ -251,20 +304,8 @@ test("invalid Twilio signatures are diagnosed safely and still return 403 before
   assert.match(signatureBlock, /new NextResponse\('Invalid Twilio signature', \{ status: 403 \}\)/);
   assert.ok(handler.indexOf("if (!signatureValid)") < handler.indexOf("// Twilio retries"));
   assert.ok(handler.indexOf("if (!signatureValid)") < handler.indexOf("await recordInbound("));
-  assert.match(handler, /await persistSignatureDiagnostic\(/);
-  assert.match(inbound, /phase: 'INBOUND_WEBHOOK'/);
-  assert.match(inbound, /action: 'SIGNATURE_VALIDATION'/);
-  assert.match(inbound, /status: input\.signatureValid \? 'VALID' : 'INVALID'/);
-  assert.match(inbound, /providerSid: input\.messageSid \|\| null/);
-  assert.match(inbound, /signaturePresent: input\.signaturePresent/);
-  assert.match(inbound, /signatureValid: input\.signatureValid/);
-  assert.match(inbound, /validationUrl: input\.validationUrl/);
-  assert.match(inbound, /credentialSource: input\.credentialSource/);
-  assert.match(inbound, /accountSid: maskedAccountSid\(input\.accountSid\)/);
-  assert.match(inbound, /destination: maskedPhone\(input\.destination\)/);
-  const persist = inbound.slice(inbound.indexOf("async function persistSignatureDiagnostic"), inbound.indexOf("async function sendInboundReply"));
-  assert.doesNotMatch(persist, /authToken|signature:\s*input|body|phone:\s*input\.destination/);
-  assert.match(persist, /catch \(error\)/);
+  assert.match(signatureBlock, /logInbound\('signature_validation'/);
+  assert.doesNotMatch(inbound, /persistSignatureDiagnostic|INBOUND_WEBHOOK|SIGNATURE_VALIDATION/);
   assert.match(handler, /reason: 'missing_required_fields'/);
   assert.match(handler, /logInbound\('destination_unmapped'/);
   assert.match(handler, /logInbound\('destination_not_routable'/);

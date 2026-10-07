@@ -14,7 +14,7 @@ const other='22222222-2222-4222-8222-222222222222';
 const configuredOrigin=()=>new URL(process.env.NEXT_PUBLIC_APP_URL||'http://localhost').origin;
 test('every browser API export is guarded',()=>{
   function walk(p:string):string[]{return readdirSync(p,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(p,e.name)):[join(p,e.name)]);}
-  const exempt=['app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
+  const exempt=['app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
   for(const p of walk('app/api').filter(p=>p.endsWith('/route.ts')&&!exempt.includes(p))){const s=readFileSync(p,'utf8');assert.ok(s.includes('protectedRoute('),p);assert.equal(/export async function (GET|POST|PUT|DELETE|PATCH)/.test(s),false,p);}
   const signup=readFileSync('app/api/auth/signup/route.ts','utf8');
   assert.ok(signup.includes('sameOrigin(req)'));
@@ -32,6 +32,8 @@ test('every browser API export is guarded',()=>{
   assert.ok(rateLimitIndex<signup.indexOf('await pool.connect()'));
   const squareWebhook=readFileSync('app/api/payments/square/webhook/route.ts','utf8');
   assert.ok(squareWebhook.includes('verifySquareSignature(body, signature, signatureKey)'));
+  const twilioMessageStatus=readFileSync('app/api/twilio/message-status/route.ts','utf8');
+  assert.ok(twilioMessageStatus.includes('validateTwilioSignature({ signature, url: callbackUrl, params, authToken })'));
 });
 test('signup rate limit uses the trusted Railway proxy hop and fixed threshold',async(t)=>{
   const previousRailwayId=process.env.RAILWAY_ENVIRONMENT_ID;

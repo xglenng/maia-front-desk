@@ -90,11 +90,18 @@ export async function addNumberToMessagingService(accountSid: string, authToken:
   });
 }
 
-export async function sendSms(input: { to: string; body: string; from?: string; accountSid?: string; authToken?: string; messagingServiceSid?: string }) {
+export function twilioMessageStatusCallbackUrl() {
+  const base = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  return base ? `${base.replace(/\/$/, '')}/api/twilio/message-status` : undefined;
+}
+
+export async function sendSms(input: { to: string; body: string; from?: string; accountSid?: string; authToken?: string; messagingServiceSid?: string; statusCallback?: string }) {
   const sid = input.accountSid || required('TWILIO_ACCOUNT_SID');
   const token = input.authToken || required('TWILIO_AUTH_TOKEN');
   const from = input.from || process.env.TWILIO_PHONE_NUMBER;
   const form: Record<string, string> = { To: input.to, Body: input.body };
+  const statusCallback = input.statusCallback || twilioMessageStatusCallbackUrl();
+  if (statusCallback) form.StatusCallback = statusCallback;
   if (input.messagingServiceSid) form.MessagingServiceSid = input.messagingServiceSid;
   else if (from) form.From = from;
   else throw new Error('A Twilio From number or Messaging Service SID is required.');
