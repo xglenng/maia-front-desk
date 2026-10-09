@@ -95,3 +95,7 @@ Google OAuth callback and calendar consumers now share `packages/integrations/go
 ### Relational tenant boundary update (local, October 8, 2026)
 
 Tenant-owned references now include 65 `(reference_id, organization_id)` foreign keys to 16 parent `(id, organization_id)` keys. Related read joins also enforce organization equality. Coverage is recorded in `packages/db/tenant-relations.json`; the counts-only report is `packages/db/tenant-integrity.sql`. Migration 0005 remains unapplied to Railway and production; no RLS or database role changes were made. See [TENANT_RELATIONSHIP_CONSTRAINTS.md](TENANT_RELATIONSHIP_CONSTRAINTS.md) for tested coverage and remaining domain/operational boundaries.
+
+## Planned Twilio legal-customer ownership
+
+Accepted requirement: default one legal business per studio; unrelated independent-business artists register separately even when sharing premises. Registration ownership must use explicit legal-customer/account binding, not physical studio affiliation or arbitrary artist ordering. See [TWILIO_LEGAL_CUSTOMERS.md](TWILIO_LEGAL_CUSTOMERS.md) for the proposed model and legacy preservation. Current artist-account versus organization-profile mismatch remains T01; the design is not yet an implemented resource graph. Local provisioning preflight now prevents known configuration/mock/scope failures before provider mutations.

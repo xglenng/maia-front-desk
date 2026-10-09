@@ -1,0 +1,84 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID, createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { Pool } from 'pg';
+import { NextRequest } from 'next/server';
+import { pool } from '@db';
+import { grantVerifiedInboundConsent, hasScopedSmsConsent, revokeStudioSmsConsent } from '../server';
+const socket = process.env.MAIA_RECONSENT_TEST_SOCKET;
+test('STOP invalidates historical scopes and verified inbound reconsent is atomic', { skip: !socket }, async t => {
+  assert.match(socket!, /^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
+  assert.ok(process.execArgv.some(arg => arg.includes('local-worker-test-guard.cjs')), 'Provider network guard must be preloaded');
+  const schema = 'consent_scope_' + randomUUID().replaceAll('-', '');
+  const local = new Pool({ host: socket, port: 55439, database: 'maia_tenant_test', user: process.env.USER, max: 4, options: `-c search_path=${schema}` });
+  try {
+    assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory, `${socket}/data`);
+    await local.query(`CREATE SCHEMA ${schema}`);
+    await local.query(readFileSync('packages/db/staging/schema.sql', 'utf8').replaceAll('"public".', `"${schema}".`));
+    t.mock.method(pool, 'query', local.query.bind(local) as never); t.mock.method(pool, 'connect', local.connect.bind(local) as never);
+    t.mock.method(globalThis, 'fetch', async () => { throw new Error('Unexpected provider call'); });
+    const org = randomUUID(), foreignOrg = randomUUID(), client = randomUUID(), artistA = randomUUID(), artistB = randomUUID(), formA = randomUUID(), formB = randomUUID(), conversation = randomUUID();
+    await local.query("INSERT INTO organizations(id,name,slug) VALUES($1,'Synthetic A','synthetic-a'),($2,'Synthetic B','synthetic-b')", [org, foreignOrg]);
+    await local.query("INSERT INTO artists(id,organization_id,display_name) VALUES($1,$3,'Synthetic A'),($2,$3,'Synthetic B')", [artistA, artistB, org]);
+    await local.query("INSERT INTO clients(id,organization_id,first_name,phone,sms_opt_in,sms_consent_status) VALUES($1,$2,'Original','+15555550123',true,'OPTED_IN')", [client, org]);
+    await local.query("INSERT INTO artist_consent_forms(id,organization_id,artist_id,slug,disclosure_text,confirmation_text) VALUES($1,$3,$4,'synthetic-a','Disclosure','Confirmation'),($2,$3,$5,'synthetic-b','Disclosure','Confirmation')", [formA, formB, org, artistA, artistB]);
+    const evidence = (artistId: string, consentFormId: string) => ({ organizationId: org, artistId, clientId: client, consentFormId, phone: '+15555550123', consented: true, source: 'INBOUND_KEYWORD', sourceUrl: 'https://example.test', disclosureText: 'Synthetic disclosure', disclosureVersion: 1, privacyPolicyUrl: 'https://example.test/privacy', termsUrl: 'https://example.test/terms', externalSubmissionId: 'SM' + randomUUID().replaceAll('-', ''), metadata: { provider: 'twilio', studioPhone: '+15555550124', verification: 'SIGNED_INBOUND' } });
+    const scope = (artistId: string) => ({ organizationId: org, artistId, clientId: client, phone: '+15555550123' });
+    const originalA = evidence(artistA, formA);
+    await Promise.all([grantVerifiedInboundConsent(originalA), grantVerifiedInboundConsent(originalA)]);
+    assert.equal((await local.query('SELECT count(*)::integer AS count FROM sms_consent_evidence')).rows[0].count, 1);
+    await grantVerifiedInboundConsent(evidence(artistB, formB));
+    assert.equal(await hasScopedSmsConsent(scope(artistA)), true); assert.equal(await hasScopedSmsConsent(scope(artistB)), true);
+    await local.query("UPDATE sms_consent_evidence SET submitted_at=now()-interval '1 day'");
+    await local.query("INSERT INTO conversations(id,organization_id,artist_id,client_id,channel) VALUES($1,$2,$3,$4,'SMS')", [conversation, org, artistA, client]);
+    await local.query("INSERT INTO messages(conversation_id,sender_type,role,content,created_at) VALUES($1,'CLIENT','user',' STOP ',now()-interval '1 hour')", [conversation]);
+    await local.query("UPDATE clients SET sms_opt_in=false,sms_consent_status='OPTED_OUT'");
+    assert.equal(await hasScopedSmsConsent(scope(artistA)), false); assert.equal(await hasScopedSmsConsent(scope(artistB)), false);
+    await revokeStudioSmsConsent({ organizationId: org, clientId: client, phone: '+15555550123' });
+    await grantVerifiedInboundConsent(originalA);
+    assert.equal((await local.query('SELECT sms_consent_status FROM clients WHERE id=$1', [client])).rows[0].sms_consent_status, 'OPTED_OUT');
+    await grantVerifiedInboundConsent(evidence(artistB, formB));
+    assert.equal(await hasScopedSmsConsent(scope(artistB)), true); assert.equal(await hasScopedSmsConsent(scope(artistA)), false);
+    assert.equal(await hasScopedSmsConsent({ ...scope(artistB), organizationId: foreignOrg }), false);
+    assert.equal(await hasScopedSmsConsent({ ...scope(artistB), phone: '+15555550999' }), false);
+    await assert.rejects(grantVerifiedInboundConsent(evidence(artistA, formB)), /form scope changed/);
+    await assert.rejects(grantVerifiedInboundConsent({ ...evidence(artistA, formA), source: 'HOSTED_WEB_FORM' }), /Verified inbound evidence required/);
+    await local.query("UPDATE clients SET sms_opt_in=false,sms_consent_status='OPTED_OUT'");
+    const before = (await local.query('SELECT count(*)::integer AS count FROM sms_consent_evidence')).rows[0].count;
+    await local.query(`CREATE FUNCTION fail_consent() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic evidence failure'; END $$; CREATE TRIGGER fail_consent BEFORE INSERT ON sms_consent_evidence FOR EACH ROW EXECUTE FUNCTION fail_consent()`);
+    await assert.rejects(grantVerifiedInboundConsent(evidence(artistA, formA)), (error: unknown) => (error as { cause?: { message?: string } }).cause?.message === 'Synthetic evidence failure');
+    assert.equal((await local.query('SELECT sms_consent_status FROM clients WHERE id=$1', [client])).rows[0].sms_consent_status, 'OPTED_OUT');
+    assert.equal((await local.query('SELECT count(*)::integer AS count FROM sms_consent_evidence')).rows[0].count, before);
+    assert.equal((await local.query('SELECT first_name FROM clients WHERE id=$1', [client])).rows[0].first_name, 'Original');
+    if (process.execArgv.some(arg => arg.includes('local-worker-test-guard.cjs'))) {
+      await local.query('DROP TRIGGER fail_consent ON sms_consent_evidence');
+      await local.query("INSERT INTO phone_numbers(organization_id,artist_id,phone_number) VALUES($1,$2,'+15555550124')", [org, artistA]);
+      const names = ['TWILIO_AUTH_TOKEN', 'TWILIO_VALIDATE_SIGNATURE', 'TWILIO_WEBHOOK_BASE_URL', 'NEXT_PUBLIC_APP_URL'] as const;
+      const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+      process.env.TWILIO_AUTH_TOKEN = 'synthetic-signature-token'; process.env.TWILIO_VALIDATE_SIGNATURE = 'true';
+      process.env.TWILIO_WEBHOOK_BASE_URL = 'https://example.test'; process.env.NEXT_PUBLIC_APP_URL = 'https://example.test';
+      t.after(() => { for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; } });
+      const { POST } = await import('../../../app/api/twilio/inbound/route');
+      const url = 'https://example.test/api/twilio/inbound';
+      async function inbound(body: string, sid: string, valid = true) {
+        const params = { From: '+15555550123', To: '+15555550124', Body: body, MessageSid: sid, OptOutType: body };
+        const signature = createHmac('sha1', 'synthetic-signature-token').update(url + Object.keys(params).sort().map(key => key + params[key as keyof typeof params]).join('')).digest('base64');
+        return POST(new NextRequest(url, { method: 'POST', body: new URLSearchParams(params), headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': valid ? signature : 'invalid' } }));
+      }
+      const sid = 'SM' + randomUUID().replaceAll('-', '');
+      assert.equal((await inbound('START', sid, false)).status, 403);
+      assert.equal(await hasScopedSmsConsent(scope(artistA)), false);
+      assert.equal((await inbound('START', sid)).status, 200);
+      assert.equal(await hasScopedSmsConsent(scope(artistA)), true);
+      assert.equal((await inbound('STOP', 'SM' + randomUUID().replaceAll('-', ''))).status, 200);
+      assert.equal(await hasScopedSmsConsent(scope(artistA)), false);
+      assert.equal((await inbound('START', sid)).status, 200);
+      assert.equal(await hasScopedSmsConsent(scope(artistA)), false);
+      await grantVerifiedInboundConsent(evidence(artistB, formB));
+      assert.equal(await hasScopedSmsConsent(scope(artistA)), false);
+      assert.equal((await inbound('Hello', 'SM' + randomUUID().replaceAll('-', ''))).status, 200);
+      assert.equal((await local.query("SELECT count(*)::integer AS count FROM messages WHERE sender_type='SYSTEM'")).rows[0].count, 0);
+    }
+  } finally { await local.end(); }
+});

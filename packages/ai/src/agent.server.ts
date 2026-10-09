@@ -1,3 +1,4 @@
+import { availabilityToolParameters } from './availability-tool-schema';
 import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
 import { generateText, tool } from 'ai';
@@ -159,13 +160,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         }),
         check_availability: tool({
           description: 'Read real open slots for a previously identified active service. Pass studio-local ISO calendar date(s), not a duration or provider details. The tool derives service duration, timezone, artist scope, and scheduling provider. This tool never creates a booking, hold, payment, or message.',
-          parameters: z.object({
-            serviceId: z.string().uuid().describe('The selected serviceId returned by search_services.'),
-            fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).describe('Inclusive start date in YYYY-MM-DD format, interpreted in the selected studio timezone.'),
-            toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional().describe('Optional inclusive end date; the complete range may span at most 31 calendar days.'),
-            artistPreference: z.string().trim().min(1).max(100).optional().describe('Optional public artist name, normally selected from list_artists.'),
-            timePeriod: z.enum(['morning', 'afternoon', 'evening']).optional().describe('Optional local slot-start preference: morning 06:00-12:00, afternoon 12:00-17:00, evening 17:00-22:00.'),
-          }),
+          parameters: availabilityToolParameters,
           execute: audit('check_availability', async (args: { serviceId: string; fromDate: string; toDate?: string; artistPreference?: string; timePeriod?: 'morning' | 'afternoon' | 'evening' }) => checkAvailability(context, args)),
         }),
         get_client_appointments: tool({

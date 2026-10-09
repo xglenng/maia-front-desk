@@ -129,3 +129,11 @@ Number retirement/porting, grace periods, voice forwarding, and existing-registr
 6. After actual carrier approval, obtain explicit authorization for scoped inbound/outbound tests and check final delivered callbacks, STOP/START, human takeover, and multi-artist consent boundaries.
 
 Embellished's manually approved campaign and Gavakata's approved Primary Profile are user-reported working inputs. They do not establish Maia Test Tattoo's live identity eligibility or prove the end-to-end automated path.
+
+## Accepted customer model and T02 local follow-up
+
+The user confirmed the default studio legal customer and separately registered independent-business artist requirement. See [TWILIO_LEGAL_CUSTOMERS.md](TWILIO_LEGAL_CUSTOMERS.md) for explicit ownership, independent tenant boundaries, service/campaign bindings and approved legacy-resource handling. T01 remains open until these bindings and workflows are implemented and tested.
+
+`packages/integrations/twilio-provision-preflight.ts::twilioProvisionPreflight` now validates local live configuration and resource relationships before the provisioning endpoint creates resources. It rejects mock credentials/SIDs in live setup and unsafe webhook origins. `app/api/twilio/provision/route.ts::handlePOST` no longer treats missing service membership as complete and reuses a purchased number when repairing a missing service. Four mocked/direct tests pass, including zero provider calls on invalid configuration and no additional purchase in partial-service recovery. Raw provider error output was removed from this endpoint.
+
+T02 is only partially implemented: durable intents, concurrency serialization, ambiguous provider-success reconciliation, account-customer boundaries and one-primary database invariants remain outstanding. No authenticated Twilio call, registration, purchase or SMS occurred.

@@ -25,7 +25,7 @@ test('Studio Configuration endpoints require OWNER and scope all reads/writes to
 test('new storage keeps studio hours separate from artist availability and constrains location references by tenant', () => {
   assert.match(schema, /export const availabilityRules = pgTable\("availability_rules"/);
   assert.match(schema, /export const studioBusinessHours = pgTable\("studio_business_hours"/);
-  assert.match(schema, /tenantLocationReference: foreignKey\(\{ columns: \[table\.locationId, table\.organizationId\]/);
+  assert.match(schema, /tenantLocationReference: foreignKey\(\{ (?:name: "[^"]+", )?columns: \[table\.locationId, table\.organizationId\]/);
   assert.match(schema, /visibility: text\("visibility"\).*default\("AI_INTERNAL"\)/);
 });
 

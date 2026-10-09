@@ -161,3 +161,51 @@ Verification: dedicated local PostgreSQL suite **69 passed**, including all 65 c
 Status: A03 composite-reference implementation verified locally; deployed integrity/constraints and role/RLS verification outstanding. Review [TENANT_RELATIONSHIP_CONSTRAINTS.md](TENANT_RELATIONSHIP_CONSTRAINTS.md) for covered relationships, same-studio/domain boundaries, approved rollout and rollback. Do not apply the historical journal to current-schema staging (A24), and keep `Postgres-ACf_` excluded. Current staging app copy predates these join changes; restart before further UI verification. No new manual provider testing is needed for this database checkpoint.
 
 Next autonomous PR-1 work: A07 live AI date schema and A27 raw worker row mapping, followed by baseline/upgrade parity tests under A24. Earlier outstanding verified reconsent, live provider checks and production approvals remain open; historical sprint numbering is preserved.
+
+## PR-1 availability and claim mapping — local checks
+
+- Direct availability parameter test passed with valid ISO dates and malformed input rejection; existing date-window policy rejected impossible and reversed dates.
+- Raw PostgreSQL-shaped claim mapping test passed for every Drizzle field, lease/tenant identifiers, payload and timestamp conversion, including invalid/missing data refusal.
+- Regression: 230 passed, 6 optional PostgreSQL groups skipped. TypeScript and whitespace checks passed.
+- Outstanding: actual nonempty PostgreSQL claim/processor lifecycle, staging runtime refresh, live/provider and production verification. No outbound providers or database connections were used for this checkpoint.
+
+## Actual worker lifecycle — disposable local PostgreSQL
+
+Passed the opt-in `worker-postgres.test.ts` group with the actual queue and processor modules and a fresh synthetic schema. Verified concurrent disjoint claims, schema-decoded dates/tenant IDs/lease fields, correct-token renewal, stale-token refusal, persisted cancellation for six supported types and an unsupported type, zero generated messages, expired lease recovery, attempt exhaustion, conservative AI lease failure, DELIVERY_UNKNOWN suppression, and a guarded terminal completion update. Outbound fetch/TCP denial was directly asserted. No credentials/provider calls or Railway DB access were used. Local cluster stopped afterward.
+
+Repeat only against the approved disposable cluster, with TCP disabled:
+
+```sh
+MAIA_WORKER_TEST_SOCKET=/private/tmp/maia-signup-JmakBr node --require ./scripts/local-worker-test-guard.cjs --import tsx --test packages/automations/__tests__/worker-postgres.test.ts
+```
+
+Regression: 230 passed, 7 opt-in DB groups skipped; TypeScript and whitespace checks passed. No new manual step is required for this local boundary test. Successful provider delivery and eligible automation content/consent/send-time races remain unverified and require separate controlled integration testing.
+
+## A24 baseline and migration parity — disposable local PostgreSQL
+
+- Baseline source hash check and actual journal install/upgrade test: 2 passed.
+- Tested empty baseline → six migrations; populated baseline through 0002 → remaining migrations; repeat journal execution; preserved synthetic organization; six migration records.
+- Compared 48-table column types/defaults/nullability, structural constraints/delete actions and indexes against current snapshot. Physical column ordering and generated names deliberately excluded.
+- Rechecked tenant constraints after snapshot changes: 69 passed.
+- Regression 231 passed, 8 optional DB groups skipped. TypeScript and whitespace passed. Staging safety 3 passed, 1 optional DB test skipped.
+- Disposable local cluster stopped. No Railway/production access or manual setup was needed. Existing deployed journal and synthetic-staging snapshot upgrade remain outstanding; see DATABASE_BASELINE.md before any approved rollout.
+
+## A20 inbound reconsent and revocation — local PostgreSQL and synthetic HTTP
+
+Passed `scoped-reconsent-postgres.test.ts` with the network guard preloaded. Actual queue/AI imports ran outside Next with the guard's server-only resolution; no provider requests were allowed. Used a fresh synthetic schema in the disposable local cluster.
+
+Verified atomic grant/evidence rollback, tenant/phone/form boundaries, duplicate concurrent grant idempotency, old grant replay preserving STOP, original identity, historical artist consent invalidation and artist-specific regrant after studio-wide STOP. Tested actual inbound POST with synthetic HMAC: bad signature rejected; valid START/STOP accepted; START replay did not reverse STOP; ordinary text to still-revoked artist suppressed after another artist's regrant. Zero outbound SYSTEM messages. Tests use OptOutType to represent provider-handled acknowledgments; this does not prove Twilio sent them.
+
+Repeat only locally with the disposable cluster running and TCP disabled:
+
+```sh
+MAIA_WORKER_TEST_SOCKET=/private/tmp/maia-signup-JmakBr MAIA_RECONSENT_TEST_SOCKET=/private/tmp/maia-signup-JmakBr node --require ./scripts/local-worker-test-guard.cjs --import tsx --test packages/consent/__tests__/scoped-reconsent-postgres.test.ts
+```
+
+Regression 231 passed, 9 optional groups skipped; TypeScript and whitespace passed. No manual external action is needed for these local checks. Future controlled integration needs explicit approval for real SMS, a legitimate business and approved test recipients; verify signature routing, START/STOP/YES, provider acknowledgments and suppression one step at a time. Current live/staging app copies are not certified by these tests.
+
+## Twilio provisioning preflight — local mocked endpoint checks
+
+Four tests in `packages/integrations/__tests__/twilio-provision-preflight.test.ts` passed: public webhook origin validation; missing encryption/credentials; mock/foreign resource rejection; actual authenticated owner endpoint refusal with zero resource writes/provider calls; and repair of a missing Messaging Service using the already purchased number. Repair uses two mocked fetch responses; unexpected account/inventory/purchase paths fail the test. No real fetch/network request occurred.
+
+Regression 235 passed, 9 optional PostgreSQL groups skipped; TypeScript and whitespace passed. No new schema/migration was introduced by this preflight. Existing resources were not accessed. No manual external setup is needed for this checkpoint. Future staging/live tests need the customer/account model and durable operation ledger first, with separate approval for real resource creation.

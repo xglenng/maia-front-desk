@@ -293,3 +293,29 @@ Verification: dedicated local PostgreSQL suite **69 passed**, including all 65 c
 Status: A03 composite-reference implementation verified locally; deployed integrity/constraints and role/RLS verification outstanding. Review [TENANT_RELATIONSHIP_CONSTRAINTS.md](TENANT_RELATIONSHIP_CONSTRAINTS.md) for covered relationships, same-studio/domain boundaries, approved rollout and rollback. Do not apply the historical journal to current-schema staging (A24), and keep `Postgres-ACf_` excluded. Current staging app copy predates these join changes; restart before further UI verification. No new manual provider testing is needed for this database checkpoint.
 
 Next autonomous PR-1 work: A07 live AI date schema and A27 raw worker row mapping, followed by baseline/upgrade parity tests under A24. Earlier outstanding verified reconsent, live provider checks and production approvals remain open; historical sprint numbering is preserved.
+
+## Implementation update — A07/A27
+
+A07: the live agent now registers the corrected shared date schema (`packages/ai/src/availability-tool-schema.ts`); direct schema and existing scheduling-policy checks pass locally. Provider execution remains unverified.
+
+A27: `packages/automations/queue.server.ts::claimDueAutomationJobs` maps raw PostgreSQL rows through `packages/automations/claimed-job.ts::mapClaimedAutomationJob` before committing. Schema-derived names and driver decoding replace the incorrect camelCase type assertion. Synthetic row tests pass; actual nonempty database processing is still pending, so this finding is not closed on unit-test evidence alone. No migration is needed.
+
+### A27 verification follow-up
+
+The actual nonempty PostgreSQL claim/processor lifecycle now passes locally (`packages/automations/__tests__/worker-postgres.test.ts`). Raw row mapping, concurrent claims, lease ownership, cancellation persistence, retries/exhaustion and ambiguous send suppression were exercised with synthetic fixtures and outbound networking blocked. The row-mapping defect is locally verified; this does not close the broader automation delivery and integration gates. Railway staging and production were untouched.
+
+## A24 implementation and verification follow-up
+
+`packages/db/baseline/pre-journal-schema.ts` and `pre-journal.sql` now provide a preserved, hashed historical baseline. `packages/db/__tests__/baseline-postgres.test.ts` applies the real six-entry Drizzle journal to fresh and populated synthetic schemas, verifies repeat-run idempotency/data preservation and compares structural columns, constraints and indexes with the current snapshot. Two opt-in tests passed locally. See [DATABASE_BASELINE.md](DATABASE_BASELINE.md).
+
+Parity also exposed snapshot-only drift in `packages/db/src/schema.ts`: two missing checks, one missing index and redundant location foreign keys. Declarations and the generated snapshot now match existing journal behavior without rewriting migrations. Tenant constraint regression: 69 passed. This establishes a supported local baseline/upgrade path, not proof of the deployed database's schema or journal. Existing Railway snapshot adoption and production rollout remain unverified and require approval.
+
+## A20 reconsent follow-up
+
+`packages/consent/server.ts::grantVerifiedInboundConsent` now atomically persists scoped inbound evidence and client opt-in after signature validation in `app/api/twilio/inbound/route.ts`. Phone locks serialize with public intake/revocation; repeat IDs cannot replay an old START into new consent. Form/client/phone scope is validated. `hasScopedSmsConsent` excludes consent older than retained SMS STOP history; inbound decisions also use effective scope/history and recheck before synchronous delivery. Studio-wide STOP remains the conservative policy. Public intake still cannot reverse it.
+
+The disposable PostgreSQL and actual signed HTTP handler test passed with synthetic credentials and outbound networking blocked. No live provider verification occurred. Remaining limitations: deleted legacy STOP history, full webhook crash/idempotency recovery, live YES confirmation and a separate sender-only suppression ledger/policy. These remain open; the implementation does not claim full A20 or production readiness.
+
+## Twilio provisioning safety checkpoint
+
+T02 now has a local preflight and existing-number service repair in the actual provisioning endpoint. Four mocked/direct tests passed; regression 235 passed, 9 opt-in groups skipped. Configuration failure occurs before external calls and repair avoids an extra purchase. T01 legal-customer bindings and T02/T03 operation-ledger/reconciliation work remain open; see TWILIO_ISV_AUDIT.md and TWILIO_LEGAL_CUSTOMERS.md. No live provider or deployed environment was accessed.

@@ -3,8 +3,9 @@ import { runMaiaAgent } from '@/packages/ai/src/agent.server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@db';
-import { artistConsentForms, artists, clients, complianceProfiles, conversations, legalDocuments, messages, organizations, phoneNumbers, smsConsentEvidence, twilioAccounts } from '@db/schema';
+import { artistConsentForms, artists, clients, complianceProfiles, conversations, legalDocuments, messages, organizations, phoneNumbers, twilioAccounts } from '@db/schema';
 import { decryptSecret, sendSms, twilioMessageStatusCallbackUrl, validateTwilioSignature } from '@integrations/twilio';
+import { grantVerifiedInboundConsent, hasScopedSmsConsent, hasStudioSmsOptOutHistory, revokeStudioSmsConsent } from '@/packages/consent/server';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { appBaseUrl, formOptInUrl, helpResponse, inboundConfirmationRequest, inboundConsentDecision, inboundOnlyConsentState, inboundSubscriptionConfirmation, isConsentFormReady, isPendingYesConfirmation, optOutConfirmation, pendingSmsConfirmationMatches, smsKeywordAction } from '@/packages/consent';
 import { isInboundPhoneRoutable } from '@integrations/twilio-routing';
@@ -95,7 +96,7 @@ async function recordInboundConsent(input: {
   const terms = documents.find(document => document.type === 'TERMS');
   const publicOrigin = appBaseUrl();
   const sourceUrl = formOptInUrl(input.form, publicOrigin, input.organizationSlug);
-  await db.insert(smsConsentEvidence).values({
+  await grantVerifiedInboundConsent({
     organizationId: input.organizationId, artistId: input.artistId, clientId: input.clientId,
     consentFormId: input.form.id, phone: input.phone, consented: true, source: input.source,
     sourceUrl, disclosureText: input.disclosureText, disclosureVersion: input.form.disclosureVersion,
@@ -103,7 +104,7 @@ async function recordInboundConsent(input: {
     termsUrl: `${publicOrigin}/legal/${input.organizationSlug}/terms`,
     privacyDocumentVersion: privacy?.version, termsDocumentVersion: terms?.version,
     externalSubmissionId: input.messageSid || null,
-    metadata: { provider: 'twilio', studioPhone: input.studioPhone, affirmativeKeyword: input.keyword }
+    metadata: { provider: 'twilio', studioPhone: input.studioPhone, affirmativeKeyword: input.keyword, verification: 'SIGNED_INBOUND' }
   });
 }
 
@@ -113,9 +114,9 @@ export async function POST(request: NextRequest) {
   const to = params.To?.trim();
   const text = params.Body?.trim();
   logInbound('webhook_received', { from: maskedPhone(from), to: maskedPhone(to), hasBody: Boolean(text), messageSidPresent: Boolean(params.MessageSid) });
-  if (!from || !to || !text) {
+  if (!from || !to || !text || !params.MessageSid) {
     logInbound('webhook_rejected', { reason: 'missing_required_fields', from: maskedPhone(from), to: maskedPhone(to) });
-    return new NextResponse('Missing From, To, or Body', { status: 400 });
+    return new NextResponse('Missing From, To, Body, or MessageSid', { status: 400 });
   }
 
   const [mapping] = await db.select({ number: phoneNumbers, artist: artists }).from(phoneNumbers)
@@ -179,7 +180,9 @@ export async function POST(request: NextRequest) {
   const now = new Date();
   const twilioHandledKeyword = (params.OptOutType || '').trim().toUpperCase();
   const consentSurfaceReady = Boolean(surface?.form && isConsentFormReady(surface.form));
-  const startDecision = inboundConsentDecision({ action, mode: surface?.form.mode || 'HOSTED', optedIn: client.smsOptIn, optedOut: client.smsConsentStatus === 'OPTED_OUT', pendingConfirmation: false, consentSurfaceReady });
+  const scopedOptedIn = await hasScopedSmsConsent({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, phone: from });
+  const scopedOptedOut = client.smsConsentStatus === 'OPTED_OUT' || (!scopedOptedIn && await hasStudioSmsOptOutHistory({ organizationId: number.organizationId, clientId: client.id }));
+  const startDecision = inboundConsentDecision({ action, mode: surface?.form.mode || 'HOSTED', optedIn: scopedOptedIn, optedOut: scopedOptedOut, pendingConfirmation: false, consentSurfaceReady });
   if (!client.smsOptIn && client.smsConsentStatus !== 'OPTED_OUT' && client.smsConsentStatus !== 'INBOUND_ONLY') {
     [client] = await db.update(clients).set({ smsConsentStatus: 'INBOUND_ONLY', updatedAt: now }).where(eq(clients.id, client.id)).returning();
   }
@@ -188,7 +191,7 @@ export async function POST(request: NextRequest) {
     await recordInbound(conv.id, text, params.MessageSid, to, now);
     await cancelUndeliveredAiResponses(conv.id, 'SMS_OPT_OUT');
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
-    await db.update(clients).set({ smsOptIn: false, smsConsentStatus: 'OPTED_OUT', smsConsentCapturedAt: null, updatedAt: now }).where(and(eq(clients.id, client.id), eq(clients.organizationId, number.organizationId)));
+    await revokeStudioSmsConsent({ organizationId: number.organizationId, clientId: client.id, phone: from });
     const pending = await pendingConfirmation(conv.id);
     if (pending.message) {
       const metadata = pending.message.metadata && typeof pending.message.metadata === 'object' ? pending.message.metadata as Record<string, unknown> : {};
@@ -212,7 +215,6 @@ export async function POST(request: NextRequest) {
   if (action === 'START' && startDecision === 'START' && surface?.form) {
     await recordInbound(conv.id, text, params.MessageSid, to, now);
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
-    await db.update(clients).set({ smsOptIn: true, smsConsentStatus: 'OPTED_IN', smsConsentCapturedAt: now, updatedAt: now }).where(and(eq(clients.id, client.id), eq(clients.organizationId, number.organizationId)));
     const pending = await pendingConfirmation(conv.id);
     if (pending.message) {
       const metadata = pending.message.metadata && typeof pending.message.metadata === 'object' ? pending.message.metadata as Record<string, unknown> : {};
@@ -241,7 +243,7 @@ export async function POST(request: NextRequest) {
     } : null;
     const validPending = Boolean(scope && pendingSmsConfirmationMatches(pending.confirmation, scope));
     const pendingYes = isPendingYesConfirmation(action, validPending);
-    const yesDecision = inboundConsentDecision({ action, mode: surface?.form.mode || 'HOSTED', optedIn: client.smsOptIn, optedOut: client.smsConsentStatus === 'OPTED_OUT', pendingConfirmation: validPending, consentSurfaceReady });
+    const yesDecision = inboundConsentDecision({ action, mode: surface?.form.mode || 'HOSTED', optedIn: scopedOptedIn, optedOut: scopedOptedOut, pendingConfirmation: validPending, consentSurfaceReady });
 
     await recordInbound(conv.id, text, params.MessageSid, to, now);
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
@@ -249,7 +251,6 @@ export async function POST(request: NextRequest) {
       const metadata = pending.message.metadata && typeof pending.message.metadata === 'object' ? pending.message.metadata as Record<string, unknown> : {};
       const confirmation = metadata.consentConfirmation && typeof metadata.consentConfirmation === 'object' ? metadata.consentConfirmation as Record<string, unknown> : {};
       await db.update(messages).set({ metadata: { ...metadata, consentConfirmation: { ...confirmation, status: 'CONFIRMED', confirmedAt: now.toISOString() } } }).where(eq(messages.id, pending.message.id));
-      await db.update(clients).set({ smsOptIn: true, smsConsentStatus: 'OPTED_IN', smsConsentCapturedAt: now, updatedAt: now }).where(and(eq(clients.id, client.id), eq(clients.organizationId, number.organizationId)));
       await recordInboundConsent({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, phone: from, studioPhone: to, messageSid: params.MessageSid, form: surface.form, organizationSlug: surface.organization.slug, keyword: upper, source: 'INBOUND_SMS_CONFIRMATION', disclosureText: pending.message.content });
       await recordOutbound(conv.id, from, to, inboundSubscriptionConfirmation(surface.organization.name), account ? { accountSid: account.accountSid, authToken } : undefined, 'YES_CONFIRMED', number.twilioMessagingServiceSid);
     } else if (!client.smsOptIn && client.smsConsentStatus !== 'OPTED_OUT') {
@@ -265,10 +266,10 @@ export async function POST(request: NextRequest) {
     : { message: undefined, confirmation: undefined };
   const scope = surface?.form ? { organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, consentFormId: surface.form.id, phone: from, studioPhone: to } : null;
   const validPending = Boolean(scope && pendingSmsConfirmationMatches(pending.confirmation, scope));
-  const decision = inboundConsentDecision({ action, mode: surface?.form.mode || 'HOSTED', optedIn: client.smsOptIn, optedOut: client.smsConsentStatus === 'OPTED_OUT', pendingConfirmation: validPending, consentSurfaceReady });
+  const decision = inboundConsentDecision({ action, mode: surface?.form.mode || 'HOSTED', optedIn: scopedOptedIn, optedOut: scopedOptedOut, pendingConfirmation: validPending, consentSurfaceReady });
   if (decision === 'SUPPRESS') return xmlResponse();
 
-  if (decision === 'REQUEST_YES' && surface?.form.mode === 'INBOUND_SMS_CONFIRMATION' && isConsentFormReady(surface.form) && !client.smsOptIn) {
+  if (decision === 'REQUEST_YES' && surface?.form.mode === 'INBOUND_SMS_CONFIRMATION' && isConsentFormReady(surface.form) && !scopedOptedIn) {
 
     const confirmationRequest = inboundConfirmationRequest(surface.organization.name);
     const confirmationState = {
@@ -305,7 +306,8 @@ export async function POST(request: NextRequest) {
   const aiData = await runMaiaAgent(context, { message: text, messageAlreadyStored: true });
   if ('error' in aiData && (aiData.mode === 'HUMAN' || aiData.mode === 'CLOSED')) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   if ('error' in aiData || !aiData.reply) return new NextResponse('AI processing failed', { status: 500 });
-  if (client.smsConsentStatus !== 'OPTED_OUT') {
+  if (await hasScopedSmsConsent({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, phone: from }) ||
+      (!scopedOptedOut && !await hasStudioSmsOptOutHistory({ organizationId: number.organizationId, clientId: client.id }))) {
     const sent = await sendInboundReply(from, to, aiData.reply, account ? { accountSid: account.accountSid, authToken } : undefined, 'AI_REPLY', number.twilioMessagingServiceSid, aiData.messageId);
     if (aiData.messageId) await db.update(messages).set({
       externalMessageId: sent.sid,

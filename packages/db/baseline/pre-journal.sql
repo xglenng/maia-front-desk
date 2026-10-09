@@ -1,5 +1,5 @@
--- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 93773c9de890d90a7b4efea02bfd7dc2e4956bd9bfffe8a0a5477f8b4dc67a3f
+-- Pre-journal schema from repository commit c5048d0; empty database only.
+-- schema-source-sha256: 199ef76fbd5ba04af1b7ccbc1d0383f78710cf55db704bd04db093fa8cf597ee
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -52,17 +52,13 @@ CREATE TABLE "appointments" (
 	"price_cents" integer,
 	"deposit_cents" integer,
 	"deposit_status" text DEFAULT 'PENDING' NOT NULL,
-	"payment_provider" text,
 	"hold_expires_at" timestamp,
-	"completed_at" timestamp with time zone,
-	"schedule_revision" integer DEFAULT 0 NOT NULL,
 	"calendar_event_id" text,
 	"scheduling_provider" text,
 	"provider_booking_id" text,
 	"notes" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "appointments_schedule_revision_check" CHECK ("appointments"."schedule_revision" >= 0)
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "artist_consent_forms" (
@@ -96,38 +92,7 @@ CREATE TABLE "artists" (
 	"minimum_price_cents" integer DEFAULT 15000 NOT NULL,
 	"hourly_rate_cents" integer DEFAULT 20000 NOT NULL,
 	"ai_mode" text DEFAULT 'ASSISTED' NOT NULL,
-	"response_length" text DEFAULT 'SHORT' NOT NULL,
-	"receptionist_enabled" boolean DEFAULT true NOT NULL,
-	"receptionist_tone" text DEFAULT 'WARM' NOT NULL,
-	"receptionist_greeting" text,
-	"receptionist_instructions" text,
-	"sms_response_delay_seconds" integer DEFAULT 0 NOT NULL,
-	"meta_response_delay_seconds" integer DEFAULT 0 NOT NULL,
-	"web_response_delay_seconds" integer DEFAULT 0 NOT NULL,
-	"venmo_enabled" boolean DEFAULT false NOT NULL,
-	"venmo_username" text,
-	"venmo_payment_url" text,
-	"venmo_payment_instructions" text,
-	"appointment_reminder_enabled" boolean DEFAULT false NOT NULL,
-	"appointment_reminder_minutes" integer DEFAULT 1440 NOT NULL,
-	"appointment_reminder_short_notice_mode" text DEFAULT 'SKIP' NOT NULL,
-	"appointment_waiver_send_enabled" boolean DEFAULT false NOT NULL,
-	"appointment_waiver_send_minutes" integer DEFAULT 360 NOT NULL,
-	"aftercare_followup_enabled" boolean DEFAULT false NOT NULL,
-	"aftercare_followup_hours" integer DEFAULT 24 NOT NULL,
-	"review_followup_enabled" boolean DEFAULT false NOT NULL,
-	"review_followup_hours" integer DEFAULT 24 NOT NULL,
-	"google_review_url" text,
-	"review_followup_message" text,
-	CONSTRAINT "artists_receptionist_tone_check" CHECK ("artists"."receptionist_tone" IN ('WARM', 'PROFESSIONAL', 'FRIENDLY')),
-	CONSTRAINT "artists_sms_response_delay_check" CHECK ("artists"."sms_response_delay_seconds" IN (0, 60, 120, 300)),
-	CONSTRAINT "artists_meta_response_delay_check" CHECK ("artists"."meta_response_delay_seconds" IN (0, 60, 120, 300)),
-	CONSTRAINT "artists_web_response_delay_check" CHECK ("artists"."web_response_delay_seconds" = 0),
-	CONSTRAINT "artists_appointment_reminder_minutes_check" CHECK ("artists"."appointment_reminder_minutes" IN (120, 360, 720, 1440, 2880)),
-	CONSTRAINT "artists_appointment_reminder_short_notice_check" CHECK ("artists"."appointment_reminder_short_notice_mode" IN ('SKIP', 'SEND_AFTER_DELAY')),
-	CONSTRAINT "artists_appointment_waiver_send_minutes_check" CHECK ("artists"."appointment_waiver_send_minutes" IN (120, 240, 360, 720)),
-	CONSTRAINT "artists_aftercare_followup_hours_check" CHECK ("artists"."aftercare_followup_hours" IN (12, 24, 48, 72)),
-	CONSTRAINT "artists_review_followup_hours_check" CHECK ("artists"."review_followup_hours" IN (24, 48, 72, 168))
+	"response_length" text DEFAULT 'SHORT' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "auth_credentials" (
@@ -162,26 +127,14 @@ CREATE TABLE "automation_jobs" (
 	"artist_id" uuid NOT NULL,
 	"client_id" uuid NOT NULL,
 	"appointment_id" uuid,
-	"conversation_id" uuid,
-	"result_message_id" uuid,
-	"dedupe_key" text NOT NULL,
 	"type" text NOT NULL,
 	"channel" text DEFAULT 'SMS' NOT NULL,
-	"run_at" timestamp with time zone NOT NULL,
+	"run_at" timestamp NOT NULL,
 	"status" text DEFAULT 'PENDING' NOT NULL,
-	"attempt_count" integer DEFAULT 0 NOT NULL,
-	"max_attempts" integer DEFAULT 5 NOT NULL,
-	"locked_at" timestamp with time zone,
-	"lock_expires_at" timestamp with time zone,
-	"lock_token" uuid,
-	"last_error_code" text,
-	"completed_at" timestamp with time zone,
 	"payload" jsonb,
-	"sent_at" timestamp with time zone,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "automation_jobs_lifecycle_check" CHECK ("automation_jobs"."status" IN ('PENDING', 'PROCESSING', 'SENDING', 'RETRY', 'COMPLETED', 'FAILED', 'DELIVERY_UNKNOWN', 'CANCELLED')),
-	CONSTRAINT "automation_jobs_attempts_check" CHECK ("automation_jobs"."attempt_count" >= 0 AND "automation_jobs"."max_attempts" >= 1)
+	"sent_at" timestamp,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "availability_rules" (
@@ -216,10 +169,8 @@ CREATE TABLE "business_rules" (
 	"artist_id" uuid NOT NULL,
 	"category" text NOT NULL,
 	"rule" text NOT NULL,
-	"visibility" text DEFAULT 'AI_INTERNAL' NOT NULL,
 	"priority" integer DEFAULT 100 NOT NULL,
-	"active" boolean DEFAULT true NOT NULL,
-	CONSTRAINT "business_rules_visibility_check" CHECK ("business_rules"."visibility" IN ('CLIENT_VISIBLE', 'AI_INTERNAL'))
+	"active" boolean DEFAULT true NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "calendar_connections" (
@@ -378,7 +329,6 @@ CREATE TABLE "conversations" (
 	"status" text DEFAULT 'OPEN' NOT NULL,
 	"ai_enabled" boolean DEFAULT true NOT NULL,
 	"unread_count" integer DEFAULT 0 NOT NULL,
-	"inbound_version" integer DEFAULT 0 NOT NULL,
 	"last_inbound_at" timestamp with time zone,
 	"last_read_at" timestamp with time zone,
 	"human_takeover_at" timestamp with time zone,
@@ -483,10 +433,6 @@ CREATE TABLE "organizations" (
 	"name" text NOT NULL,
 	"slug" text NOT NULL,
 	"timezone" text DEFAULT 'America/Denver' NOT NULL,
-	"public_name" text,
-	"public_phone" text,
-	"public_email" text,
-	"website" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "organizations_slug_unique" UNIQUE("slug")
@@ -503,13 +449,8 @@ CREATE TABLE "payments" (
 	"amount_cents" integer NOT NULL,
 	"status" text DEFAULT 'PENDING' NOT NULL,
 	"currency" text DEFAULT 'usd' NOT NULL,
-	"confirmation_method" text,
-	"confirmed_by_user_id" uuid,
-	"confirmed_at" timestamp with time zone,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "payments_confirmation_method_check" CHECK ("payments"."confirmation_method" IS NULL OR "payments"."confirmation_method" IN ('SQUARE_WEBHOOK', 'STRIPE_WEBHOOK', 'MANUAL')),
-	CONSTRAINT "payments_manual_confirmation_audit_check" CHECK ("payments"."confirmation_method" IS DISTINCT FROM 'MANUAL' OR ("payments"."confirmed_by_user_id" IS NOT NULL AND "payments"."confirmed_at" IS NOT NULL))
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "phone_number_port_requests" (
@@ -682,67 +623,6 @@ CREATE TABLE "studio_activations" (
 	CONSTRAINT "studio_activations_artist_id_unique" UNIQUE("artist_id")
 );
 --> statement-breakpoint
-CREATE TABLE "studio_aftercare" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"organization_id" uuid NOT NULL,
-	"location_id" uuid,
-	"service_type" text,
-	"category" text,
-	"title" text NOT NULL,
-	"instructions" text NOT NULL,
-	"active" boolean DEFAULT true NOT NULL,
-	"sort_order" integer DEFAULT 0 NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE "studio_business_hours" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"organization_id" uuid NOT NULL,
-	"location_id" uuid NOT NULL,
-	"day_of_week" integer NOT NULL,
-	"start_minute" integer NOT NULL,
-	"end_minute" integer NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "studio_business_hours_weekday_check" CHECK ("studio_business_hours"."day_of_week" BETWEEN 0 AND 6),
-	CONSTRAINT "studio_business_hours_start_check" CHECK ("studio_business_hours"."start_minute" BETWEEN 0 AND 1439),
-	CONSTRAINT "studio_business_hours_end_check" CHECK ("studio_business_hours"."end_minute" BETWEEN 1 AND 1440),
-	CONSTRAINT "studio_business_hours_valid_range_check" CHECK ("studio_business_hours"."start_minute" < "studio_business_hours"."end_minute")
-);
---> statement-breakpoint
-CREATE TABLE "studio_faqs" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"organization_id" uuid NOT NULL,
-	"location_id" uuid,
-	"category" text,
-	"question" text NOT NULL,
-	"answer" text NOT NULL,
-	"active" boolean DEFAULT true NOT NULL,
-	"sort_order" integer DEFAULT 0 NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE "studio_locations" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"organization_id" uuid NOT NULL,
-	"name" text NOT NULL,
-	"address_line_1" text,
-	"address_line_2" text,
-	"city" text,
-	"region" text,
-	"postal_code" text,
-	"country" text,
-	"phone" text,
-	"email" text,
-	"timezone" text NOT NULL,
-	"business_hours_configured" boolean DEFAULT false NOT NULL,
-	"is_primary" boolean DEFAULT false NOT NULL,
-	"active" boolean DEFAULT true NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "twilio_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -817,38 +697,6 @@ CREATE TABLE "waiver_templates" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX "appointments_id_organization_uidx" ON "appointments" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "artist_consent_forms_id_organization_uidx" ON "artist_consent_forms" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "artists_id_organization_uidx" ON "artists" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE INDEX "automation_jobs_appointment_status_idx" ON "automation_jobs" USING btree ("appointment_id","status");
---> statement-breakpoint
-CREATE UNIQUE INDEX "automation_jobs_organization_dedupe_uidx" ON "automation_jobs" USING btree ("organization_id","dedupe_key");
---> statement-breakpoint
-CREATE INDEX "automation_jobs_due_idx" ON "automation_jobs" USING btree ("status","run_at","id");
---> statement-breakpoint
-CREATE INDEX "automation_jobs_conversation_idx" ON "automation_jobs" USING btree ("conversation_id","status");
---> statement-breakpoint
-CREATE UNIQUE INDEX "automation_jobs_result_message_uidx" ON "automation_jobs" USING btree ("result_message_id") WHERE "automation_jobs"."result_message_id" IS NOT NULL;
---> statement-breakpoint
-CREATE UNIQUE INDEX "channel_connections_id_organization_uidx" ON "channel_connections" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "channel_connections_provider_account_uidx" ON "channel_connections" USING btree ("provider","external_account_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "clients_id_organization_uidx" ON "clients" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "conversations_id_organization_uidx" ON "conversations" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "external_waiver_assignments_id_organization_uidx" ON "external_waiver_assignments" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "external_waiver_forms_id_organization_uidx" ON "external_waiver_forms" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "phone_numbers_id_organization_uidx" ON "phone_numbers" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "scheduling_connections_id_organization_uidx" ON "scheduling_connections" USING btree ("id","organization_id");
---> statement-breakpoint
 CREATE UNIQUE INDEX "scheduling_connections_organization_artist_uidx" ON "scheduling_connections" USING btree ("organization_id","artist_id");
 --> statement-breakpoint
 CREATE INDEX "scheduling_connections_tenant_status_idx" ON "scheduling_connections" USING btree ("organization_id","status");
@@ -857,32 +705,6 @@ CREATE UNIQUE INDEX "service_provider_mappings_connection_service_location_uidx"
 --> statement-breakpoint
 CREATE INDEX "service_provider_mappings_tenant_service_idx" ON "service_provider_mappings" USING btree ("organization_id","artist_id","service_id");
 --> statement-breakpoint
-CREATE UNIQUE INDEX "services_id_organization_uidx" ON "services" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE INDEX "studio_aftercare_organization_idx" ON "studio_aftercare" USING btree ("organization_id","active","sort_order");
---> statement-breakpoint
-CREATE INDEX "studio_business_hours_location_day_idx" ON "studio_business_hours" USING btree ("organization_id","location_id","day_of_week");
---> statement-breakpoint
-CREATE INDEX "studio_faqs_organization_idx" ON "studio_faqs" USING btree ("organization_id","active","sort_order");
---> statement-breakpoint
-CREATE UNIQUE INDEX "studio_locations_id_organization_idx" ON "studio_locations" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE INDEX "studio_locations_organization_idx" ON "studio_locations" USING btree ("organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "studio_locations_one_primary_per_org_idx" ON "studio_locations" USING btree ("organization_id") WHERE "studio_locations"."is_primary" = true;
---> statement-breakpoint
-CREATE UNIQUE INDEX "twilio_accounts_id_organization_uidx" ON "twilio_accounts" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "twilio_messaging_services_id_organization_uidx" ON "twilio_messaging_services" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "users_id_organization_uidx" ON "users" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "users_normalized_email_uidx" ON "users" USING btree (lower(btrim("email")));
---> statement-breakpoint
-CREATE UNIQUE INDEX "waiver_provider_connections_id_organization_uidx" ON "waiver_provider_connections" USING btree ("id","organization_id");
---> statement-breakpoint
-CREATE UNIQUE INDEX "waiver_templates_id_organization_uidx" ON "waiver_templates" USING btree ("id","organization_id");
---> statement-breakpoint
 ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
@@ -890,12 +712,6 @@ ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_artist_id_artists_id_f
 ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_messaging_service_id_twilio_messaging_services_id_fk" FOREIGN KEY ("messaging_service_id") REFERENCES "public"."twilio_messaging_services"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_twilio_account_id_twilio_accounts_id_fk" FOREIGN KEY ("twilio_account_id") REFERENCES "public"."twilio_accounts"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_messaging_service_id_tenant_fk" FOREIGN KEY ("messaging_service_id","organization_id") REFERENCES "public"."twilio_messaging_services"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "a2p_campaigns" ADD CONSTRAINT "a2p_campaigns_twilio_account_id_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "agent_actions" ADD CONSTRAINT "agent_actions_agent_run_id_agent_runs_id_fk" FOREIGN KEY ("agent_run_id") REFERENCES "public"."agent_runs"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -909,23 +725,13 @@ ALTER TABLE "appointments" ADD CONSTRAINT "appointments_client_id_clients_id_fk"
 --> statement-breakpoint
 ALTER TABLE "appointments" ADD CONSTRAINT "appointments_service_id_services_id_fk" FOREIGN KEY ("service_id") REFERENCES "public"."services"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "appointments" ADD CONSTRAINT "appointments_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "appointments" ADD CONSTRAINT "appointments_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "appointments" ADD CONSTRAINT "appointments_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "artist_consent_forms" ADD CONSTRAINT "artist_consent_forms_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "artist_consent_forms" ADD CONSTRAINT "artist_consent_forms_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "artist_consent_forms" ADD CONSTRAINT "artist_consent_forms_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "artists" ADD CONSTRAINT "artists_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "artists" ADD CONSTRAINT "artists_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "artists" ADD CONSTRAINT "artists_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "auth_credentials" ADD CONSTRAINT "auth_credentials_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
@@ -934,10 +740,6 @@ ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_user_id_users_
 ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "auth_sessions" ADD CONSTRAINT "auth_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
@@ -949,23 +751,9 @@ ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_client_id_clients_
 --> statement-breakpoint
 ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_appointment_id_appointments_id_fk" FOREIGN KEY ("appointment_id") REFERENCES "public"."appointments"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_result_message_id_messages_id_fk" FOREIGN KEY ("result_message_id") REFERENCES "public"."messages"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_appointment_id_tenant_fk" FOREIGN KEY ("appointment_id","organization_id") REFERENCES "public"."appointments"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_conversation_id_tenant_fk" FOREIGN KEY ("conversation_id","organization_id") REFERENCES "public"."conversations"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "availability_rules" ADD CONSTRAINT "availability_rules_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "availability_rules" ADD CONSTRAINT "availability_rules_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "availability_rules" ADD CONSTRAINT "availability_rules_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "booking_inquiries" ADD CONSTRAINT "booking_inquiries_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -977,41 +765,23 @@ ALTER TABLE "booking_inquiries" ADD CONSTRAINT "booking_inquiries_consent_form_i
 --> statement-breakpoint
 ALTER TABLE "booking_inquiries" ADD CONSTRAINT "booking_inquiries_service_id_services_id_fk" FOREIGN KEY ("service_id") REFERENCES "public"."services"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "booking_inquiries" ADD CONSTRAINT "booking_inquiries_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "booking_inquiries" ADD CONSTRAINT "booking_inquiries_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "booking_inquiries" ADD CONSTRAINT "booking_inquiries_consent_form_id_tenant_fk" FOREIGN KEY ("consent_form_id","organization_id") REFERENCES "public"."artist_consent_forms"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "booking_inquiries" ADD CONSTRAINT "booking_inquiries_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "business_rules" ADD CONSTRAINT "business_rules_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "business_rules" ADD CONSTRAINT "business_rules_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "business_rules" ADD CONSTRAINT "business_rules_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "calendar_connections" ADD CONSTRAINT "calendar_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "calendar_connections" ADD CONSTRAINT "calendar_connections_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "calendar_connections" ADD CONSTRAINT "calendar_connections_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "client_channel_identities" ADD CONSTRAINT "client_channel_identities_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "client_channel_identities" ADD CONSTRAINT "client_channel_identities_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "client_channel_identities" ADD CONSTRAINT "client_channel_identities_connection_id_channel_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."channel_connections"("id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "client_channel_identities" ADD CONSTRAINT "client_channel_identities_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "client_channel_identities" ADD CONSTRAINT "client_channel_identities_connection_id_tenant_fk" FOREIGN KEY ("connection_id","organization_id") REFERENCES "public"."channel_connections"("id","organization_id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "clients" ADD CONSTRAINT "clients_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1025,10 +795,6 @@ ALTER TABLE "conversation_events" ADD CONSTRAINT "conversation_events_conversati
 --> statement-breakpoint
 ALTER TABLE "conversation_events" ADD CONSTRAINT "conversation_events_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "conversation_events" ADD CONSTRAINT "conversation_events_conversation_id_tenant_fk" FOREIGN KEY ("conversation_id","organization_id") REFERENCES "public"."conversations"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "conversation_events" ADD CONSTRAINT "conversation_events_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
@@ -1039,14 +805,6 @@ ALTER TABLE "conversations" ADD CONSTRAINT "conversations_channel_connection_id_
 --> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_human_takeover_by_user_id_users_id_fk" FOREIGN KEY ("human_takeover_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_channel_connection_id_tenant_fk" FOREIGN KEY ("channel_connection_id","organization_id") REFERENCES "public"."channel_connections"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_human_takeover_by_user_id_tenant_fk" FOREIGN KEY ("human_takeover_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "external_waiver_assignments" ADD CONSTRAINT "external_waiver_assignments_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "external_waiver_assignments" ADD CONSTRAINT "external_waiver_assignments_waiver_form_id_external_waiver_forms_id_fk" FOREIGN KEY ("waiver_form_id") REFERENCES "public"."external_waiver_forms"("id") ON DELETE no action ON UPDATE no action;
@@ -1055,21 +813,11 @@ ALTER TABLE "external_waiver_assignments" ADD CONSTRAINT "external_waiver_assign
 --> statement-breakpoint
 ALTER TABLE "external_waiver_assignments" ADD CONSTRAINT "external_waiver_assignments_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "external_waiver_assignments" ADD CONSTRAINT "external_waiver_assignments_waiver_form_id_tenant_fk" FOREIGN KEY ("waiver_form_id","organization_id") REFERENCES "public"."external_waiver_forms"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "external_waiver_assignments" ADD CONSTRAINT "external_waiver_assignments_appointment_id_tenant_fk" FOREIGN KEY ("appointment_id","organization_id") REFERENCES "public"."appointments"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "external_waiver_assignments" ADD CONSTRAINT "external_waiver_assignments_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "external_waiver_events" ADD CONSTRAINT "external_waiver_events_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "external_waiver_events" ADD CONSTRAINT "external_waiver_events_assignment_id_external_waiver_assignments_id_fk" FOREIGN KEY ("assignment_id") REFERENCES "public"."external_waiver_assignments"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "external_waiver_events" ADD CONSTRAINT "external_waiver_events_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "external_waiver_events" ADD CONSTRAINT "external_waiver_events_assignment_id_tenant_fk" FOREIGN KEY ("assignment_id","organization_id") REFERENCES "public"."external_waiver_assignments"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "external_waiver_events" ADD CONSTRAINT "external_waiver_events_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1078,12 +826,6 @@ ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_connec
 ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_service_id_services_id_fk" FOREIGN KEY ("service_id") REFERENCES "public"."services"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_connection_id_tenant_fk" FOREIGN KEY ("connection_id","organization_id") REFERENCES "public"."waiver_provider_connections"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "legal_documents" ADD CONSTRAINT "legal_documents_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1095,19 +837,9 @@ ALTER TABLE "meta_connection_candidates" ADD CONSTRAINT "meta_connection_candida
 --> statement-breakpoint
 ALTER TABLE "meta_connection_candidates" ADD CONSTRAINT "meta_connection_candidates_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "meta_connection_candidates" ADD CONSTRAINT "meta_connection_candidates_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "meta_connection_candidates" ADD CONSTRAINT "meta_connection_candidates_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_appointment_id_appointments_id_fk" FOREIGN KEY ("appointment_id") REFERENCES "public"."appointments"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "payments" ADD CONSTRAINT "payments_confirmed_by_user_id_users_id_fk" FOREIGN KEY ("confirmed_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "payments" ADD CONSTRAINT "payments_appointment_id_tenant_fk" FOREIGN KEY ("appointment_id","organization_id") REFERENCES "public"."appointments"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "payments" ADD CONSTRAINT "payments_confirmed_by_user_id_tenant_fk" FOREIGN KEY ("confirmed_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "phone_number_port_requests" ADD CONSTRAINT "phone_number_port_requests_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1119,29 +851,15 @@ ALTER TABLE "phone_number_port_requests" ADD CONSTRAINT "phone_number_port_reque
 --> statement-breakpoint
 ALTER TABLE "phone_number_port_requests" ADD CONSTRAINT "phone_number_port_requests_temporary_phone_number_id_phone_numbers_id_fk" FOREIGN KEY ("temporary_phone_number_id") REFERENCES "public"."phone_numbers"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "phone_number_port_requests" ADD CONSTRAINT "phone_number_port_requests_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "phone_number_port_requests" ADD CONSTRAINT "phone_number_port_requests_twilio_account_id_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "phone_number_port_requests" ADD CONSTRAINT "phone_number_port_requests_messaging_service_id_tenant_fk" FOREIGN KEY ("messaging_service_id","organization_id") REFERENCES "public"."twilio_messaging_services"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "phone_number_port_requests" ADD CONSTRAINT "phone_number_port_requests_temporary_phone_number_id_tenant_fk" FOREIGN KEY ("temporary_phone_number_id","organization_id") REFERENCES "public"."phone_numbers"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_twilio_account_id_twilio_accounts_id_fk" FOREIGN KEY ("twilio_account_id") REFERENCES "public"."twilio_accounts"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_twilio_account_id_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "scheduling_connections" ADD CONSTRAINT "scheduling_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "scheduling_connections" ADD CONSTRAINT "scheduling_connections_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "scheduling_connections" ADD CONSTRAINT "scheduling_connections_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "service_provider_mappings" ADD CONSTRAINT "service_provider_mappings_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1151,17 +869,9 @@ ALTER TABLE "service_provider_mappings" ADD CONSTRAINT "service_provider_mapping
 --> statement-breakpoint
 ALTER TABLE "service_provider_mappings" ADD CONSTRAINT "service_provider_mappings_service_id_services_id_fk" FOREIGN KEY ("service_id") REFERENCES "public"."services"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "service_provider_mappings" ADD CONSTRAINT "service_provider_mappings_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "service_provider_mappings" ADD CONSTRAINT "service_provider_mappings_scheduling_connection_id_tenant_fk" FOREIGN KEY ("scheduling_connection_id","organization_id") REFERENCES "public"."scheduling_connections"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "service_provider_mappings" ADD CONSTRAINT "service_provider_mappings_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "services" ADD CONSTRAINT "services_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "services" ADD CONSTRAINT "services_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "services" ADD CONSTRAINT "services_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1171,57 +881,25 @@ ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_client_i
 --> statement-breakpoint
 ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_consent_form_id_artist_consent_forms_id_fk" FOREIGN KEY ("consent_form_id") REFERENCES "public"."artist_consent_forms"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_consent_form_id_tenant_fk" FOREIGN KEY ("consent_form_id","organization_id") REFERENCES "public"."artist_consent_forms"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "studio_activation_events" ADD CONSTRAINT "studio_activation_events_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_activation_events" ADD CONSTRAINT "studio_activation_events_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_activation_events" ADD CONSTRAINT "studio_activation_events_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "studio_activation_events" ADD CONSTRAINT "studio_activation_events_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_activation_events" ADD CONSTRAINT "studio_activation_events_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "studio_activations" ADD CONSTRAINT "studio_activations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_activations" ADD CONSTRAINT "studio_activations_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "studio_activations" ADD CONSTRAINT "studio_activations_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_aftercare" ADD CONSTRAINT "studio_aftercare_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_aftercare" ADD CONSTRAINT "studio_aftercare_tenant_location_fk" FOREIGN KEY ("location_id","organization_id") REFERENCES "public"."studio_locations"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_business_hours" ADD CONSTRAINT "studio_business_hours_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_business_hours" ADD CONSTRAINT "studio_business_hours_tenant_location_fk" FOREIGN KEY ("location_id","organization_id") REFERENCES "public"."studio_locations"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_faqs" ADD CONSTRAINT "studio_faqs_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_faqs" ADD CONSTRAINT "studio_faqs_tenant_location_fk" FOREIGN KEY ("location_id","organization_id") REFERENCES "public"."studio_locations"("id","organization_id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "studio_locations" ADD CONSTRAINT "studio_locations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "twilio_accounts" ADD CONSTRAINT "twilio_accounts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_accounts" ADD CONSTRAINT "twilio_accounts_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "twilio_accounts" ADD CONSTRAINT "twilio_accounts_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_services_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_services_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_services_twilio_account_id_twilio_accounts_id_fk" FOREIGN KEY ("twilio_account_id") REFERENCES "public"."twilio_accounts"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_services_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_services_twilio_account_id_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1234,11 +912,5 @@ ALTER TABLE "waiver_submissions" ADD CONSTRAINT "waiver_submissions_appointment_
 ALTER TABLE "waiver_submissions" ADD CONSTRAINT "waiver_submissions_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "waiver_submissions" ADD CONSTRAINT "waiver_submissions_waiver_template_id_waiver_templates_id_fk" FOREIGN KEY ("waiver_template_id") REFERENCES "public"."waiver_templates"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "waiver_submissions" ADD CONSTRAINT "waiver_submissions_appointment_id_tenant_fk" FOREIGN KEY ("appointment_id","organization_id") REFERENCES "public"."appointments"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "waiver_submissions" ADD CONSTRAINT "waiver_submissions_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "waiver_submissions" ADD CONSTRAINT "waiver_submissions_waiver_template_id_tenant_fk" FOREIGN KEY ("waiver_template_id","organization_id") REFERENCES "public"."waiver_templates"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "waiver_templates" ADD CONSTRAINT "waiver_templates_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;

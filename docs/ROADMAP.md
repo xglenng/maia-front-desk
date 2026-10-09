@@ -208,3 +208,61 @@ Verification: dedicated local PostgreSQL suite **69 passed**, including all 65 c
 Status: A03 composite-reference implementation verified locally; deployed integrity/constraints and role/RLS verification outstanding. Review [TENANT_RELATIONSHIP_CONSTRAINTS.md](TENANT_RELATIONSHIP_CONSTRAINTS.md) for covered relationships, same-studio/domain boundaries, approved rollout and rollback. Do not apply the historical journal to current-schema staging (A24), and keep `Postgres-ACf_` excluded. Current staging app copy predates these join changes; restart before further UI verification. No new manual provider testing is needed for this database checkpoint.
 
 Next autonomous PR-1 work: A07 live AI date schema and A27 raw worker row mapping, followed by baseline/upgrade parity tests under A24. Earlier outstanding verified reconsent, live provider checks and production approvals remain open; historical sprint numbering is preserved.
+
+### PR-1 checkpoint — availability schema and worker claims
+
+A07's malformed date regex is corrected in the shared `availabilityToolParameters` schema used by `agent.server.ts`. Direct schema tests accept real ISO calendar date arguments, reject malformed inputs, and confirm the existing scheduling policy rejects impossible/reversed dates. No OpenAI or calendar provider was called.
+
+A27's unsafe raw-row cast is replaced with `mapClaimedAutomationJob` in `queue.server.ts`. The mapper derives SQL names and driver decoding from the Drizzle schema, retaining all tenant IDs, lease fields, payload and timestamps. Missing/non-null violations and invalid dates throw before the claim transaction commits. Direct tests exercise raw PostgreSQL-shaped rows. A27 remains partially verified: a real nonempty PostgreSQL claim/processor lifecycle test is still required.
+
+Validation: targeted tests 2 passed; full regression 230 passed, 6 opt-in database groups skipped; TypeScript and whitespace checks passed. No database/provider connections, migrations or deployment occurred. No schema migration is needed for these two fixes.
+
+Next: disposable local PostgreSQL nonempty claim/lease/processor tests for A27, then A24 baseline/upgrade parity. PR-1 remains active. Branch `codex/pr1-production-readiness` was pushed at b98de68; remote main was not updated because production auto-deployment remains unverified. Subsequent changes are local and uncommitted. Production-derived `Postgres-ACf_` remains excluded.
+
+### PR-1 checkpoint — actual nonempty worker lifecycle
+
+A27's row mapping fix is now verified against actual PostgreSQL claims and processors in a randomly named synthetic schema inside the disposable local cluster. Two concurrent claimers acquired seven distinct jobs without overlap; an additional claim returned empty. All six supported job types plus an unknown type cancelled malformed/ineligible references, persisted terminal state, cleared locks and created zero messages. Correct lease tokens renewed; foreign/stale tokens could not renew or update. Expired non-AI processing retried once with an incremented attempt count; exhausted jobs and AI processing without saved output failed; expired sending became DELIVERY_UNKNOWN and was not reclaimed. A guarded update exercised terminal completion without provider delivery.
+
+The opt-in test is `packages/automations/__tests__/worker-postgres.test.ts`; preload `scripts/local-worker-test-guard.cjs` and set MAIA_WORKER_TEST_SOCKET to the approved disposable socket. It validates the cluster data directory, uses no DATABASE_URL, blocks fetch and all sockets except that exact Unix socket, and resolves Next's server-only marker to its server-side empty module solely in this test process. Synthetic fixture schemas remain local. The cluster was stopped after testing. This is a Node containment layer, not an OS sandbox.
+
+Validation: final opt-in lifecycle group passed; regression 230 passed, 7 opt-in database groups skipped; TypeScript and whitespace checks passed. A27's mapping defect is locally verified. Successful provider delivery, eligible booking/waiver sends, real AI execution and send-time crash recovery remain separate PR-6/integration gates. No Railway connection or production action occurred.
+
+Next PR-1 task: A24 reproducible baseline/upgrade journal parity. Keep verified reconsent, staged migrations, provider verification and production approval gates open. Changes remain local and uncommitted.
+
+### PR-1 checkpoint — A24 baseline and forward migration parity
+
+Versioned the historical pre-journal schema from c5048d0 and generated baseline SQL (44 tables, including auth). The real Drizzle migrator successfully applied all six journal entries from empty baseline and upgraded a populated 0000–0002 fixture, preserving its synthetic organization. Repeating migration produced no additional journal entries. Both paths match the current snapshot's column types/defaults/nullability, structural constraints/delete actions and indexes across 48 tables.
+
+Parity found and corrected schema declaration drift: missing appointment revision/payment method checks and appointment-job index; redundant snapshot-only location FKs were removed in favor of the existing composite tenant cascade constraints, named consistently with the original migration. No historical migration was edited or new production DDL applied. Snapshot regenerated; deployed/synthetic Railway schema remains unchanged.
+
+Evidence: baseline opt-in tests 2 passed; tenant migration/references 69 passed; full regression 231 passed, 8 opt-in groups skipped; staging safety 3 passed, 1 optional skipped; TypeScript and whitespace passed. Disposable local PostgreSQL stopped afterward. See DATABASE_BASELINE.md for supported paths and rollback boundaries.
+
+A24's reproducible baseline/forward parity is locally verified. Existing deployed journal inspection, current-snapshot adoption, staging schema upgrade and production rollout remain approval gates. PR-1 remains open for A20 verified reconsent/sender-scoped revocation and deployment/integration evidence; do not declare a production gate passed based solely on local tests. Next: review remaining PR-1 consent requirements and implement safe local coverage before live/setup work. All current changes remain uncommitted.
+
+### PR-1 checkpoint — A20 verified inbound reconsent and revocation history
+
+Reused the existing signed Twilio START/YES flow instead of introducing an unauthenticated reconsent endpoint. `grantVerifiedInboundConsent` validates form/client scope, serializes on the public-intake phone lock, and transactionally updates consent plus immutable evidence. Repeated inbound IDs are no-ops, including replay after STOP. `revokeStudioSmsConsent` shares that lock. Missing MessageSid is now rejected by inbound handling. Evidence failures roll back consent updates; established client identity is never changed.
+
+`hasScopedSmsConsent` now excludes affirmative evidence predating any recorded studio SMS STOP (including aliases). A START for artist B can restore B without resurrecting A's historical evidence. Inbound decisions use effective scoped consent and opt-out history; contextual replies cannot bypass outstanding suppression, including a final history check before synchronous delivery.
+
+Policy remains conservatively studio-wide STOP, matching existing client suppression. This is not a new sender-only opt-out model. Existing signed START/YES paths provide the possession-confirmed option; public checked resubmission still cannot grant existing-client consent. No new schema migration or live challenge messages were introduced.
+
+Evidence: guarded disposable PostgreSQL group passed for scoped history, tenant/phone/form mismatch, duplicate concurrent grants, replay after STOP, failed evidence rollback and identity preservation. Actual HTTP handler tested with synthetic signatures: invalid START 403, signed START/STOP 200, replay 200 without regrant, and a revoked artist's ordinary inbound message suppressed after another artist resubscribed. Provider networking was blocked; no outbound SYSTEM messages were created. Full regression 231 passed, 9 opt-in DB groups skipped; TypeScript/whitespace passed.
+
+Outstanding: live provider/carrier START/STOP/YES behavior and full YES challenge delivery; true sender-only suppression policy/ledger; immutable history retention when conversations/messages are deleted; broader inbound message/consent/outbound crash atomicity and concurrent webhook deduplication (PR-6). The retained-message history strategy cannot certify legacy databases where STOP messages were removed. A20 remains partially verified and production unverified. Next: review these remaining gates and PR-2 Twilio orchestration scope; do not close PR-1 or enable live messaging implicitly. Current changes are uncommitted.
+
+### PR-2 local work — legal customer decision and provisioning preflight
+
+User decision: default one legal customer per independently operated studio; artists under its legal business may share registration where appropriate. Independently operated artists with separate legal identity must register separately, even inside the same physical studio. Registrations must never be shared across unrelated legal entities. Target architecture is recorded in TWILIO_LEGAL_CUSTOMERS.md; explicit legalCustomerId/account ownership and separate owning tenant for independent businesses are planned, not already implemented. PR-1 remains open; PR-2 local work started without declaring earlier production gates passed.
+
+T02 partial fix: live provisioning preflights public HTTPS origin, encryption round-trip, required credentials and local account/service/number relationships before provider calls. Mock SIDs, corrupt tokens and mismatched accounts are refused. Existing complete setup requires its service membership; an existing purchased number with a missing service/membership now resumes association rather than buying another number. Logs/response failures omit raw provider errors and credentials. No provider API, Railway connection or deployment occurred.
+
+Evidence: four direct/mock endpoint tests passed, including missing configuration with zero writes/provider calls and missing service recovery with exactly two mocked service calls and no purchase/account/inventory calls. Regression 235 passed, 9 opt-in groups skipped; TypeScript and whitespace passed. These tests do not verify remote ownership, reconcile ambiguous outcomes, serialize provisioning, or certify live readiness.
+
+Next: implement legal-customer/account bindings and local two-studio/two-artist tests, followed by durable operation ledger/concurrency/crash reconciliation (T01–T03). Preserve approved legacy resources; no automatic transfer, recreation or journal adoption. Changes remain local and uncommitted.
+
+### Development branch checkpoint — October 8, 2026
+
+User authorized committing and pushing the accumulated local changes to `codex/pr1-production-readiness` on `xglenng/maia-front-desk`. This checkpoint covers A07/A27 fixes and local worker evidence, A24 baseline/journal parity and schema drift alignment, A20 atomic inbound reconsent/history checks, and T02 provisioning preflight/partial-service repair. PR-1 remains open and PR-2 remains in local development. Main/production deployment is not authorized by this branch push.
+
+Resume with explicit legal-customer/account bindings (T01), then account/service/number operation intents and ambiguous-outcome reconciliation (T02/T03). Honor the accepted studio default plus independent-business artist requirement in TWILIO_LEGAL_CUSTOMERS.md. Do not infer deployed schema or transfer existing approved resources from local mappings.

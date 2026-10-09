@@ -2,6 +2,7 @@ import 'server-only';
 import { pool, db } from '@db/index';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { automationJobs, messages } from '@db/schema';
+import { mapClaimedAutomationJob } from './claimed-job';
 import { aiResponseDedupeKey, aiResponseRunAt } from './policy';
 
 export type ClaimedAutomationJob = typeof automationJobs.$inferSelect;
@@ -121,8 +122,9 @@ export async function claimDueAutomationJobs(limit = AUTOMATION_BATCH_SIZE, now 
       WHERE job.id = due.id
       RETURNING job.*
     `, [now, Math.max(1, Math.min(50, limit)), AUTOMATION_LEASE_SECONDS]);
+    const jobs = result.rows.map(mapClaimedAutomationJob);
     await client.query('COMMIT');
-    return result.rows as ClaimedAutomationJob[];
+    return jobs;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

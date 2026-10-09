@@ -5,15 +5,10 @@ import { z } from 'zod';
 import { db } from '@db';
 import { artists, organizations, phoneNumbers, twilioAccounts, twilioMessagingServices } from '@db/schema';
 import { addNumberToMessagingService, createMessagingService, createTwilioSubaccount, decryptSecret, encryptSecret, findAvailableLocalNumber, purchasePhoneNumber } from '@integrations/twilio';
+import { TwilioProvisionConfigurationError, twilioProvisionPreflight } from '@integrations/twilio-provision-preflight';
 import { isE164PhoneNumber, mockPhoneNumber } from '@integrations/mock-twilio';
 
 const schema = z.object({ organizationId: z.string().uuid(), artistId: z.string().uuid(), areaCode: z.string().regex(/^\d{3}$/).optional() });
-
-function webhookUrl() {
-  const base = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
-  if (!base || base.includes('localhost')) throw new Error('Set TWILIO_WEBHOOK_BASE_URL to a publicly reachable HTTPS URL before provisioning a Twilio number.');
-  return `${base.replace(/\/$/, '')}/api/twilio/inbound`;
-}
 
 async function handlePOST(req: Request) {
   const parsed = schema.safeParse(await req.json());
@@ -42,7 +37,8 @@ async function handlePOST(req: Request) {
       const [mockNumber] = await db.insert(phoneNumbers).values({ organizationId, artistId, phoneNumber: mockPhone, provider: 'twilio', twilioAccountId: mockAccount.id, twilioPhoneNumberSid: `PNMOCK${artistId.replaceAll('-', '').slice(0, 30)}`, twilioMessagingServiceSid: mockService.serviceSid, complianceStatus: 'MOCK_APPROVED', lifecycleRole: 'TEMPORARY', isPrimary: true, active: true }).returning();
       return NextResponse.json({ status: existingAccount || existingService ? 'repaired_provisioning' : 'provisioned', mode: 'mock', phoneNumber: mockNumber.phoneNumber, phoneNumberSid: mockNumber.twilioPhoneNumberSid, messagingServiceSid: mockService.serviceSid, twilioAccountSid: mockAccount.accountSid, message: existingAccount || existingService ? 'Partial mock setup repaired and a digits-only testing number was created. It cannot send or receive real messages.' : 'Mock number is ready for workflow testing only. It cannot send or receive real messages.' });
     }
-    if (existingAccount && existingNumber) return NextResponse.json({ status: 'already_provisioned', phoneNumber: existingNumber.phoneNumber });
+    const { inboundUrl } = twilioProvisionPreflight({ account: existingAccount, service: existingService, number: existingNumber });
+    if (existingAccount && existingService && existingNumber && existingNumber.twilioMessagingServiceSid === existingService.serviceSid) return NextResponse.json({ status: 'already_provisioned', phoneNumber: existingNumber.phoneNumber });
 
     let account = existingAccount;
     if (!account) {
@@ -53,18 +49,25 @@ async function handlePOST(req: Request) {
     let service = existingService;
     const authToken = decryptSecret(account.authTokenEncrypted);
     if (!service) {
-      const createdService = await createMessagingService(account.accountSid, authToken, `${org.name} SMS`, webhookUrl());
+      const createdService = await createMessagingService(account.accountSid, authToken, `${org.name} SMS`, inboundUrl);
       service = (await db.insert(twilioMessagingServices).values({ organizationId, artistId, twilioAccountId: account.id, serviceSid: createdService.sid, status: 'ACTIVE' }).returning())[0];
     }
 
+    if (existingNumber) {
+      await addNumberToMessagingService(account.accountSid, authToken, service.serviceSid, existingNumber.twilioPhoneNumberSid!);
+      await db.update(phoneNumbers).set({ twilioMessagingServiceSid: service.serviceSid, updatedAt: new Date() }).where(and(eq(phoneNumbers.id, existingNumber.id), eq(phoneNumbers.organizationId, organizationId), eq(phoneNumbers.artistId, artistId)));
+      return NextResponse.json({ status: 'repaired_provisioning', phoneNumber: existingNumber.phoneNumber, messagingServiceSid: service.serviceSid, message: 'Existing number associated with its Messaging Service. Registration approval is verified separately.' });
+    }
+
     const phone = await findAvailableLocalNumber(account.accountSid, authToken, areaCode);
-    const purchased = await purchasePhoneNumber(account.accountSid, authToken, phone, webhookUrl());
+    const purchased = await purchasePhoneNumber(account.accountSid, authToken, phone, inboundUrl);
     await addNumberToMessagingService(account.accountSid, authToken, service.serviceSid, purchased.sid);
     const [row] = await db.insert(phoneNumbers).values({ organizationId, artistId, phoneNumber: purchased.phone_number, provider: 'twilio', twilioAccountId: account.id, twilioPhoneNumberSid: purchased.sid, twilioMessagingServiceSid: service.serviceSid, complianceStatus: 'NOT_REGISTERED', lifecycleRole: 'TEMPORARY', isPrimary: true, active: false }).returning();
     return NextResponse.json({ status: 'provisioned_pending_compliance', phoneNumber: row.phoneNumber, phoneNumberSid: purchased.sid, messagingServiceSid: service.serviceSid, twilioAccountSid: account.accountSid, message: 'Number purchased. Outbound SMS remains disabled until A2P campaign approval.' });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to provision Twilio resources.' }, { status: 500 });
+    if (error instanceof TwilioProvisionConfigurationError) return NextResponse.json({ error: error.message }, { status: 409 });
+    console.error({ event: 'twilio_provision_failed', errorType: error instanceof Error ? error.name : 'UnknownError' });
+    return NextResponse.json({ error: 'Unable to provision Twilio resources. Review the provisioning state before retrying.' }, { status: 500 });
   }
 }
 
