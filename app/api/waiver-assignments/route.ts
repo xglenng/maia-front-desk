@@ -28,9 +28,9 @@ async function handleGET(request: NextRequest) {
     artistName: artists.displayName,
     serviceName: services.name,
   }).from(appointments)
-    .innerJoin(clients, eq(appointments.clientId, clients.id))
-    .innerJoin(artists, eq(appointments.artistId, artists.id))
-    .leftJoin(services, eq(appointments.serviceId, services.id))
+    .innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId)))
+    .innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(appointments.organizationId, artists.organizationId)))
+    .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(appointments.organizationId, services.organizationId)))
     .where(and(...conditions)).orderBy(asc(appointments.startsAt));
   const appointmentIds = rows.map(row => row.appointment.id);
   const assignmentRows = appointmentIds.length ? await db.select({ assignment: externalWaiverAssignments, formName: externalWaiverForms.name, provider: externalWaiverForms.provider }).from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id)).where(inArray(externalWaiverAssignments.appointmentId, appointmentIds)).orderBy(desc(externalWaiverAssignments.createdAt)) : [];
@@ -45,7 +45,7 @@ async function handlePOST(request: NextRequest) {
   const parsed = sendSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const [row] = await db.select({ appointment: appointments, client: clients, artist: artists, organization: organizations })
-    .from(appointments).innerJoin(clients, eq(appointments.clientId, clients.id)).innerJoin(artists, eq(appointments.artistId, artists.id)).innerJoin(organizations, eq(appointments.organizationId, organizations.id))
+    .from(appointments).innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId))).innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(appointments.organizationId, artists.organizationId))).innerJoin(organizations, eq(appointments.organizationId, organizations.id))
     .where(and(eq(appointments.id, parsed.data.appointmentId), eq(appointments.organizationId, user.organization_id)));
   if (!row || !canAccessArtist(user.role, user.id, row.artist.userId)) return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
   if (!row.client.phone || !row.client.smsOptIn) return NextResponse.json({ error: "Client is not opted in to SMS or has no phone number." }, { status: 409 });

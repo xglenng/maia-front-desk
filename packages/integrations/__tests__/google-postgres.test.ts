@@ -1,0 +1,72 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { Pool } from 'pg';
+import { NextRequest } from 'next/server';
+import { digest } from '../../auth/crypto';
+import { GET as callback } from '../../../app/api/integrations/google/callback/route';
+import { pool } from '@db';
+import { encryptGoogleToken, decryptGoogleToken, googleAccessToken, saveGoogleCredentials, convertLegacyGoogleCredentials } from '../google-credentials';
+const socket=process.env.MAIA_GOOGLE_TEST_SOCKET;
+test('Google encrypted credentials serialize refresh/reconnect and convert legacy rows in real PostgreSQL',{skip:!socket},async t=>{
+  assert.match(socket!,/^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
+  const fixtureSchema='google_fixture_'+randomUUID().replaceAll('-','');
+  const local=new Pool({host:socket,port:55439,database:'maia_google_test',user:process.env.USER,max:8,options:`-c search_path=${fixtureSchema}`});
+  const names=['COMPLIANCE_ENCRYPTION_KEY','GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','GOOGLE_REDIRECT_URI','NEXT_PUBLIC_APP_URL'];
+  const old=names.map(name=>process.env[name]);
+  process.env.COMPLIANCE_ENCRYPTION_KEY=Buffer.alloc(32,9).toString('base64');process.env.GOOGLE_CLIENT_ID='synthetic';process.env.GOOGLE_CLIENT_SECRET='synthetic';
+  process.env.GOOGLE_REDIRECT_URI='http://localhost/api/integrations/google/callback';process.env.NEXT_PUBLIC_APP_URL='http://localhost';
+  let providerCalls=0;
+  try {
+    assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,`${socket}/data`);
+    await local.query(`CREATE SCHEMA ${fixtureSchema}`);
+    await local.query(readFileSync('packages/db/staging/schema.sql','utf8').replaceAll('"public".',`"${fixtureSchema}".`));
+    t.mock.method(pool,'query',local.query.bind(local));t.mock.method(pool,'connect',local.connect.bind(local));
+    const org=randomUUID(),artist=randomUUID(),foreignOrg=randomUUID(),foreignArtist=randomUUID();
+    await local.query("INSERT INTO organizations(id,name,slug) VALUES($1,'Synthetic Google','synthetic-google'),($2,'Synthetic Foreign','synthetic-google-foreign')",[org,foreignOrg]);
+    await local.query("INSERT INTO artists(id,organization_id,display_name) VALUES($1,$2,'Synthetic Google Artist'),($3,$4,'Synthetic Foreign')",[artist,org,foreignArtist,foreignOrg]);
+    const scope={organizationId:org,artistId:artist,calendarId:'primary'};
+    const payload={access_token:'synthetic-access',refresh_token:'synthetic-refresh',token_type:'Bearer',expires_in:3600};
+    await Promise.all(Array.from({length:4},()=>saveGoogleCredentials(scope,payload)));
+    let rows=(await local.query('SELECT * FROM calendar_connections WHERE organization_id=$1',[org])).rows;
+    assert.equal(rows.length,1);assert.ok(rows[0].access_token_encrypted.startsWith('google:v1:'));
+    await local.query("UPDATE calendar_connections SET expires_at=now()-interval '1 hour' WHERE organization_id=$1",[org]);
+    t.mock.method(globalThis,'fetch',async (url: RequestInfo | URL)=>{
+      assert.equal(String(url),'https://oauth2.googleapis.com/token'); providerCalls++;
+      return new Response(JSON.stringify({access_token:'synthetic-renewed',token_type:'Bearer',expires_in:3600}));
+    });
+    const access=await Promise.all(Array.from({length:5},()=>googleAccessToken(scope)));
+    assert.ok(access.every(value=>value==='synthetic-renewed'));assert.equal(providerCalls,1);
+    rows=(await local.query('SELECT * FROM calendar_connections WHERE organization_id=$1',[org])).rows;
+    assert.equal(decryptGoogleToken(rows[0].refresh_token_encrypted,scope,'refresh'),'synthetic-refresh');
+    await assert.rejects(googleAccessToken({...scope,organizationId:foreignOrg}));assert.equal(providerCalls,1);
+    await assert.rejects(saveGoogleCredentials({...scope,artistId:foreignArtist},payload));
+    await local.query('UPDATE calendar_connections SET access_token_encrypted=$1,refresh_token_encrypted=$2 WHERE organization_id=$3',['legacy-access','legacy-refresh',org]);
+    await assert.rejects(googleAccessToken(scope));assert.equal(providerCalls,1);
+    await convertLegacyGoogleCredentials(scope);await convertLegacyGoogleCredentials(scope);
+    rows=(await local.query('SELECT * FROM calendar_connections WHERE organization_id=$1',[org])).rows;
+    assert.equal(decryptGoogleToken(rows[0].access_token_encrypted,scope,'access'),'legacy-access');
+    assert.equal(decryptGoogleToken(rows[0].refresh_token_encrypted,scope,'refresh'),'legacy-refresh');
+    const owner=randomUUID(),session='b'.repeat(64),state='c'.repeat(64);
+    await local.query("INSERT INTO users(id,organization_id,email,name,role) VALUES($1,$2,'google-owner@example.test','Synthetic Owner','OWNER')",[owner,org]);
+    await local.query("INSERT INTO auth_credentials(user_id,password_hash,active) VALUES($1,'synthetic-not-used',true)",[owner]);
+    await local.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '30 minutes')",[digest(session),owner]);
+    await local.query("INSERT INTO auth_oauth_states(token_hash,user_id,organization_id,artist_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')",[digest(state),owner,org,artist]);
+    t.mock.method(globalThis,'fetch',async (url: RequestInfo | URL)=>{assert.equal(String(url),'https://oauth2.googleapis.com/token');providerCalls++;return new Response(JSON.stringify(payload));});
+    const oauthRequest=(stateValue:string)=>new NextRequest(`http://localhost/api/integrations/google/callback?code=synthetic-code&state=${stateValue}`,{headers:{cookie:`inkflow_session=${session}`}});
+    const countBefore=providerCalls;
+    assert.equal((await callback(oauthRequest('wrong'),undefined)).status,400);assert.equal(providerCalls,countBefore);
+    assert.equal((await callback(oauthRequest(state),undefined)).status,307);assert.equal(providerCalls,countBefore+1);
+    assert.equal((await callback(oauthRequest(state),undefined)).status,400);assert.equal(providerCalls,countBefore+1);
+    assert.equal((await local.query('SELECT count(*)::int n FROM calendar_connections WHERE organization_id=$1',[org])).rows[0].n,1);
+    rows=(await local.query('SELECT * FROM calendar_connections WHERE organization_id=$1',[org])).rows;
+    // Database errors must roll back credential writes.
+    await local.query("CREATE FUNCTION reject_google_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER reject_google BEFORE UPDATE ON calendar_connections FOR EACH ROW EXECUTE FUNCTION reject_google_update()");
+    const before=rows[0].access_token_encrypted;
+    await assert.rejects(saveGoogleCredentials(scope,payload));
+    assert.equal((await local.query('SELECT access_token_encrypted FROM calendar_connections WHERE organization_id=$1',[org])).rows[0].access_token_encrypted,before);
+  } finally {
+    names.forEach((name,i)=>{if(old[i]===undefined)delete process.env[name];else process.env[name]=old[i];});await local.end();
+  }
+});

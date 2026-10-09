@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       `SELECT u.id, c.password_hash
        FROM users u
        JOIN auth_credentials c ON c.user_id = u.id
-       WHERE lower(u.email) = $1
+       WHERE lower(btrim(u.email)) = $1
          AND c.active = true`,
       [normalizedEmail]
     );

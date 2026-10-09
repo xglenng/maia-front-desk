@@ -13,6 +13,21 @@ function slugify(value: string) {
     .slice(0, 80);
 }
 
+function validTimezone(value: string) {
+  if (value.length > 100) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const duplicateAccountResponse = () => NextResponse.json(
+  { error: "An account with these details already exists." },
+  { status: 409 }
+);
+
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) {
     return NextResponse.json(
@@ -32,6 +47,9 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "Please check your signup information." }, { status: 400 });
+    }
 
     const studioName =
       typeof body.studioName === "string" ? body.studioName.trim() : "";
@@ -66,7 +84,9 @@ export async function POST(req: NextRequest) {
       email.length > 254 ||
       !email.includes("@") ||
       password.length < 10 ||
-      password.length > 128
+      password.length > 128 ||
+      (body.timezone !== undefined && typeof body.timezone !== "string") ||
+      !validTimezone(timezone)
     ) {
       return NextResponse.json(
         { error: "Please check your signup information." },
@@ -86,30 +106,42 @@ export async function POST(req: NextRequest) {
     client = await pool.connect();
     await client.query("BEGIN");
 
+    // Serialize matching signup identities even before the unique index is
+    // deployed. The index remains necessary for writes outside this route.
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`signup-email:${email}`]);
+    const existingIdentity = await client.query(
+      "SELECT id FROM users WHERE lower(btrim(email))=$1 LIMIT 1",
+      [email]
+    );
+    if (existingIdentity.rowCount) {
+      await client.query("ROLLBACK");
+      return duplicateAccountResponse();
+    }
+
+    // Owners may independently choose the same studio name. Serialize slug
+    // allocation so both signups succeed with distinct public URLs.
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`signup-slug:${baseSlug}`]);
+
     // Generate a unique organization slug.
     let slug = baseSlug;
     let suffix = 1;
 
+    let organization;
     while (true) {
-      const existing = await client.query(
-        "SELECT id FROM organizations WHERE slug=$1 LIMIT 1",
-        [slug]
+      const organizationResult = await client.query(
+        `INSERT INTO organizations(name, slug, timezone, public_name)
+         VALUES($1, $2, $3, $1)
+         ON CONFLICT (slug) DO NOTHING
+         RETURNING id, name, slug`,
+        [studioName, slug, timezone]
       );
-
-      if (!existing.rowCount) break;
-
+      if (organizationResult.rowCount) {
+        organization = organizationResult.rows[0];
+        break;
+      }
       suffix += 1;
       slug = `${baseSlug}-${suffix}`;
     }
-
-    const organizationResult = await client.query(
-      `INSERT INTO organizations(name, slug, timezone, public_name)
-       VALUES($1, $2, $3, $1)
-       RETURNING id, name, slug`,
-      [studioName, slug, timezone]
-    );
-
-    const organization = organizationResult.rows[0];
 
     const userResult = await client.query(
       `INSERT INTO users(organization_id, email, name, role)
@@ -169,21 +201,20 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (client) {
       try {
         await client.query("ROLLBACK");
       } catch {}
     }
 
-    console.error("Signup failed:", error);
-
-    if (error?.code === "23505") {
-      return NextResponse.json(
-        { error: "An account with these details already exists." },
-        { status: 409 }
-      );
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+    if (code === "23505") {
+      return duplicateAccountResponse();
     }
+
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "Please check your signup information." }, { status: 400 });
+    console.error("Signup failed", { errorType: error instanceof Error ? error.name : "UnknownError", code });
 
     return NextResponse.json(
       { error: "Unable to create studio." },

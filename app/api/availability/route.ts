@@ -1,3 +1,4 @@
+import { googleAccessToken } from "@/packages/integrations/google-credentials";
 import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq, gte, lt } from 'drizzle-orm';
@@ -36,10 +37,14 @@ async function handleGET(request: NextRequest) {
   const localBusy = busyRows.filter(row => row.endsAt > now);
 
   let calendarBusy: Array<{ startsAt: Date; endsAt: Date }> = [];
-  const [connection] = await db.select().from(calendarConnections).where(and(eq(calendarConnections.organizationId, organizationId), eq(calendarConnections.artistId, artistId), eq(calendarConnections.provider, 'google'), eq(calendarConnections.active, true))).limit(1);
-  if (connection?.accessTokenEncrypted && connection.calendarId) {
+  const connections = await db.select().from(calendarConnections).where(and(eq(calendarConnections.organizationId, organizationId), eq(calendarConnections.artistId, artistId), eq(calendarConnections.provider, 'google'), eq(calendarConnections.active, true))).limit(2);
+  if (connections.length > 1) return NextResponse.json({ error: 'Google Calendar connection is ambiguous. Contact support.' }, { status: 503 });
+  const connection = connections[0];
+  if (connection) {
     try {
-      const events = await new GoogleCalendarAdapter().listEvents({ accessToken: connection.accessTokenEncrypted, calendarId: connection.calendarId, from, to });
+      if (!connection.calendarId) throw new Error('Missing calendar');
+      const accessToken = await googleAccessToken({ organizationId, artistId, calendarId: connection.calendarId });
+      const events = await new GoogleCalendarAdapter().listEvents({ accessToken, calendarId: connection.calendarId, from, to });
       calendarBusy = events.map(e => ({ startsAt: e.start, endsAt: e.end }));
     } catch {
       // If Google is temporarily unavailable, do not silently claim external availability.

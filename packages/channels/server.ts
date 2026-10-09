@@ -9,8 +9,12 @@ import { aiResponseDelaySeconds } from "@/packages/automations/policy";
 import { enqueueAiResponse } from "@/packages/automations/queue.server";
 import { getSocialProfile, isMetaAuthError, sendMetaMessage, type SocialInboundEvent } from "./meta";
 
+import {resolveChannelRouting} from "./ownership.server";
+
 export async function processSocialInbound(event: SocialInboundEvent, origin: string) {
-  const [connection] = await db.select().from(channelConnections).where(and(eq(channelConnections.provider, event.provider), eq(channelConnections.externalAccountId, event.externalAccountId), eq(channelConnections.status, "ACTIVE"))).limit(1);
+  const routing=await resolveChannelRouting(event.provider,event.externalAccountId);
+  if(!routing.connection)return {accepted:false,reason:routing.reason} as const;
+  const connection=routing.connection;
   if (!connection?.accessTokenEncrypted) return { accepted: false, reason: "connection_not_found" } as const;
   await db.update(channelConnections).set({ lastWebhookAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(channelConnections.id, connection.id));
   const [duplicate] = await db.select({ id: messages.id }).from(messages).where(eq(messages.externalMessageId, event.externalMessageId)).limit(1);
@@ -56,5 +60,7 @@ export async function processSocialInbound(event: SocialInboundEvent, origin: st
 
 export async function recordSocialInboundFailure(event: SocialInboundEvent, error: unknown) {
   const message = error instanceof Error ? error.message.slice(0, 500) : "Inbound Meta message processing failed.";
-  await db.update(channelConnections).set({ lastWebhookAt: new Date(), lastError: message, updatedAt: new Date() }).where(and(eq(channelConnections.provider, event.provider), eq(channelConnections.externalAccountId, event.externalAccountId), eq(channelConnections.status, "ACTIVE")));
+  const {connection}=await resolveChannelRouting(event.provider,event.externalAccountId);
+  if(!connection)return;
+  await db.update(channelConnections).set({lastWebhookAt:new Date(),lastError:message,updatedAt:new Date()}).where(and(eq(channelConnections.id,connection.id),eq(channelConnections.organizationId,connection.organizationId)));
 }

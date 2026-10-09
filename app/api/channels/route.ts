@@ -7,6 +7,8 @@ import { artists, channelConnections } from "@db/schema";
 import { decryptComplianceSecret, encryptComplianceSecret } from "@/packages/compliance/secrets";
 import { inspectMetaConnection, type SocialProvider } from "@channels/meta";
 
+import {ChannelOwnershipConflict,reserveChannelConnections} from "@/packages/channels/ownership.server";
+
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("CONNECT_MOCK"), artistId: z.string().uuid(), provider: z.enum(["INSTAGRAM", "FACEBOOK"]), displayName: z.string().min(1).max(100) }),
   z.object({ action: z.literal("DISCONNECT"), connectionId: z.string().uuid() }),
@@ -24,7 +26,7 @@ async function handleGET(request: NextRequest) {
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const [connections, artistRows] = await Promise.all([
-    db.select({ id: channelConnections.id, artistId: channelConnections.artistId, artistName: artists.displayName, provider: channelConnections.provider, externalAccountId: channelConnections.externalAccountId, displayName: channelConnections.displayName, status: channelConnections.status, connectedAt: channelConnections.connectedAt, lastCheckedAt: channelConnections.lastCheckedAt, lastWebhookAt: channelConnections.lastWebhookAt, lastError: channelConnections.lastError }).from(channelConnections).innerJoin(artists, eq(channelConnections.artistId, artists.id)).where(eq(channelConnections.organizationId, user.organization_id)).orderBy(asc(channelConnections.provider), asc(channelConnections.displayName)),
+    db.select({ id: channelConnections.id, artistId: channelConnections.artistId, artistName: artists.displayName, provider: channelConnections.provider, externalAccountId: channelConnections.externalAccountId, displayName: channelConnections.displayName, status: channelConnections.status, connectedAt: channelConnections.connectedAt, lastCheckedAt: channelConnections.lastCheckedAt, lastWebhookAt: channelConnections.lastWebhookAt, lastError: channelConnections.lastError }).from(channelConnections).innerJoin(artists, and(eq(channelConnections.artistId, artists.id), eq(channelConnections.organizationId, artists.organizationId))).where(eq(channelConnections.organizationId, user.organization_id)).orderBy(asc(channelConnections.provider), asc(channelConnections.displayName)),
     db.select({ id: artists.id, name: artists.displayName }).from(artists).where(eq(artists.organizationId, user.organization_id)).orderBy(asc(artists.displayName)),
   ]);
   return NextResponse.json({ connections, artists: artistRows, mode: process.env.META_MESSAGING_MODE || "live", ...metaConfig(request) });
@@ -56,10 +58,13 @@ async function handlePOST(request: NextRequest) {
   const [artist] = await db.select().from(artists).where(and(eq(artists.id, parsed.data.artistId), eq(artists.organizationId, user.organization_id))).limit(1);
   if (!artist) return NextResponse.json({ error: "Artist not found" }, { status: 404 });
   const externalAccountId = `mock_${parsed.data.provider.toLowerCase()}_${artist.id}`;
-  const [existing] = await db.select().from(channelConnections).where(and(eq(channelConnections.organizationId, user.organization_id), eq(channelConnections.provider, parsed.data.provider), eq(channelConnections.externalAccountId, externalAccountId))).limit(1);
-  const values = { artistId: artist.id, displayName: parsed.data.displayName, accessTokenEncrypted: encryptComplianceSecret("mock-access-token"), status: "ACTIVE", metadata: { mock: true }, updatedAt: new Date() };
-  const connection = existing ? (await db.update(channelConnections).set(values).where(eq(channelConnections.id, existing.id)).returning())[0] : (await db.insert(channelConnections).values({ organizationId: user.organization_id, provider: parsed.data.provider, externalAccountId, ...values }).returning())[0];
-  return NextResponse.json({ connection }, { status: existing ? 200 : 201 });
+  try {
+    const [connection]=await reserveChannelConnections([{organizationId:user.organization_id,artistId:artist.id,provider:parsed.data.provider,externalAccountId,displayName:parsed.data.displayName,accessTokenEncrypted:encryptComplianceSecret("mock-access-token"),status:"ACTIVE",metadata:{mock:true}}]);
+    return NextResponse.json({connection},{status:200});
+  } catch(error) {
+    if(error instanceof ChannelOwnershipConflict || (error && typeof error==="object" && "code" in error && error.code==="23505"))return NextResponse.json({error:"This social account already has a routing owner."},{status:409});
+    throw error;
+  }
 }
 
 export const GET = protectedRoute(handleGET, true);

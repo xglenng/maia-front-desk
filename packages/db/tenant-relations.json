@@ -1,0 +1,736 @@
+{
+  "parents": [
+    {
+      "table": "appointments",
+      "variable": "appointments",
+      "index": "appointments_id_organization_uidx"
+    },
+    {
+      "table": "artist_consent_forms",
+      "variable": "artistConsentForms",
+      "index": "artist_consent_forms_id_organization_uidx"
+    },
+    {
+      "table": "artists",
+      "variable": "artists",
+      "index": "artists_id_organization_uidx"
+    },
+    {
+      "table": "channel_connections",
+      "variable": "channelConnections",
+      "index": "channel_connections_id_organization_uidx"
+    },
+    {
+      "table": "clients",
+      "variable": "clients",
+      "index": "clients_id_organization_uidx"
+    },
+    {
+      "table": "conversations",
+      "variable": "conversations",
+      "index": "conversations_id_organization_uidx"
+    },
+    {
+      "table": "external_waiver_assignments",
+      "variable": "externalWaiverAssignments",
+      "index": "external_waiver_assignments_id_organization_uidx"
+    },
+    {
+      "table": "external_waiver_forms",
+      "variable": "externalWaiverForms",
+      "index": "external_waiver_forms_id_organization_uidx"
+    },
+    {
+      "table": "phone_numbers",
+      "variable": "phoneNumbers",
+      "index": "phone_numbers_id_organization_uidx"
+    },
+    {
+      "table": "scheduling_connections",
+      "variable": "schedulingConnections",
+      "index": "scheduling_connections_id_organization_uidx"
+    },
+    {
+      "table": "services",
+      "variable": "services",
+      "index": "services_id_organization_uidx"
+    },
+    {
+      "table": "twilio_accounts",
+      "variable": "twilioAccounts",
+      "index": "twilio_accounts_id_organization_uidx"
+    },
+    {
+      "table": "twilio_messaging_services",
+      "variable": "twilioMessagingServices",
+      "index": "twilio_messaging_services_id_organization_uidx"
+    },
+    {
+      "table": "users",
+      "variable": "users",
+      "index": "users_id_organization_uidx"
+    },
+    {
+      "table": "waiver_provider_connections",
+      "variable": "waiverProviderConnections",
+      "index": "waiver_provider_connections_id_organization_uidx"
+    },
+    {
+      "table": "waiver_templates",
+      "variable": "waiverTemplates",
+      "index": "waiver_templates_id_organization_uidx"
+    }
+  ],
+  "relations": [
+    {
+      "child": "artists",
+      "childVar": "artists",
+      "column": "user_id",
+      "property": "userId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "artists_user_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "auth_oauth_states",
+      "childVar": "authOauthStates",
+      "column": "user_id",
+      "property": "userId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "auth_oauth_states_user_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "auth_oauth_states",
+      "childVar": "authOauthStates",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "auth_oauth_states_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "artist_consent_forms",
+      "childVar": "artistConsentForms",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "artist_consent_forms_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "sms_consent_evidence",
+      "childVar": "smsConsentEvidence",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "sms_consent_evidence_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "sms_consent_evidence",
+      "childVar": "smsConsentEvidence",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "sms_consent_evidence_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "sms_consent_evidence",
+      "childVar": "smsConsentEvidence",
+      "column": "consent_form_id",
+      "property": "consentFormId",
+      "parent": "artist_consent_forms",
+      "parentVar": "artistConsentForms",
+      "name": "sms_consent_evidence_consent_form_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "services",
+      "childVar": "services",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "services_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "booking_inquiries",
+      "childVar": "bookingInquiries",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "booking_inquiries_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "booking_inquiries",
+      "childVar": "bookingInquiries",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "booking_inquiries_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "booking_inquiries",
+      "childVar": "bookingInquiries",
+      "column": "consent_form_id",
+      "property": "consentFormId",
+      "parent": "artist_consent_forms",
+      "parentVar": "artistConsentForms",
+      "name": "booking_inquiries_consent_form_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "booking_inquiries",
+      "childVar": "bookingInquiries",
+      "column": "service_id",
+      "property": "serviceId",
+      "parent": "services",
+      "parentVar": "services",
+      "name": "booking_inquiries_service_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "availability_rules",
+      "childVar": "availabilityRules",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "availability_rules_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "business_rules",
+      "childVar": "businessRules",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "business_rules_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "channel_connections",
+      "childVar": "channelConnections",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "channel_connections_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "meta_connection_candidates",
+      "childVar": "metaConnectionCandidates",
+      "column": "user_id",
+      "property": "userId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "meta_connection_candidates_user_id_tenant_fk",
+      "onDelete": "cascade"
+    },
+    {
+      "child": "meta_connection_candidates",
+      "childVar": "metaConnectionCandidates",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "meta_connection_candidates_artist_id_tenant_fk",
+      "onDelete": "cascade"
+    },
+    {
+      "child": "client_channel_identities",
+      "childVar": "clientChannelIdentities",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "client_channel_identities_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "client_channel_identities",
+      "childVar": "clientChannelIdentities",
+      "column": "connection_id",
+      "property": "connectionId",
+      "parent": "channel_connections",
+      "parentVar": "channelConnections",
+      "name": "client_channel_identities_connection_id_tenant_fk",
+      "onDelete": "cascade"
+    },
+    {
+      "child": "appointments",
+      "childVar": "appointments",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "appointments_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "appointments",
+      "childVar": "appointments",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "appointments_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "appointments",
+      "childVar": "appointments",
+      "column": "service_id",
+      "property": "serviceId",
+      "parent": "services",
+      "parentVar": "services",
+      "name": "appointments_service_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "conversations",
+      "childVar": "conversations",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "conversations_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "conversations",
+      "childVar": "conversations",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "conversations_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "conversations",
+      "childVar": "conversations",
+      "column": "channel_connection_id",
+      "property": "channelConnectionId",
+      "parent": "channel_connections",
+      "parentVar": "channelConnections",
+      "name": "conversations_channel_connection_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "conversations",
+      "childVar": "conversations",
+      "column": "human_takeover_by_user_id",
+      "property": "humanTakeoverByUserId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "conversations_human_takeover_by_user_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "conversation_events",
+      "childVar": "conversationEvents",
+      "column": "conversation_id",
+      "property": "conversationId",
+      "parent": "conversations",
+      "parentVar": "conversations",
+      "name": "conversation_events_conversation_id_tenant_fk",
+      "onDelete": "cascade"
+    },
+    {
+      "child": "conversation_events",
+      "childVar": "conversationEvents",
+      "column": "user_id",
+      "property": "userId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "conversation_events_user_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "calendar_connections",
+      "childVar": "calendarConnections",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "calendar_connections_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "scheduling_connections",
+      "childVar": "schedulingConnections",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "scheduling_connections_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "service_provider_mappings",
+      "childVar": "serviceProviderMappings",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "service_provider_mappings_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "service_provider_mappings",
+      "childVar": "serviceProviderMappings",
+      "column": "scheduling_connection_id",
+      "property": "schedulingConnectionId",
+      "parent": "scheduling_connections",
+      "parentVar": "schedulingConnections",
+      "name": "service_provider_mappings_scheduling_connection_id_tenant_fk",
+      "onDelete": "cascade"
+    },
+    {
+      "child": "service_provider_mappings",
+      "childVar": "serviceProviderMappings",
+      "column": "service_id",
+      "property": "serviceId",
+      "parent": "services",
+      "parentVar": "services",
+      "name": "service_provider_mappings_service_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "payments",
+      "childVar": "payments",
+      "column": "appointment_id",
+      "property": "appointmentId",
+      "parent": "appointments",
+      "parentVar": "appointments",
+      "name": "payments_appointment_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "payments",
+      "childVar": "payments",
+      "column": "confirmed_by_user_id",
+      "property": "confirmedByUserId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "payments_confirmed_by_user_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "waiver_submissions",
+      "childVar": "waiverSubmissions",
+      "column": "appointment_id",
+      "property": "appointmentId",
+      "parent": "appointments",
+      "parentVar": "appointments",
+      "name": "waiver_submissions_appointment_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "waiver_submissions",
+      "childVar": "waiverSubmissions",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "waiver_submissions_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "waiver_submissions",
+      "childVar": "waiverSubmissions",
+      "column": "waiver_template_id",
+      "property": "waiverTemplateId",
+      "parent": "waiver_templates",
+      "parentVar": "waiverTemplates",
+      "name": "waiver_submissions_waiver_template_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "external_waiver_forms",
+      "childVar": "externalWaiverForms",
+      "column": "connection_id",
+      "property": "connectionId",
+      "parent": "waiver_provider_connections",
+      "parentVar": "waiverProviderConnections",
+      "name": "external_waiver_forms_connection_id_tenant_fk",
+      "onDelete": "cascade"
+    },
+    {
+      "child": "external_waiver_forms",
+      "childVar": "externalWaiverForms",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "external_waiver_forms_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "external_waiver_forms",
+      "childVar": "externalWaiverForms",
+      "column": "service_id",
+      "property": "serviceId",
+      "parent": "services",
+      "parentVar": "services",
+      "name": "external_waiver_forms_service_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "external_waiver_assignments",
+      "childVar": "externalWaiverAssignments",
+      "column": "waiver_form_id",
+      "property": "waiverFormId",
+      "parent": "external_waiver_forms",
+      "parentVar": "externalWaiverForms",
+      "name": "external_waiver_assignments_waiver_form_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "external_waiver_assignments",
+      "childVar": "externalWaiverAssignments",
+      "column": "appointment_id",
+      "property": "appointmentId",
+      "parent": "appointments",
+      "parentVar": "appointments",
+      "name": "external_waiver_assignments_appointment_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "external_waiver_assignments",
+      "childVar": "externalWaiverAssignments",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "external_waiver_assignments_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "external_waiver_events",
+      "childVar": "externalWaiverEvents",
+      "column": "assignment_id",
+      "property": "assignmentId",
+      "parent": "external_waiver_assignments",
+      "parentVar": "externalWaiverAssignments",
+      "name": "external_waiver_events_assignment_id_tenant_fk",
+      "onDelete": "cascade"
+    },
+    {
+      "child": "external_waiver_events",
+      "childVar": "externalWaiverEvents",
+      "column": "user_id",
+      "property": "userId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "external_waiver_events_user_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "twilio_accounts",
+      "childVar": "twilioAccounts",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "twilio_accounts_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "twilio_messaging_services",
+      "childVar": "twilioMessagingServices",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "twilio_messaging_services_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "twilio_messaging_services",
+      "childVar": "twilioMessagingServices",
+      "column": "twilio_account_id",
+      "property": "twilioAccountId",
+      "parent": "twilio_accounts",
+      "parentVar": "twilioAccounts",
+      "name": "twilio_messaging_services_twilio_account_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "phone_numbers",
+      "childVar": "phoneNumbers",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "phone_numbers_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "phone_numbers",
+      "childVar": "phoneNumbers",
+      "column": "twilio_account_id",
+      "property": "twilioAccountId",
+      "parent": "twilio_accounts",
+      "parentVar": "twilioAccounts",
+      "name": "phone_numbers_twilio_account_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "phone_number_port_requests",
+      "childVar": "phoneNumberPortRequests",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "phone_number_port_requests_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "phone_number_port_requests",
+      "childVar": "phoneNumberPortRequests",
+      "column": "twilio_account_id",
+      "property": "twilioAccountId",
+      "parent": "twilio_accounts",
+      "parentVar": "twilioAccounts",
+      "name": "phone_number_port_requests_twilio_account_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "phone_number_port_requests",
+      "childVar": "phoneNumberPortRequests",
+      "column": "messaging_service_id",
+      "property": "messagingServiceId",
+      "parent": "twilio_messaging_services",
+      "parentVar": "twilioMessagingServices",
+      "name": "phone_number_port_requests_messaging_service_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "phone_number_port_requests",
+      "childVar": "phoneNumberPortRequests",
+      "column": "temporary_phone_number_id",
+      "property": "temporaryPhoneNumberId",
+      "parent": "phone_numbers",
+      "parentVar": "phoneNumbers",
+      "name": "phone_number_port_requests_temporary_phone_number_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "automation_jobs",
+      "childVar": "automationJobs",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "automation_jobs_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "automation_jobs",
+      "childVar": "automationJobs",
+      "column": "client_id",
+      "property": "clientId",
+      "parent": "clients",
+      "parentVar": "clients",
+      "name": "automation_jobs_client_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "automation_jobs",
+      "childVar": "automationJobs",
+      "column": "appointment_id",
+      "property": "appointmentId",
+      "parent": "appointments",
+      "parentVar": "appointments",
+      "name": "automation_jobs_appointment_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "automation_jobs",
+      "childVar": "automationJobs",
+      "column": "conversation_id",
+      "property": "conversationId",
+      "parent": "conversations",
+      "parentVar": "conversations",
+      "name": "automation_jobs_conversation_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "a2p_campaigns",
+      "childVar": "a2pCampaigns",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "a2p_campaigns_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "a2p_campaigns",
+      "childVar": "a2pCampaigns",
+      "column": "messaging_service_id",
+      "property": "messagingServiceId",
+      "parent": "twilio_messaging_services",
+      "parentVar": "twilioMessagingServices",
+      "name": "a2p_campaigns_messaging_service_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "a2p_campaigns",
+      "childVar": "a2pCampaigns",
+      "column": "twilio_account_id",
+      "property": "twilioAccountId",
+      "parent": "twilio_accounts",
+      "parentVar": "twilioAccounts",
+      "name": "a2p_campaigns_twilio_account_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "studio_activations",
+      "childVar": "studioActivations",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "studio_activations_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "studio_activation_events",
+      "childVar": "studioActivationEvents",
+      "column": "artist_id",
+      "property": "artistId",
+      "parent": "artists",
+      "parentVar": "artists",
+      "name": "studio_activation_events_artist_id_tenant_fk",
+      "onDelete": null
+    },
+    {
+      "child": "studio_activation_events",
+      "childVar": "studioActivationEvents",
+      "column": "user_id",
+      "property": "userId",
+      "parent": "users",
+      "parentVar": "users",
+      "name": "studio_activation_events_user_id_tenant_fk",
+      "onDelete": null
+    }
+  ]
+}

@@ -46,7 +46,7 @@ async function handlePOST(req: Request) {
   if (!["application/pdf", "image/jpeg", "image/png"].includes(utilityBill.type)) return NextResponse.json({ error: "Upload the carrier bill as a PDF, JPG, or PNG." }, { status: 400 });
 
   const [resource] = await db.select({ account: twilioAccounts, service: twilioMessagingServices }).from(twilioMessagingServices)
-    .innerJoin(twilioAccounts, eq(twilioMessagingServices.twilioAccountId, twilioAccounts.id))
+    .innerJoin(twilioAccounts, and(eq(twilioMessagingServices.twilioAccountId, twilioAccounts.id), eq(twilioMessagingServices.organizationId, twilioAccounts.organizationId)))
     .where(and(eq(twilioMessagingServices.organizationId, input.organizationId), eq(twilioMessagingServices.artistId, input.artistId))).limit(1);
   if (!resource) return NextResponse.json({ error: "Provision the temporary Twilio number before starting a port." }, { status: 409 });
   const [temporary] = await db.select().from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, input.organizationId), eq(phoneNumbers.artistId, input.artistId), eq(phoneNumbers.isPrimary, true))).limit(1);

@@ -27,7 +27,7 @@ async function audit(organizationId: string, phase: string, action: string, even
 
 async function resources(organizationId: string) {
   const rows = await db.select({ account: twilioAccounts, service: twilioMessagingServices }).from(twilioMessagingServices)
-    .innerJoin(twilioAccounts, eq(twilioMessagingServices.twilioAccountId, twilioAccounts.id))
+    .innerJoin(twilioAccounts, and(eq(twilioMessagingServices.twilioAccountId, twilioAccounts.id), eq(twilioMessagingServices.organizationId, twilioAccounts.organizationId)))
     .where(and(eq(twilioMessagingServices.organizationId, organizationId), eq(twilioMessagingServices.status, "ACTIVE")));
   if (!rows.length) throw new Error("Provision at least one studio Twilio number before starting carrier registration.");
   return rows.map(row => ({ ...row, credentials: { accountSid: row.account.accountSid, authToken: decryptSecret(row.account.authTokenEncrypted) } }));

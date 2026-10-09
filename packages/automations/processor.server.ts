@@ -47,7 +47,7 @@ async function processWaiverReminder(job: ClaimedAutomationJob, payload: Record<
   }
   const [assignment] = await db.select({ assignment: externalWaiverAssignments, appointment: appointments })
     .from(externalWaiverAssignments)
-    .innerJoin(appointments, eq(externalWaiverAssignments.appointmentId, appointments.id))
+    .innerJoin(appointments, and(eq(externalWaiverAssignments.appointmentId, appointments.id), eq(externalWaiverAssignments.organizationId, appointments.organizationId)))
     .where(and(
       eq(externalWaiverAssignments.id, payload.waiverAssignmentId),
       eq(externalWaiverAssignments.organizationId, job.organizationId),

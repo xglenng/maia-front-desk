@@ -1,10 +1,14 @@
+import { publicIntakeLimit } from "@/packages/consent/rate-limit.server";
+import { PublicBodyError, readPublicJson } from "@/packages/consent/public-body";
+import { randomUUID } from "node:crypto";
+import { resolvePublicIntakeClient } from "@/packages/consent/intake.server";
 import { and, desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { sameOrigin } from "@/packages/auth/server";
 import { db } from "@db";
-import { artistConsentForms, artists, bookingInquiries, clients, legalDocuments, organizations, services, smsConsentEvidence } from "@db/schema";
-import { appBaseUrl, hostedConsentState, normalizePhone } from "@/packages/consent";
+import { artistConsentForms, artists, bookingInquiries, legalDocuments, organizations, services, smsConsentEvidence } from "@db/schema";
+import { appBaseUrl, normalizePhone } from "@/packages/consent";
 
 const schema = z.object({
   organizationSlug: z.string().min(1).max(100),
@@ -23,25 +27,23 @@ const schema = z.object({
 export async function POST(request: NextRequest) {
   try {
     if (!sameOrigin(request)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
-    const contentLengthHeader = request.headers.get("content-length");
-    if (contentLengthHeader !== null) {
-      const contentLength = Number(contentLengthHeader);
-      if (!Number.isSafeInteger(contentLength) || contentLength < 0) return NextResponse.json({ error: "Invalid request size." }, { status: 400 });
-      if (contentLength > 64 * 1024) return NextResponse.json({ error: "Request is too large." }, { status: 413 });
-    }
-    const parsed = schema.safeParse(await request.json());
+
+
+    const parsed = schema.safeParse(await readPublicJson(request));
     if (!parsed.success) return NextResponse.json({ error: "Please check the form and try again." }, { status: 400 });
     const input = parsed.data;
-    // Honeypot: return success without storing bot submissions.
     if (input.website) return NextResponse.json({ success: true });
 
     const [surface] = await db.select({ form: artistConsentForms, organization: organizations, artistName: artists.displayName })
       .from(artistConsentForms)
       .innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id))
-      .innerJoin(artists, eq(artistConsentForms.artistId, artists.id))
+      .innerJoin(artists, and(eq(artistConsentForms.artistId, artists.id), eq(artistConsentForms.organizationId, artists.organizationId)))
       .where(and(eq(organizations.slug, input.organizationSlug), eq(artistConsentForms.slug, input.formSlug), eq(artistConsentForms.mode, "HOSTED"), eq(artistConsentForms.active, true)))
       .limit(1);
     if (!surface) return NextResponse.json({ error: "This appointment request form is not available." }, { status: 404 });
+
+    const limit = await publicIntakeLimit(surface.form.id, "HOSTED");
+    if (!limit.allowed) return NextResponse.json({ error: "Too many submissions. Please try again later." }, { status: 429, headers: { "Retry-After": String(limit.retryAfter) } });
 
     const published = await db.select().from(legalDocuments)
       .where(and(eq(legalDocuments.organizationId, surface.organization.id), eq(legalDocuments.status, "PUBLISHED")))
@@ -61,64 +63,51 @@ export async function POST(request: NextRequest) {
     try { phone = normalizePhone(input.phone); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Enter a valid phone number." }, { status: 400 }); }
 
-    const [existingClient] = await db.select().from(clients).where(and(eq(clients.organizationId, surface.organization.id), eq(clients.phone, phone))).limit(1);
-    const now = new Date();
-    let client = existingClient;
-    if (client) {
-      const [updated] = await db.update(clients).set({
-        firstName: input.firstName,
-        lastName: input.lastName || null,
-        email: input.email,
-        ...(input.smsConsent ? { smsOptIn: true, smsConsentStatus: "OPTED_IN", smsConsentCapturedAt: now } : {}),
-        updatedAt: now
-      }).where(eq(clients.id, client.id)).returning();
-      client = updated;
-    } else {
-      [client] = await db.insert(clients).values({
+    return await db.transaction(async tx => {
+      const { client, consented, verificationRequired } = await resolvePublicIntakeClient(tx, {
+        organizationId: surface.organization.id, phone, firstName: input.firstName,
+        lastName: input.lastName, email: input.email, consented: input.smsConsent
+      });
+
+      const inquiryId = randomUUID();
+      const origin = appBaseUrl();
+      const sourceUrl = `${origin}/book/${encodeURIComponent(input.organizationSlug)}/${encodeURIComponent(input.formSlug)}`;
+      await tx.insert(smsConsentEvidence).values({
         organizationId: surface.organization.id,
-        firstName: input.firstName,
-        lastName: input.lastName || null,
-        email: input.email,
+        artistId: surface.form.artistId,
+        clientId: client.id,
+        consentFormId: surface.form.id,
         phone,
-        ...hostedConsentState(input.smsConsent, now)
-      }).returning();
-    }
+        consented,
+        source: "HOSTED_WEB_FORM",
+        sourceUrl,
+        disclosureText: surface.form.disclosureText,
+        disclosureVersion: surface.form.disclosureVersion,
+        privacyPolicyUrl: `${origin}/legal/${surface.organization.slug}/privacy`,
+        termsUrl: `${origin}/legal/${surface.organization.slug}/terms`,
+        privacyDocumentVersion: privacy.version,
+        termsDocumentVersion: terms.version,
+        ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
+        userAgent: request.headers.get("user-agent"),
+        metadata: { inquiryId, submittedContact: { firstName: input.firstName, lastName: input.lastName || null, email: input.email, phone }, requestedConsent: input.smsConsent, verificationRequired }
+      });
 
-    const origin = appBaseUrl();
-    const sourceUrl = `${origin}/book/${encodeURIComponent(input.organizationSlug)}/${encodeURIComponent(input.formSlug)}`;
-    await db.insert(smsConsentEvidence).values({
-      organizationId: surface.organization.id,
-      artistId: surface.form.artistId,
-      clientId: client.id,
-      consentFormId: surface.form.id,
-      phone,
-      consented: input.smsConsent,
-      source: "HOSTED_WEB_FORM",
-      sourceUrl,
-      disclosureText: surface.form.disclosureText,
-      disclosureVersion: surface.form.disclosureVersion,
-      privacyPolicyUrl: `${origin}/legal/${surface.organization.slug}/privacy`,
-      termsUrl: `${origin}/legal/${surface.organization.slug}/terms`,
-      privacyDocumentVersion: privacy.version,
-      termsDocumentVersion: terms.version,
-      ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
-      userAgent: request.headers.get("user-agent"),
-      metadata: { artistName: surface.artistName, email: input.email }
+      const [inquiry] = await tx.insert(bookingInquiries).values({
+        id: inquiryId,
+        organizationId: surface.organization.id,
+        artistId: surface.form.artistId,
+        clientId: client.id,
+        consentFormId: surface.form.id,
+        serviceId,
+        inquiry: input.inquiry,
+        referenceImageUrl: input.referenceImageUrl || null
+      }).returning({ id: bookingInquiries.id });
+
+      return NextResponse.json({ success: true, inquiryId: inquiry.id, smsConsent: consented, verificationRequired });
     });
-
-    const [inquiry] = await db.insert(bookingInquiries).values({
-      organizationId: surface.organization.id,
-      artistId: surface.form.artistId,
-      clientId: client.id,
-      consentFormId: surface.form.id,
-      serviceId,
-      inquiry: input.inquiry,
-      referenceImageUrl: input.referenceImageUrl || null
-    }).returning({ id: bookingInquiries.id });
-
-    return NextResponse.json({ success: true, inquiryId: inquiry.id, smsConsent: input.smsConsent });
   } catch (error) {
-    console.error("Public booking inquiry failed", error);
+    if (error instanceof PublicBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
+    console.error("Public booking inquiry failed");
     return NextResponse.json({ error: "Unable to send your inquiry right now." }, { status: 500 });
   }
 }

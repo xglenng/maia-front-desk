@@ -23,7 +23,10 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: text("role").notNull().default("OWNER"),
   createdAt: timestamp("created_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("users_id_organization_uidx").on(table.id, table.organizationId),
+  normalizedEmailUnique: uniqueIndex("users_normalized_email_uidx").on(sql`lower(btrim(${table.email}))`),
+}));
 
 export const authCredentials = pgTable('auth_credentials', {
   userId: uuid('user_id').primaryKey().references(()=>users.id,{onDelete:'cascade'}),
@@ -71,6 +74,8 @@ export const artists = pgTable("artists", {
   googleReviewUrl: text("google_review_url"),
   reviewFollowupMessage: text("review_followup_message")
 }, table => ({
+  tenantIdentityUnique: uniqueIndex("artists_id_organization_uidx").on(table.id, table.organizationId),
+  tenantUserIdReference: foreignKey({ name: "artists_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
   receptionistToneCheck: check("artists_receptionist_tone_check", sql`${table.receptionistTone} IN ('WARM', 'PROFESSIONAL', 'FRIENDLY')`),
   smsDelayCheck: check("artists_sms_response_delay_check", sql`${table.smsResponseDelaySeconds} IN (0, 60, 120, 300)`),
   metaDelayCheck: check("artists_meta_response_delay_check", sql`${table.metaResponseDelaySeconds} IN (0, 60, 120, 300)`),
@@ -86,7 +91,10 @@ export const authOauthStates=pgTable('auth_oauth_states',{
   tokenHash:text('token_hash').primaryKey(),userId:uuid('user_id').notNull().references(()=>users.id),
   organizationId:uuid('organization_id').notNull().references(()=>organizations.id),artistId:uuid('artist_id').notNull().references(()=>artists.id),
   expiresAt:timestamp('expires_at',{withTimezone:true}).notNull()
-});
+}, table => ({
+  tenantUserIdReference: foreignKey({ name: "auth_oauth_states_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+  tenantArtistIdReference: foreignKey({ name: "auth_oauth_states_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+}));
 
 export const clients = pgTable("clients", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -104,7 +112,9 @@ export const clients = pgTable("clients", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   providerCustomerId: text("provider_customer_id"),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("clients_id_organization_uidx").on(table.id, table.organizationId),
+}));
 
 // One public SMS-consent surface per artist. Hosted forms are rendered by this
 // application; external forms must be explicitly attested by the studio owner.
@@ -125,7 +135,10 @@ export const artistConsentForms = pgTable("artist_consent_forms", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("artist_consent_forms_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "artist_consent_forms_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+}));
 
 // Immutable evidence for both affirmative consent and unchecked submissions.
 // Keeping the exact disclosure and legal-page versions makes later audits
@@ -151,7 +164,11 @@ export const smsConsentEvidence = pgTable("sms_consent_evidence", {
   externalSubmissionId: text("external_submission_id"),
   metadata: jsonb("metadata"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "sms_consent_evidence_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantClientIdReference: foreignKey({ name: "sms_consent_evidence_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+  tenantConsentFormIdReference: foreignKey({ name: "sms_consent_evidence_consent_form_id_tenant_fk", columns: [table.consentFormId, table.organizationId], foreignColumns: [artistConsentForms.id, artistConsentForms.organizationId] }),
+}));
 
 export const services = pgTable("services", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -198,7 +215,10 @@ export const services = pgTable("services", {
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("services_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "services_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+}));
 
 export const bookingInquiries = pgTable("booking_inquiries", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -212,7 +232,12 @@ export const bookingInquiries = pgTable("booking_inquiries", {
   status: text("status").default("NEW").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "booking_inquiries_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantClientIdReference: foreignKey({ name: "booking_inquiries_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+  tenantConsentFormIdReference: foreignKey({ name: "booking_inquiries_consent_form_id_tenant_fk", columns: [table.consentFormId, table.organizationId], foreignColumns: [artistConsentForms.id, artistConsentForms.organizationId] }),
+  tenantServiceIdReference: foreignKey({ name: "booking_inquiries_service_id_tenant_fk", columns: [table.serviceId, table.organizationId], foreignColumns: [services.id, services.organizationId] }),
+}));
 
 
 export const availabilityRules = pgTable("availability_rules", {
@@ -225,7 +250,9 @@ export const availabilityRules = pgTable("availability_rules", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "availability_rules_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+}));
 
 export const studioLocations = pgTable("studio_locations", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -278,6 +305,7 @@ export const businessRules = pgTable("business_rules", {
   priority: integer("priority").default(100).notNull(),
   active: boolean("active").default(true).notNull()
 }, table => ({
+  tenantArtistIdReference: foreignKey({ name: "business_rules_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
   visibilityCheck: check("business_rules_visibility_check", sql`${table.visibility} IN ('CLIENT_VISIBLE', 'AI_INTERNAL')`),
 }));
 
@@ -329,7 +357,11 @@ export const channelConnections = pgTable("channel_connections", {
   lastError: text("last_error"),
   connectedAt: timestamp("connected_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("channel_connections_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "channel_connections_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  routingOwnerUnique: uniqueIndex("channel_connections_provider_account_uidx").on(table.provider, table.externalAccountId),
+}));
 
 export const metaConnectionCandidates = pgTable("meta_connection_candidates", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -339,7 +371,10 @@ export const metaConnectionCandidates = pgTable("meta_connection_candidates", {
   payloadEncrypted: text("payload_encrypted").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantUserIdReference: foreignKey({ name: "meta_connection_candidates_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }).onDelete("cascade"),
+  tenantArtistIdReference: foreignKey({ name: "meta_connection_candidates_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }).onDelete("cascade"),
+}));
 
 export const clientChannelIdentities = pgTable("client_channel_identities", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -352,7 +387,10 @@ export const clientChannelIdentities = pgTable("client_channel_identities", {
   profileName: text("profile_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantClientIdReference: foreignKey({ name: "client_channel_identities_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+  tenantConnectionIdReference: foreignKey({ name: "client_channel_identities_connection_id_tenant_fk", columns: [table.connectionId, table.organizationId], foreignColumns: [channelConnections.id, channelConnections.organizationId] }).onDelete("cascade"),
+}));
 
 export const appointments = pgTable("appointments", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -377,7 +415,12 @@ export const appointments = pgTable("appointments", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("appointments_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "appointments_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantClientIdReference: foreignKey({ name: "appointments_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+  tenantServiceIdReference: foreignKey({ name: "appointments_service_id_tenant_fk", columns: [table.serviceId, table.organizationId], foreignColumns: [services.id, services.organizationId] }),
+}));
 
 export const conversations = pgTable("conversations", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -398,7 +441,13 @@ export const conversations = pgTable("conversations", {
   lastMessageAt: timestamp("last_message_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("conversations_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "conversations_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantClientIdReference: foreignKey({ name: "conversations_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+  tenantChannelConnectionIdReference: foreignKey({ name: "conversations_channel_connection_id_tenant_fk", columns: [table.channelConnectionId, table.organizationId], foreignColumns: [channelConnections.id, channelConnections.organizationId] }),
+  tenantHumanTakeoverByUserIdReference: foreignKey({ name: "conversations_human_takeover_by_user_id_tenant_fk", columns: [table.humanTakeoverByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+}));
 
 export const messages = pgTable("messages", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -421,7 +470,10 @@ export const conversationEvents = pgTable("conversation_events", {
   toMode: text("to_mode"),
   details: jsonb("details"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantConversationIdReference: foreignKey({ name: "conversation_events_conversation_id_tenant_fk", columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete("cascade"),
+  tenantUserIdReference: foreignKey({ name: "conversation_events_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+}));
 
 export const agentRuns = pgTable("agent_runs", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -447,7 +499,9 @@ export const calendarConnections = pgTable("calendar_connections", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "calendar_connections_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+}));
 
 export const schedulingConnections = pgTable("scheduling_connections", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -467,6 +521,8 @@ export const schedulingConnections = pgTable("scheduling_connections", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 }, table => ({
+  tenantIdentityUnique: uniqueIndex("scheduling_connections_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "scheduling_connections_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
   artistUnique: uniqueIndex("scheduling_connections_organization_artist_uidx").on(table.organizationId, table.artistId),
   tenantStatus: index("scheduling_connections_tenant_status_idx").on(table.organizationId, table.status)
 }));
@@ -484,6 +540,9 @@ export const serviceProviderMappings = pgTable("service_provider_mappings", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 }, table => ({
+  tenantArtistIdReference: foreignKey({ name: "service_provider_mappings_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantSchedulingConnectionIdReference: foreignKey({ name: "service_provider_mappings_scheduling_connection_id_tenant_fk", columns: [table.schedulingConnectionId, table.organizationId], foreignColumns: [schedulingConnections.id, schedulingConnections.organizationId] }).onDelete("cascade"),
+  tenantServiceIdReference: foreignKey({ name: "service_provider_mappings_service_id_tenant_fk", columns: [table.serviceId, table.organizationId], foreignColumns: [services.id, services.organizationId] }),
   locationMappingUnique: uniqueIndex("service_provider_mappings_connection_service_location_uidx").on(table.schedulingConnectionId, table.serviceId, table.locationId),
   tenantService: index("service_provider_mappings_tenant_service_idx").on(table.organizationId, table.artistId, table.serviceId)
 }));
@@ -505,6 +564,8 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 }, table => ({
+  tenantAppointmentIdReference: foreignKey({ name: "payments_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
+  tenantConfirmedByUserIdReference: foreignKey({ name: "payments_confirmed_by_user_id_tenant_fk", columns: [table.confirmedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
   confirmationAuditCheck: check("payments_manual_confirmation_audit_check", sql`${table.confirmationMethod} IS DISTINCT FROM 'MANUAL' OR (${table.confirmedByUserId} IS NOT NULL AND ${table.confirmedAt} IS NOT NULL)`),
 }));
 
@@ -516,7 +577,9 @@ export const waiverTemplates = pgTable("waiver_templates", {
   body: text("body").notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("waiver_templates_id_organization_uidx").on(table.id, table.organizationId),
+}));
 
 export const waiverSubmissions = pgTable("waiver_submissions", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -530,7 +593,11 @@ export const waiverSubmissions = pgTable("waiver_submissions", {
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   documentHash: text("document_hash").notNull()
-});
+}, table => ({
+  tenantAppointmentIdReference: foreignKey({ name: "waiver_submissions_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
+  tenantClientIdReference: foreignKey({ name: "waiver_submissions_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+  tenantWaiverTemplateIdReference: foreignKey({ name: "waiver_submissions_waiver_template_id_tenant_fk", columns: [table.waiverTemplateId, table.organizationId], foreignColumns: [waiverTemplates.id, waiverTemplates.organizationId] }),
+}));
 
 export const waiverProviderConnections = pgTable("waiver_provider_connections", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -545,7 +612,9 @@ export const waiverProviderConnections = pgTable("waiver_provider_connections", 
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("waiver_provider_connections_id_organization_uidx").on(table.id, table.organizationId),
+}));
 
 export const externalWaiverForms = pgTable("external_waiver_forms", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -566,7 +635,12 @@ export const externalWaiverForms = pgTable("external_waiver_forms", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("external_waiver_forms_id_organization_uidx").on(table.id, table.organizationId),
+  tenantConnectionIdReference: foreignKey({ name: "external_waiver_forms_connection_id_tenant_fk", columns: [table.connectionId, table.organizationId], foreignColumns: [waiverProviderConnections.id, waiverProviderConnections.organizationId] }).onDelete("cascade"),
+  tenantArtistIdReference: foreignKey({ name: "external_waiver_forms_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantServiceIdReference: foreignKey({ name: "external_waiver_forms_service_id_tenant_fk", columns: [table.serviceId, table.organizationId], foreignColumns: [services.id, services.organizationId] }),
+}));
 
 export const externalWaiverAssignments = pgTable("external_waiver_assignments", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -586,7 +660,12 @@ export const externalWaiverAssignments = pgTable("external_waiver_assignments", 
   providerMetadata: jsonb("provider_metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("external_waiver_assignments_id_organization_uidx").on(table.id, table.organizationId),
+  tenantWaiverFormIdReference: foreignKey({ name: "external_waiver_assignments_waiver_form_id_tenant_fk", columns: [table.waiverFormId, table.organizationId], foreignColumns: [externalWaiverForms.id, externalWaiverForms.organizationId] }),
+  tenantAppointmentIdReference: foreignKey({ name: "external_waiver_assignments_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
+  tenantClientIdReference: foreignKey({ name: "external_waiver_assignments_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+}));
 
 export const externalWaiverEvents = pgTable("external_waiver_events", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -596,7 +675,10 @@ export const externalWaiverEvents = pgTable("external_waiver_events", {
   action: text("action").notNull(),
   details: jsonb("details"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, table => ({
+  tenantAssignmentIdReference: foreignKey({ name: "external_waiver_events_assignment_id_tenant_fk", columns: [table.assignmentId, table.organizationId], foreignColumns: [externalWaiverAssignments.id, externalWaiverAssignments.organizationId] }).onDelete("cascade"),
+  tenantUserIdReference: foreignKey({ name: "external_waiver_events_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+}));
 
 export const agentActions = pgTable("agent_actions", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -618,7 +700,10 @@ export const twilioAccounts = pgTable("twilio_accounts", {
   status: text("status").notNull().default("ACTIVE"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("twilio_accounts_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "twilio_accounts_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+}));
 
 export const twilioMessagingServices = pgTable("twilio_messaging_services", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -629,7 +714,11 @@ export const twilioMessagingServices = pgTable("twilio_messaging_services", {
   status: text("status").notNull().default("ACTIVE"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("twilio_messaging_services_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "twilio_messaging_services_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantTwilioAccountIdReference: foreignKey({ name: "twilio_messaging_services_twilio_account_id_tenant_fk", columns: [table.twilioAccountId, table.organizationId], foreignColumns: [twilioAccounts.id, twilioAccounts.organizationId] }),
+}));
 
 export const phoneNumbers = pgTable("phone_numbers", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -647,7 +736,11 @@ export const phoneNumbers = pgTable("phone_numbers", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("phone_numbers_id_organization_uidx").on(table.id, table.organizationId),
+  tenantArtistIdReference: foreignKey({ name: "phone_numbers_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantTwilioAccountIdReference: foreignKey({ name: "phone_numbers_twilio_account_id_tenant_fk", columns: [table.twilioAccountId, table.organizationId], foreignColumns: [twilioAccounts.id, twilioAccounts.organizationId] }),
+}));
 
 export const phoneNumberPortRequests = pgTable("phone_number_port_requests", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -688,7 +781,12 @@ export const phoneNumberPortRequests = pgTable("phone_number_port_requests", {
   lastStatusCheckedAt: timestamp("last_status_checked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "phone_number_port_requests_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantTwilioAccountIdReference: foreignKey({ name: "phone_number_port_requests_twilio_account_id_tenant_fk", columns: [table.twilioAccountId, table.organizationId], foreignColumns: [twilioAccounts.id, twilioAccounts.organizationId] }),
+  tenantMessagingServiceIdReference: foreignKey({ name: "phone_number_port_requests_messaging_service_id_tenant_fk", columns: [table.messagingServiceId, table.organizationId], foreignColumns: [twilioMessagingServices.id, twilioMessagingServices.organizationId] }),
+  tenantTemporaryPhoneNumberIdReference: foreignKey({ name: "phone_number_port_requests_temporary_phone_number_id_tenant_fk", columns: [table.temporaryPhoneNumberId, table.organizationId], foreignColumns: [phoneNumbers.id, phoneNumbers.organizationId] }),
+}));
 
 export const automationJobs = pgTable("automation_jobs", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -715,6 +813,10 @@ export const automationJobs = pgTable("automation_jobs", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 }, table => ({
+  tenantArtistIdReference: foreignKey({ name: "automation_jobs_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantClientIdReference: foreignKey({ name: "automation_jobs_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+  tenantAppointmentIdReference: foreignKey({ name: "automation_jobs_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
+  tenantConversationIdReference: foreignKey({ name: "automation_jobs_conversation_id_tenant_fk", columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }),
   dedupe: uniqueIndex("automation_jobs_organization_dedupe_uidx").on(table.organizationId, table.dedupeKey),
   due: index("automation_jobs_due_idx").on(table.status, table.runAt, table.id),
   conversation: index("automation_jobs_conversation_idx").on(table.conversationId, table.status),
@@ -812,7 +914,11 @@ export const a2pCampaigns = pgTable("a2p_campaigns", {
   approvedAt: timestamp("approved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "a2p_campaigns_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantMessagingServiceIdReference: foreignKey({ name: "a2p_campaigns_messaging_service_id_tenant_fk", columns: [table.messagingServiceId, table.organizationId], foreignColumns: [twilioMessagingServices.id, twilioMessagingServices.organizationId] }),
+  tenantTwilioAccountIdReference: foreignKey({ name: "a2p_campaigns_twilio_account_id_tenant_fk", columns: [table.twilioAccountId, table.organizationId], foreignColumns: [twilioAccounts.id, twilioAccounts.organizationId] }),
+}));
 
 export const complianceEvents = pgTable("compliance_events", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -838,7 +944,9 @@ export const studioActivations = pgTable("studio_activations", {
   pausedAt: timestamp("paused_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "studio_activations_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+}));
 
 export const studioActivationEvents = pgTable("studio_activation_events", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -849,4 +957,7 @@ export const studioActivationEvents = pgTable("studio_activation_events", {
   status: text("status").notNull(),
   details: jsonb("details"),
   createdAt: timestamp("created_at").defaultNow().notNull()
-});
+}, table => ({
+  tenantArtistIdReference: foreignKey({ name: "studio_activation_events_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  tenantUserIdReference: foreignKey({ name: "studio_activation_events_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+}));

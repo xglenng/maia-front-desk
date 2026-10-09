@@ -32,6 +32,23 @@ export function permitted(user: Identity, org: string, owner: boolean) {
   return user.organization_id === org && (owner ? user.role === 'OWNER' : ['OWNER','ARTIST'].includes(user.role));
 }
 
+// Artist-scoped references require the user's assigned artist profile, not
+// merely membership in the same studio. Owners retain studio-wide access.
+export async function assignedArtistReference(user:Identity,key:string,id:string) {
+  if(user.role==='OWNER')return true;
+  if(user.role!=='ARTIST')return false;
+  if(key==='artistId') {
+    const found=await pool.query('SELECT id FROM artists WHERE id=$1 AND organization_id=$2 AND user_id=$3',[id,user.organization_id,user.id]);
+    return Boolean(found.rowCount);
+  }
+  const scopedTables:Record<string,string>={appointmentId:'appointments',conversationId:'conversations',serviceId:'services'};
+  const table=scopedTables[key];
+  if(!table)return true; // Shared studio records retain their existing policy.
+  const found=await pool.query(`SELECT r.id FROM ${table} r JOIN artists a ON a.id=r.artist_id AND a.organization_id=r.organization_id
+    WHERE r.id=$1 AND r.organization_id=$2 AND a.user_id=$3`,[id,user.organization_id,user.id]);
+  return Boolean(found.rowCount);
+}
+
 // All browser API handlers enter here before reading or mutating tenant records.
 export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Promise<Response>, owner = false) {
   return async (req: NextRequest, context: C): Promise<Response> => {
@@ -57,13 +74,13 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
       if (!permitted(user, user.organization_id, owner)) return NextResponse.json({error:'Owner access required'}, {status:403});
       const tables: Record<string,string> = { artistId:'artists',clientId:'clients',appointmentId:'appointments',conversationId:'conversations',serviceId:'services',waiverTemplateId:'waiver_templates' };
       const references = [...Object.entries(body), ...url.searchParams.entries()];
-      const pathId = url.pathname.match(/^\/api\/appointments\/([^/]+)$/)?.[1];
+      const pathId = url.pathname.match(/^\/api\/appointments\/([^/]+)(?:\/deposit)?$/)?.[1];
       if (pathId) references.push(['appointmentId',pathId]);
       for (const [key,id] of references) {
         if (!tables[key] || id == null || id === '') continue;
         if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id)) return NextResponse.json({error:'Invalid record ID'}, {status:400});
         const found = await pool.query(`SELECT id FROM ${tables[key]} WHERE id=$1 AND organization_id=$2`, [id,user.organization_id]);
-        if (!found.rowCount) return NextResponse.json({error:'Record not found'}, {status:404});
+        if (!found.rowCount || !await assignedArtistReference(user,key,id)) return NextResponse.json({error:'Record not found'}, {status:404});
       }
       url.searchParams.set('organizationId', user.organization_id);
       if (!['GET','HEAD','DELETE'].includes(req.method)) body.organizationId = user.organization_id;

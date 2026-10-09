@@ -428,7 +428,7 @@ export async function POST(request: NextRequest) {
           organizations,
           eq(organizations.id, appointments.organizationId),
         )
-        .leftJoin(services, eq(services.id, appointments.serviceId))
+        .leftJoin(services, and(eq(services.id, appointments.serviceId), eq(services.organizationId, appointments.organizationId)))
         .where(
           and(
             eq(appointments.id, localPayment.appointmentId),

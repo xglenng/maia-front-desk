@@ -1,13 +1,13 @@
 import { db } from "@db";
 import { and, eq } from "drizzle-orm";
-import { artistConsentForms, artists, organizations, smsConsentEvidence } from "@db/schema";
+import { artistConsentForms, artists, organizations, clients, smsConsentEvidence } from "@db/schema";
 import { appBaseUrl, consentDisclosure, formOptInUrl, isConsentFormReady, slugifyName, smsConfirmationText } from ".";
 
 export async function loadConsentForm(organizationId: string, artistId: string) {
   const [row] = await db.select({ form: artistConsentForms, artistName: artists.displayName, organizationName: organizations.name, organizationSlug: organizations.slug })
     .from(artists)
     .innerJoin(organizations, eq(artists.organizationId, organizations.id))
-    .leftJoin(artistConsentForms, eq(artistConsentForms.artistId, artists.id))
+    .leftJoin(artistConsentForms, and(eq(artistConsentForms.artistId, artists.id), eq(artistConsentForms.organizationId, artists.organizationId)))
     .where(and(eq(artists.organizationId, organizationId), eq(artists.id, artistId))).limit(1);
   if (!row) return null;
   return {
@@ -40,7 +40,13 @@ export async function hasScopedSmsConsent(input: { organizationId: string; artis
     artistId: smsConsentEvidence.artistId,
     clientId: smsConsentEvidence.clientId,
     phone: smsConsentEvidence.phone,
-  }).from(smsConsentEvidence).where(and(
+  }).from(smsConsentEvidence).innerJoin(clients, and(
+    eq(clients.id, smsConsentEvidence.clientId),
+    eq(clients.organizationId, smsConsentEvidence.organizationId),
+    eq(clients.phone, smsConsentEvidence.phone)
+  )).where(and(
+    eq(clients.smsOptIn, true),
+    eq(clients.smsConsentStatus, "OPTED_IN"),
     eq(smsConsentEvidence.organizationId, input.organizationId),
     eq(smsConsentEvidence.artistId, input.artistId),
     eq(smsConsentEvidence.clientId, input.clientId),

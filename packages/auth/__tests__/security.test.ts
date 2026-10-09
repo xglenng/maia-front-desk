@@ -69,6 +69,7 @@ test('signup below the limit remains public and creates the tenant transactional
   const client={
     query:async(sql:string)=>{
       sequence.push(sql);
+      if(sql.startsWith('SELECT id FROM users')) return {rows:[],rowCount:0};
       if(sql.startsWith('SELECT id FROM organizations')) return {rows:[],rowCount:0};
       if(sql.includes('INSERT INTO organizations')) return {rows:[{id:org,name:'Example Studio',slug:'example-studio'}],rowCount:1};
       if(sql.includes('INSERT INTO users(')) return {rows:[{id:other}],rowCount:1};
@@ -102,7 +103,8 @@ test('signup still rejects requests without the application origin before rate l
 test('public consent endpoints retain their scoped security checks',()=>{
   const booking=readFileSync('app/api/public/booking-inquiries/route.ts','utf8');
   assert.ok(booking.includes('sameOrigin(request)'));
-  assert.ok(booking.includes('content-length'));
+  assert.ok(booking.includes('readPublicJson(request)'));
+  assert.ok(readFileSync('packages/consent/public-body.ts','utf8').includes('content-length'));
   assert.ok(booking.includes('website'));
   assert.ok(booking.includes('organizations.slug, input.organizationSlug'));
   assert.ok(booking.includes('artistConsentForms.slug, input.formSlug'));

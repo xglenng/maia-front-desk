@@ -7,7 +7,7 @@ import { artistConsentForms, artists, legalDocuments, organizations, services } 
 export default async function BookingPage({ params }: { params: Promise<{ organizationSlug: string; formSlug: string }> }) {
   const { organizationSlug, formSlug } = await params;
   const [surface] = await db.select({ form: artistConsentForms, artistName: artists.displayName, businessName: organizations.name, organizationSlug: organizations.slug })
-    .from(artistConsentForms).innerJoin(artists, eq(artistConsentForms.artistId, artists.id)).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id))
+    .from(artistConsentForms).innerJoin(artists, and(eq(artistConsentForms.artistId, artists.id), eq(artistConsentForms.organizationId, artists.organizationId))).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id))
     .where(and(eq(organizations.slug, organizationSlug), eq(artistConsentForms.slug, formSlug), eq(artistConsentForms.mode, "HOSTED"), eq(artistConsentForms.active, true))).limit(1);
   if (!surface) notFound();
   const published = await db.select({ type: legalDocuments.type }).from(legalDocuments).where(and(eq(legalDocuments.organizationId, surface.form.organizationId), eq(legalDocuments.status, "PUBLISHED"))).orderBy(desc(legalDocuments.version));

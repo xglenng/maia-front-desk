@@ -41,7 +41,7 @@ function publicAppUrlError() {
 
 async function consentSurfaces(organizationId: string, campaignProfile?: typeof complianceProfiles.$inferSelect) {
   const provisioned = await db.select({ artistId: twilioMessagingServices.artistId }).from(twilioMessagingServices).where(and(eq(twilioMessagingServices.organizationId, organizationId), eq(twilioMessagingServices.status, "ACTIVE")));
-  const rows = await db.select({ form: artistConsentForms, artistName: artists.displayName, organizationName: organizations.name, organizationSlug: organizations.slug }).from(artistConsentForms).innerJoin(artists, eq(artistConsentForms.artistId, artists.id)).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id)).where(eq(artistConsentForms.organizationId, organizationId));
+  const rows = await db.select({ form: artistConsentForms, artistName: artists.displayName, organizationName: organizations.name, organizationSlug: organizations.slug }).from(artistConsentForms).innerJoin(artists, and(eq(artistConsentForms.artistId, artists.id), eq(artistConsentForms.organizationId, artists.organizationId))).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id)).where(eq(artistConsentForms.organizationId, organizationId));
   const relevant = provisioned.map(service => rows.find(row => row.form.artistId === service.artistId)).filter(Boolean) as typeof rows;
   return { ready: provisioned.length > 0 && relevant.length === provisioned.length && relevant.every(row => isConsentFormReady(row.form)), rows: relevant.map(row => {
     const publicUrl = formOptInUrl(row.form, appBaseUrl(), row.organizationSlug);

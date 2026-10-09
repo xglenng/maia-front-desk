@@ -30,8 +30,8 @@ async function handleGET(request: NextRequest) {
     humanTakeoverByUserId: conversations.humanTakeoverByUserId,
     lastMessageAt: conversations.lastMessageAt,
   }).from(conversations)
-    .innerJoin(artists, eq(conversations.artistId, artists.id))
-    .innerJoin(clients, eq(conversations.clientId, clients.id))
+    .innerJoin(artists, and(eq(conversations.artistId, artists.id), eq(conversations.organizationId, artists.organizationId)))
+    .innerJoin(clients, and(eq(conversations.clientId, clients.id), eq(conversations.organizationId, clients.organizationId)))
     .where(and(...conditions))
     .orderBy(desc(conversations.lastMessageAt));
 

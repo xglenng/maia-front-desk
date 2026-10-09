@@ -1,3 +1,4 @@
+import { googleAccessToken } from "@/packages/integrations/google-credentials";
 import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
@@ -79,12 +80,17 @@ async function handlePOST(request: NextRequest, { params }: { params: Promise<{ 
   const [appointment] = await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, organizationId)));
   if (!appointment) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   if (appointment.status !== 'CONFIRMED') return NextResponse.json({ error: 'Only confirmed appointments can be synced to calendar' }, { status: 409 });
-  const [connection] = await db.select().from(calendarConnections).where(and(eq(calendarConnections.organizationId, organizationId), eq(calendarConnections.artistId, appointment.artistId), eq(calendarConnections.provider, 'google'), eq(calendarConnections.active, true))).limit(1);
+  const connections = await db.select().from(calendarConnections).where(and(eq(calendarConnections.organizationId, organizationId), eq(calendarConnections.artistId, appointment.artistId), eq(calendarConnections.provider, 'google'), eq(calendarConnections.active, true))).limit(2);
+  if (connections.length > 1) return NextResponse.json({ error: 'Google Calendar connection is ambiguous. Contact support.' }, { status: 503 });
+  const connection = connections[0];
   if (!connection?.accessTokenEncrypted || !connection.calendarId) return NextResponse.json({ error: 'Google Calendar is not connected' }, { status: 409 });
   if (appointment.calendarEventId) return NextResponse.json({ appointment, synced: true });
-  const event = await new GoogleCalendarAdapter().createEvent({ accessToken: connection.accessTokenEncrypted, calendarId: connection.calendarId, summary: 'Tattoo Appointment', start: appointment.startsAt, end: appointment.endsAt, description: appointment.notes ?? undefined });
-  const [updated] = await db.update(appointments).set({ calendarEventId: event.id, updatedAt: new Date() }).where(eq(appointments.id, id)).returning();
-  return NextResponse.json({ appointment: updated, synced: true });
+  try {
+    const accessToken = await googleAccessToken({ organizationId, artistId: appointment.artistId, calendarId: connection.calendarId });
+    const event = await new GoogleCalendarAdapter().createEvent({ accessToken, calendarId: connection.calendarId, summary: 'Tattoo Appointment', start: appointment.startsAt, end: appointment.endsAt, description: appointment.notes ?? undefined });
+    const [updated] = await db.update(appointments).set({ calendarEventId: event.id, updatedAt: new Date() }).where(eq(appointments.id, id)).returning();
+    return NextResponse.json({ appointment: updated, synced: true });
+  } catch { return NextResponse.json({ error: 'Google Calendar is unavailable. Synchronization could not be verified.' }, { status: 503 }); }
 }
 
 export const GET = protectedRoute(handleGET, false);

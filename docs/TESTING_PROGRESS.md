@@ -1,0 +1,163 @@
+# Guided testing and integration verification
+
+Updated October 8, 2026. This ledger tracks the PR-1 through PR-7 production-readiness phase, separate from historical development sprints. Development proceeds locally. Manual checks are guided one actionable step at a time, waiting for the user's result before the next dependent action. Screenshots, redacted logs, and terminal output may be used for troubleshooting. Never share tokens, credentials, connection strings, decrypted secrets, or customer personal data.
+
+## Evidence ledger
+
+| Feature | Local evidence | Staging | Production | Outstanding |
+|---|---|---|---|---|
+| A21 signup identity | PostgreSQL fixture: six tests passed; normalized uniqueness, concurrent signup, existing login, rollback, invalid timezone | User-reported synthetic signup succeeded; uppercase duplicate rejected as expected; original login succeeded | Not verified; migration unapplied | Browser signup/login, duplicate-data review, approved migration/deployment |
+| T08 registration adoption | Ownership policy and mocked authenticated endpoint tests passed; no parent fallback, foreign sender rejected before writes, one primary sender | Not run | Not verified | Real DB adoption concurrency, provider contract/ownership checks, legacy account prebinding, browser error/success flow |
+| Full regression | 207 passed, 0 failed, one optional PostgreSQL group skipped; TypeScript passed | Not run | Not verified | Full-schema fixtures and deployed parity |
+| Twilio new-customer onboarding | Existing implementation audited; adoption safeguards added | Not run | Clean legitimate-business flow unverified | All live gates below |
+
+Local mocks prove code behavior under supplied responses. They do not prove Twilio's actual ownership, profile approval, number eligibility, campaign approval, or delivered messages. The PostgreSQL signup fixture covers only signup/login tables, not the full application. PR-1 remains in progress.
+
+## Current manual checkpoint
+
+**Environment status:** October 8, 2026: user confirms staging was restored from a production PostgreSQL backup and may contain real customer information. Treat all contents as sensitive production-derived data. Screenshots show Railway project `efficient-clarity`, selected `staging` environment, online `Postgres-ACf_` and attached volume `postgres-volume-mw8A`; the full visible canvas shows no application or worker services. This is screenshot evidence, not an authenticated infrastructure inventory or proof that external/local consumers are absent. Independent database credentials/network target and live-action controls remain unverified. No local connection or integration test was performed.
+
+**Consumer check:** user confirms no Maia development server or automation worker is running locally. The visible staging canvas shows only PostgreSQL and its volume. External consumers and database-side scheduled processing remain unverified; no comprehensive action-disable guarantee has been established.
+
+**Networking evidence:** a user screenshot of `Postgres-ACf_` Settings shows an enabled public TCP proxy forwarding to PostgreSQL port 5432, a private Railway hostname, and outbound IPv6 toggled off. The environment selector is outside this screenshot; association with staging relies on the preceding screenshots/user flow. No connection was made. A public proxy requires independent staging authentication; the IPv6 toggle is not a complete outbound/provider-action block. Networking metadata alone does not prove production separation.
+
+**Credential provenance:** user reports uncertainty about whether the existing staging database credentials are independent of production. Do not connect to it, assume separation, or rotate/reset it automatically.
+
+**Fresh service creation evidence:** screenshot shows new `Postgres-CwpZ` with volume `postgres-volume-5kYs` in `staging`, a “New” badge, 12 Variables/24 Settings, and “Apply 39 changes” with Details/Deploy controls. The Database pane says it is being created; pending staged changes mean provisioning completion is not established. Existing `Postgres-ACf_` remains excluded from testing and must stay untouched.
+
+**Staged-change review:** user screenshots show `Postgres-CwpZ will be added`, new volume `postgres-volume-5kYs`, service-local database variable references, a password-generation expression rather than a literal copied password, and a deployment footer naming only `Postgres-CwpZ`. No change to `Postgres-ACf_` is visible. Screenshots show selected portions of the 39-change batch, not an independently retrieved complete configuration. Actual generated credentials and empty schema remain unverified.
+
+**Fresh database status:** latest user screenshot shows `Postgres-CwpZ` Online with volume `postgres-volume-5kYs`, and the Database/Data pane reports “You have no tables.” This establishes online status and an empty visible table inventory, not a comprehensive inspection of every database/schema. No app has been connected, no backup imported, and no agent DB connection or integration test has occurred. Existing production-derived `Postgres-ACf_` remains excluded and untouched by our actions.
+
+**Fresh service naming/networking:** user confirms renaming the fresh service to `maia-staging-test-db`. Latest screenshot shows matching private hostname `maia-staging-test-db.railway.internal`; public networking displays only `:5432`, without a usable proxy hostname/assigned external port. Outbound IPv6 is off, which is not a comprehensive egress block. Pending/applied networking state is not established. No application or local DB connection was started.
+
+**Applied fresh networking:** user confirms the three-change batch was applied. Latest screenshot identifies service `Postgres-CwpZ`, public proxy `switchyard.proxy.rlwy.net:50219` → 5432, and private hostname `maia-staging-test-db.railway.internal`. The private hostname changed; the displayed service name remains `Postgres-CwpZ`. Old sensitive database endpoint is excluded. No connection was attempted.
+
+**Local staging safety preparation:** user saved only the fresh database URL in git-ignored `.env.staging.local`. A sanitized `npm run staging:check` passed, validating the exact fresh public hostname/port and database name without connecting or printing credentials. New launcher `npm run staging:dev` uses a temporary project directory without normal production environment files or prior build cache, passes an explicit limited environment, binds loopback port 3100, and preloads an outbound socket/fetch guard. Node traffic is limited to the fresh DB endpoint and loopback; external HTTP/HTTPS/TLS/socket requests are denied. Staging middleware rejects payment, Twilio, Meta, registration, webhook, and cron API paths; no cron secret or live provider credentials are supplied. Mock AI/provision/port flags are defaults, not proof of live onboarding.
+
+**Local safety evidence:** `npm run test:staging-safety` — 2 passed (configuration rejection and actual denied HTTP/HTTPS/TLS/fetch/socket attempts before network activity). `npm test` — 208 passed, 0 failed, one optional PostgreSQL group skipped, including staging route denial/normal-route preservation. TypeScript passed. Neither the staging server nor a Railway database connection was started by the agent. Runtime middleware/worker inheritance and actual staging schema remain unverified.
+
+**Runtime startup evidence:** at the user's request, the agent started `npm run staging:dev` under a sanitized environment. Sandbox initially blocked loopback listening; approved escalation allowed the same isolated launcher. Next.js 15.5.25 reported Ready on `http://127.0.0.1:3100`. A localhost POST to `/api/automations/run` returned the staging middleware denial message and HTTP 403. Localhost POST checks to `/api/twilio/provision`, `/api/compliance/registration/adopt`, `/api/payments/webhook`, and `/api/meta/webhook` also returned the staging denial message and HTTP 403. These establish middleware rejection on the running server, not provider integration success. No signup, migration, or intentional database query was performed. The server remains running in this session.
+
+**Runtime routing repair:** user reported a blank login page. Server logs showed `/login` 404 because Next did not discover routes through the launcher's linked source directories. Launcher now copies source to the isolated temporary workspace (excluding env/cache/VCS files) and links only dependencies. Restarted server returned HTTP 200 for `/login`, with “Sign in to Maia” in the HTML. Staging safety tests reran: 2 passed. Source changes now require restarting `staging:dev` to refresh the copied workspace. No signup, migration, or database query was performed.
+
+**Schema initialization evidence:** user confirmed login rendering. Added a staging-only schema snapshot generated from the current Drizzle schema, a source-hash freshness check, and an initializer restricted to the verified fresh endpoint. Local PostgreSQL exposed generated FK-before-unique-index ordering; generation now emits tables, indexes, then FKs. Four staging safety/bootstrap tests passed with the disposable local database: full 48-table DDL, atomic rollback on injected failure, refusal to overwrite/reinitialize, normalized email uniqueness, and network/config safeguards. Regression: 208 passed, 0 failed, one opt-in group skipped; TypeScript passed.
+
+**Staging operation:** after local verification, sanitized `npm run staging:db:init` initially encountered sandbox DNS restrictions; approved escalation applied the same initializer to `switchyard.proxy.rlwy.net:50219`. It committed 48 empty public tables plus `maia_staging_meta.bootstrap`. No seed data, provider credentials, provider requests, production migrations, or imported backup data. `Postgres-ACf_` was not contacted. Disposable local test PostgreSQL was stopped; isolated Next server remains running. This is verified staging schema initialization, not end-to-end signup/provider verification.
+
+**Bootstrap scope and rollback:** files `packages/db/staging/schema.sql`, `scripts/staging-schema-generate.cjs`, and `scripts/staging-bootstrap.cjs` are for synthetic staging only. `staging:db:generate` generates locally without DB access; review/retest before `staging:db:init`. Initialization refuses any existing non-system relation and executes transactionally. Source hash drift fails closed. No existing production migration journal entries are marked as applied, so do not run historical `db:migrate` on this current-schema snapshot: those migrations assume an earlier baseline. Supported upgrade/migration parity remains A24 work. Rollback of a successful bootstrap would require a separately reviewed explicit reset/replacement of this test database; no automatic dropping/resetting is provided.
+
+**Staging browser results (user-reported):** synthetic studio signup completed without error. A second signup with uppercase `ALPHA@example.test` was rejected as expected. These are browser checks through the guarded local app using the clean Railway test database; no real customer or provider integration was tested. User then confirmed original-account login and dashboard access after duplicate rejection. All three guided signup checks passed by user report; this does not certify deployed production or all signup failure/concurrency cases.
+
+**Current checkpoint:** guided synthetic signup, uppercase duplicate rejection, and original-account login are complete by user report. A25 Meta routing ownership is implemented locally; A01 artist authorization now passes local and isolated staging HTTP tests; next task is A20 consent/client identity protection. Manual staging checks will follow when the change is ready; no Meta account setup or live webhook action is authorized. Isolated staging source is a copy: restart it after code changes before further browser verification.
+
+**Remaining setup gates:** create and verify a fresh synthetic-data-only staging PostgreSQL service/volume and credentials; prepare a staging-only application configuration and verified fail-closed provider action controls; bind only the staging database; establish a clean schema without production data; review source branch/build/start settings before explicit staging app deployment approval; keep cron/webhooks/provider credentials disabled until individually authorized; verify database/network isolation and action denial before integration tests. Track each gate as pending until observed. Existing mock modes are not yet accepted as a comprehensive safety boundary.
+
+After the environment is established, guide each browser action separately:
+
+1. Create a test studio and verify dashboard/session creation.
+2. Attempt signup with the same email using changed case/whitespace; verify rejection, then verify original login.
+3. Create another test owner using the same studio name; verify distinct public slug.
+4. Exercise adoption with no prebound account; verify a support/setup error without provider calls.
+5. In a controlled provider-mocked environment, verify foreign sender rejection and unchanged mappings, then approved adoption with one primary sender.
+
+Record date, environment, expected/actual result, sanitized evidence, and remaining blockers after each completed check. No browser checks have been completed yet.
+
+## Twilio end-to-end gates
+
+Guide the user through Console and app setup only when each phase is ready. Verify current official Twilio documentation before giving detailed Console navigation or provider-field instructions. Do not treat this checklist as authorization for live actions.
+
+| Gate | Required evidence | Status |
+|---|---|---|
+| Legal customer/account model | Studio versus independently incorporated artist decision; owning account bound to tenant | Pending (T01) |
+| Signup and isolation | New owner has correct organization/artist; other tenant cannot access records | Local signup automated tests passed; browser pending |
+| Gavakata Primary Business Profile | Correct approved profile/account confirmed without sharing secrets | User-reported approval only |
+| Secondary Customer Profile | Legitimate business data, owning account, primary association, approval | Unverified |
+| A2P Messaging Profile and brand | Correct bundle association, supported brand type, approved identity | Unverified |
+| Campaign | Legitimate opt-in flow, legal URLs, samples, correct Messaging Service/account, carrier approval | Unverified |
+| Approval tracking | Pending/rejected/approved/revoked changes reflected; corrections and retries safe | Audit gaps open |
+| Phone activation | One correct primary sender in approved service; tenant/account match, eligible status | Unverified |
+| Actual delivery | Explicitly approved real SMS to consenting recipient, provider delivery evidence and app conversation | Unverified; explicit approval required |
+| STOP/HELP and retry recovery | Approved live checks respect opt-out and avoid duplicate delivery | Unverified; explicit approval required |
+
+Live A2P submission, real SMS, charges, production resource changes, migrations, and deployment each require explicit approval. Preserve Embellished Studios' working registration. Never use fictional business information for live registration. Clean Twilio onboarding is complete only after all applicable gates succeed end-to-end with a legitimate business.
+
+## A25 routing verification checkpoint
+
+Local regression: 210 passed, 0 failed, one optional signup integration group skipped; TypeScript passed. Two mocked-boundary tests prove foreign studio/artist reservation rejection and ambiguous routing refusal. Dedicated disposable local PostgreSQL test passed: migration refused duplicate groups without losing rows; concurrent inserts resulted in one routing owner; DISCONNECTED ownership remained reserved; different providers may use the same account ID. No Meta calls were made. `0004_channel_routing_ownership.sql` remains unapplied to Railway staging/production. Running staging app is an older isolated source copy, and its schema predates this constraint. Provider/browsing tests must wait for a reviewed staging-only upgrade/restart. Do not run the historical migration journal on the bootstrap snapshot. Full live Meta verification is pending separate setup/authorization.
+
+## A01 authorization verification
+
+October 8, 2026: 213 regression tests passed, no failures, two opt-in PostgreSQL groups skipped; TypeScript passed. Dedicated local PostgreSQL artist fixture passed. Real route unit checks denied peer appointment reads, holds, and direct SMS before handler/provider work. No schema migration for A01.
+
+The isolated staging server was restarted with a fresh source copy. `npm run staging:test:artists` validated the clean database marker, created two synthetic studios, owner/two ARTIST users, assigned artist profiles, a synthetic client/service/confirmed appointment, and short-lived sessions. Eight actual HTTP checks passed: own schedule 200; peer schedule 404; owner peer schedule 200; foreign organization 403; peer calendar sync 404; authorized owner calendar sync 409 because no calendar is configured; peer hold 404 with no extra appointment; peer deposit route 404. No calendar credential or provider action was used. The first fixture transaction rolled back on missing required service fields, then a corrected run passed. Synthetic fixture records are retained; sessions were revoked. Re-running creates fresh synthetic fixtures without resetting existing records. No production-derived data was contacted.
+
+**Manual result:** user confirmed the original owner dashboard still looks correct after the restart. Do not configure providers. Running staging source now includes A25 code, but its unique routing migration is still unapplied; no Meta setup is permitted yet. Next development task is A20.
+
+
+## A20 public intake checkpoint — October 8, 2026
+
+Implemented locally: both public intake endpoints now transact client resolution and evidence writes (plus the hosted inquiry). A shared tenant/phone advisory lock serializes public submissions; ambiguous existing phone matches fail closed. Existing clients are never updated by these unverified submissions, preserving identity and STOP state. Their claimed contact information and requested checkbox value are recorded in evidence metadata with verificationRequired; effective affirmative evidence is false. Hosted evidence includes its inquiryId. New clients retain optional checkbox consent and unchecked inquiries. Scoped SMS evidence now joins the matching tenant/client/phone and requires current OPTED_IN plus smsOptIn. Error logging omits raw database errors/customer values.
+
+Verification: four additional local policy/query-boundary tests cover existing client states, ambiguous matches, new checked/unchecked intake, and the required client join. Full regression: 217 passed, zero failures, two opt-in PostgreSQL groups skipped. TypeScript and diff whitespace checks passed. No providers, Railway database, production resources, or live messages were accessed for this change.
+
+Still pending: real PostgreSQL transaction rollback/concurrency and actual HTTP STOP/identity tests; external submission replay deduplication; actual body-byte limits/rate limits; verified existing-customer reconsent and identity-change UX. A20 remains open. The running copied staging app predates A20 and must be restarted before its browser checks. No schema change is needed for this checkpoint.
+
+
+### A20 follow-up — October 8, 2026
+
+Implemented actual streamed JSON byte limits (64 KiB), including requests without or with misleading Content-Length. Invalid JSON returns 400; oversized bodies return 413. External submissions with a nonempty trimmed submission ID acquire a tenant/form/submission transaction lock. Exact contact/consent retries return the stored effective result without another evidence write; changed contact/consent, duplicate legacy records, or unverifiable legacy metadata return 409. Missing IDs remain supported and cannot be deduplicated. This protects cooperating endpoint writers; no unique database replay constraint was added. External metadata is advisory and is not included in replay identity comparison.
+
+Verification: full local regression **220 passed, zero failures, three opt-in PostgreSQL groups skipped**; dedicated consent PostgreSQL integration **one passed**, covering five concurrent same-phone submissions yielding one client, STOP and identity preservation, tenant isolation, and rollback after an actual evidence constraint failure. Byte-limit and replay policy tests passed. TypeScript and whitespace checks passed. Disposable PostgreSQL was stopped after testing. No Railway/provider/production access occurred. Actual route-level HTTP replay and STOP tests remain pending; helper tests do not substitute for those. No schema migration required for this increment.
+
+Next: bounded abuse/rate controls and HTTP/browser verification using synthetic fixtures in the isolated environment. Restart the copied staging app before browser testing. Existing-customer verified reconsent remains outstanding, so A20 and PR-1 remain open.
+
+
+### A20 rate limiting and route verification — October 8, 2026
+
+Implemented durable form-scoped limits: HOSTED 30 submissions per 15 minutes; token-authorized EXTERNAL 120 per 15 minutes. `packages/consent/rate-limit.server.ts` reuses `auth_login_attempts` with `public-intake:SOURCE:sha256(formId)` keys, separate from login's bare email digests. Counters are atomic across replicas, capped at maximum+1, expire/reset on use, and return 429 plus Retry-After. Only resolved existing forms create buckets, keeping key cardinality bounded by forms; raw IP addresses are not used for limiting. Limits are per form: an abusive caller can consume that form's allowance; edge-level pre-authentication protection remains an operational requirement. No migration is required. The public page now also joins artist and form organization IDs.
+
+Local evidence: full regression 221 passed, zero failures, four opt-in DB groups skipped; dedicated real PostgreSQL HTTP-handler suite seven passed (six scenarios plus parent): checked/unchecked intake, STOP and identity preservation, concurrent external replay and changed-payload rejection, rollback after inquiry failure, concurrent durable quota/HTTP429/expiry reset, origin and streamed body limits. The disposable DB was stopped after verification. TypeScript and whitespace checks passed. Staging safety three passed, one DB bootstrap group skipped.
+
+Isolated staging evidence: `npm run staging:test:consent` validated the synthetic-testing marker in the allowlisted clean database, created only new synthetic studio/form/legal/client fixtures, and passed actual HTTP STOP/identity and unchecked inquiry checks. The stopped client's affirmative evidence was not granted; submitted contact is retained separately and linked to inquiryId. The isolated app was restarted with current source. No external provider calls, production access, production-derived staging DB access, or production migration/deployment occurred.
+
+Manual checkpoint: open `http://127.0.0.1:3100/book/pr1-consent-f6a2f437/pr1-consent-f6a2f437` and confirm the synthetic artist form loads and SMS consent starts unchecked. Wait for the user's result before proceeding to submission. Subsequent browser submission must use only example.test email and a supplied synthetic 555 phone. Browser completion is pending. A20 remains partially complete: verified existing-client reconsent UX and wider sender-scoped revocation history are still outstanding; no production readiness claim.
+
+
+### A20 manual browser result — October 8, 2026
+
+User screenshot confirmed Synthetic Test Artist and the optional SMS checkbox initially unchecked. User completed the guided browser submission using browser@example.test and synthetic +15555550190 without checking SMS consent. A read-only query restricted to the synthetic studio `pr1-consent-f6a2f437` and that phone in the allowlisted clean staging DB confirmed exactly one inquiry, smsOptIn=false, status DECLINED, one negative evidence record, and zero affirmative evidence. This verifies browser submission plus persistence; no live provider delivery was tested.
+
+Next guided step: refresh the same synthetic form, submit a checked inquiry for the existing STOP fixture +15555550188 using changed synthetic contact details, then verify its original identity and OPTED_OUT state remain unchanged. Await the user's result before querying this fixture. No real customer details or provider setup is required.
+
+
+### A20 checked submission for STOP fixture — October 8, 2026
+
+User completed the guided checked browser inquiry against synthetic +15555550188. Read-only checks restricted to that synthetic fixture confirmed one client and two inquiries (initial automated plus browser), original first name/email preserved, smsOptIn=false, status OPTED_OUT, latest effective evidence consented=false, requestedConsent=true, verificationRequired=true, submitted email captured separately, and inquiryId retained. The initial strict verification expected an exact submitted first-name spelling and failed on that comparison; boolean diagnostics confirmed every identity/STOP/consent invariant passed. Do not claim the submitted spelling was verified. No real SMS or provider calls occurred.
+
+Guided browser checks for unchecked consent and STOP preservation are complete. A20 retains the documented verified reconsent and wider sender-scoped revocation work; production remains unverified. Resume the next PR-1 security task from the roadmap rather than repeating these browser checks.
+
+
+### A02 Google credential implementation — October 8, 2026
+
+Implemented a versioned, authenticated encryption envelope bound to organization/artist/calendar/token kind, using the existing compliance key infrastructure. OAuth callback now validates configuration before exchange, retains user-bound single-use state, checks artist tenant ownership, and serializes reconnect saves. Calendar consumers decrypt and refresh within 60 seconds of expiry under a per-scope transaction lock. Refresh omissions preserve the encrypted refresh token; failures leave credentials intact and return unavailable rather than claiming external availability. Ambiguous active connections fail closed. Provider requests have bounded timeouts. Isolated staging now blocks Google connect/callback as well as outbound provider networking.
+
+Verification: 227 regression tests passed, zero failures, five opt-in DB groups skipped; dedicated real local PostgreSQL Google test passed with every provider response mocked. It covers four concurrent reconnects yielding one row, five concurrent refreshes yielding one mocked exchange, tenant/artist rejection, actual OAuth invalid/replayed-state rejection, explicit legacy conversion and write rollback. TypeScript and whitespace checks passed. Staging safety: three passed, one bootstrap group skipped. Local PostgreSQL stopped. No production or Google account access occurred.
+
+Deployment status: **local implementation verified; real Google and production cutover unverified**. Legacy plaintext is rejected by normal reads; `convertLegacyGoogleCredentials` is an explicit tested operator utility, never invoked automatically. No schema migration was added. Review [GOOGLE_CALENDAR_CREDENTIALS.md](GOOGLE_CALENDAR_CREDENTIALS.md) before any approved inspection/conversion/deployment; old code and the new envelope are incompatible. Do not mark A02 production-resolved.
+
+Next autonomous PR-1 task: A03 tenant relationship integrity and composite constraints, using disposable local fixtures. A20's verified reconsent/sender-scoped revocation work and A25's unapplied staging/production constraint remain tracked; live Google setup waits for separate credentials/authorization.
+
+
+A02 isolated runtime containment: after restarting the copied app, both Google OAuth connect/callback returned HTTP 403 and local login returned HTTP 200. No Google credentials or Google requests were enabled.
+
+
+### A03 tenant relationship constraints — October 8, 2026
+
+Prepared 65 composite tenant foreign keys and 16 parent identity indexes in the Drizzle schema and transactional migration `0005_tenant_relationship_boundaries.sql`. Added a read-only counts-only integrity report and exact relationship manifest. Migration preflight refuses inconsistent data; lock/statement timeouts bound the atomic upgrade. No record repair/deletion, RLS enablement or production connection was performed. Related inbox/dashboard/channel/waiver/Twilio/payment/automation joins now check tenant equality, protecting those reads before constraints are deployed.
+
+Verification: dedicated local PostgreSQL suite **69 passed**, including all 65 cross-tenant updates rejected, pre-migration inbox corruption blocked, valid reads accepted, and dirty migration refused with data/index rollback. Full regression **228 passed**, zero failures, six opt-in database groups skipped; TypeScript and whitespace checks passed. Staging safety three passed, one bootstrap group skipped. Staging-only empty-database snapshot regenerated and tested locally; existing Railway databases and deployed schema remain unchanged. Local PostgreSQL stopped after tests.
+
+Status: A03 composite-reference implementation verified locally; deployed integrity/constraints and role/RLS verification outstanding. Review [TENANT_RELATIONSHIP_CONSTRAINTS.md](TENANT_RELATIONSHIP_CONSTRAINTS.md) for covered relationships, same-studio/domain boundaries, approved rollout and rollback. Do not apply the historical journal to current-schema staging (A24), and keep `Postgres-ACf_` excluded. Current staging app copy predates these join changes; restart before further UI verification. No new manual provider testing is needed for this database checkpoint.
+
+Next autonomous PR-1 work: A07 live AI date schema and A27 raw worker row mapping, followed by baseline/upgrade parity tests under A24. Earlier outstanding verified reconsent, live provider checks and production approvals remain open; historical sprint numbering is preserved.

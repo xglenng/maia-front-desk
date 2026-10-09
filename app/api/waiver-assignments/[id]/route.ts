@@ -16,7 +16,7 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
   const { id } = await params;
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const [row] = await db.select({ assignment: externalWaiverAssignments, artistUserId: artists.userId }).from(externalWaiverAssignments).innerJoin(appointments, eq(externalWaiverAssignments.appointmentId, appointments.id)).innerJoin(artists, eq(appointments.artistId, artists.id)).where(and(eq(externalWaiverAssignments.id, id), eq(externalWaiverAssignments.organizationId, user.organization_id)));
+  const [row] = await db.select({ assignment: externalWaiverAssignments, artistUserId: artists.userId }).from(externalWaiverAssignments).innerJoin(appointments, and(eq(externalWaiverAssignments.appointmentId, appointments.id), eq(externalWaiverAssignments.organizationId, appointments.organizationId))).innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(appointments.organizationId, artists.organizationId))).where(and(eq(externalWaiverAssignments.id, id), eq(externalWaiverAssignments.organizationId, user.organization_id)));
   if (!row || !canAccessArtist(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: "Waiver assignment not found" }, { status: 404 });
   const now = new Date();
   const status = parsed.data.action === "VOID" ? "VOID" : parsed.data.action === "MARK_REVIEWED" ? "REVIEWED" : "COMPLETED";

@@ -256,7 +256,7 @@ test("HELP is handled before AI and hosted checkbox evidence is recorded directl
   assert.match(inbound, /'AI_REPLY', number\.twilioMessagingServiceSid, aiData\.messageId\)/);
   assert.match(booking, /consented: input\.smsConsent/);
   assert.match(booking, /source: "HOSTED_WEB_FORM"/);
-  assert.match(booking, /hostedConsentState\(input\.smsConsent, now\)/);
+  assert.match(booking, /resolvePublicIntakeClient\(tx,/);
   assert.match(booking, /ipAddress: request\.headers/);
   assert.match(booking, /userAgent: request\.headers/);
   const studioSms = readFileSync("packages/integrations/studio-sms.ts", "utf8");

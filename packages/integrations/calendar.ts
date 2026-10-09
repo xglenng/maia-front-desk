@@ -12,7 +12,7 @@ export class GoogleCalendarAdapter implements CalendarAdapter {
     url.searchParams.set('timeMax', input.to.toISOString());
     url.searchParams.set('singleEvents', 'true');
     url.searchParams.set('orderBy', 'startTime');
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${input.accessToken}` } });
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000), redirect: 'error', headers: { Authorization: `Bearer ${input.accessToken}` } });
     if (!res.ok) throw new Error(`Google Calendar list failed: ${res.status}`);
     const data = await res.json() as {
       items?: Array<{
@@ -27,7 +27,7 @@ export class GoogleCalendarAdapter implements CalendarAdapter {
 
   async createEvent(input: { accessToken: string; calendarId: string; summary: string; start: Date; end: Date; description?: string }) {
     const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(input.calendarId) + '/events', {
-      method: 'POST', headers: { Authorization: `Bearer ${input.accessToken}`, 'Content-Type': 'application/json' },
+      method: 'POST', signal: AbortSignal.timeout(10000), redirect: 'error', headers: { Authorization: `Bearer ${input.accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ summary: input.summary, description: input.description, start: { dateTime: input.start.toISOString() }, end: { dateTime: input.end.toISOString() } })
     });
     if (!res.ok) throw new Error(`Google Calendar create failed: ${res.status}`);

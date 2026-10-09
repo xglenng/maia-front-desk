@@ -60,8 +60,8 @@ async function handleGET(request: NextRequest) {
       priceCents: appointments.priceCents, depositCents: appointments.depositCents, depositStatus: appointments.depositStatus,
       clientFirstName: clients.firstName, clientLastName: clients.lastName, serviceName: services.name,
     }).from(appointments)
-      .innerJoin(clients, eq(appointments.clientId, clients.id))
-      .leftJoin(services, eq(appointments.serviceId, services.id))
+      .innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId)))
+      .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(appointments.organizationId, services.organizationId)))
       .where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), gte(appointments.startsAt, start), lt(appointments.startsAt, end)))
       .orderBy(asc(appointments.startsAt));
 
@@ -69,7 +69,7 @@ async function handleGET(request: NextRequest) {
       id: conversations.id, clientFirstName: clients.firstName, clientLastName: clients.lastName,
       status: conversations.status, aiEnabled: conversations.aiEnabled, unreadCount: conversations.unreadCount, lastMessageAt: conversations.lastMessageAt,
     }).from(conversations)
-      .innerJoin(clients, eq(conversations.clientId, clients.id))
+      .innerJoin(clients, and(eq(conversations.clientId, clients.id), eq(conversations.organizationId, clients.organizationId)))
       .where(and(eq(conversations.organizationId, organizationId), eq(conversations.artistId, artist.id), ne(conversations.channel, 'WEB_TEST')))
       .orderBy(desc(conversations.lastMessageAt))
       .limit(10);
