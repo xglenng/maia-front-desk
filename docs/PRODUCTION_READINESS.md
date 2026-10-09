@@ -319,3 +319,25 @@ The disposable PostgreSQL and actual signed HTTP handler test passed with synthe
 ## Twilio provisioning safety checkpoint
 
 T02 now has a local preflight and existing-number service repair in the actual provisioning endpoint. Four mocked/direct tests passed; regression 235 passed, 9 opt-in groups skipped. Configuration failure occurs before external calls and repair avoids an extra purchase. T01 legal-customer bindings and T02/T03 operation-ledger/reconciliation work remain open; see TWILIO_ISV_AUDIT.md and TWILIO_LEGAL_CUSTOMERS.md. No live provider or deployed environment was accessed.
+
+## T01 legal-customer binding storage checkpoint
+
+Additive migration 0006 and Drizzle declarations add two empty ownership/review tables with three tenant-composite FKs and unique customer/account bindings. Local install/upgrade parity and isolation tests pass; no deployed migration/backfill occurred. Full regression 238 passed, 10 opt-in groups skipped; local PostgreSQL checks 72 passed; TypeScript passed; staging safety 3 passed, 1 optional skipped. Provisioning and registration do not yet consume these bindings, so T01 remains open. Review LEGAL_CUSTOMER_BINDINGS.md before any separately authorized rollout.
+
+### T01 authorized commands and runtime resolution — October 8, 2026
+
+Implemented owner-only CREATE/BIND commands and GET resolution at `/api/compliance/legal-customer`, backed by `packages/compliance/legal-customer.server.ts`. Organization advisory locking and reviewer-role rechecks protect local review records; identical retries preserve the original evidence and identity/account replacement is refused. Binding checks the tenant's account/resource graph and requires explicit ownership review. This attestation is not Twilio verification; responses state `providerVerified: false`.
+
+Registration and approval synchronization require the persisted designated account before decrypting credentials or calling providers. Unbound, inactive and mixed-account graphs fail closed. Migration 0006 plus explicitly reviewed mappings are deployment prerequisites; no legacy binding is inferred. Provisioning consumption, first-account setup, operation intents/reconciliation and independent-business multi-organization UX remain outstanding. PR-1 and T01–T03 remain open.
+
+Evidence: actual synthetic PostgreSQL helper/HTTP tests passed for authorization, tenant boundaries, concurrent idempotence, strict reviewer inputs, review attestation, identity conflicts and resolver failure paths. Four registration boundary tests passed with provider networking blocked. No Railway, production, SMS, payment or Twilio registration actions occurred. Changes remain local and uncommitted. See LEGAL_CUSTOMER_BINDINGS.md for rollout and rollback.
+
+### T02 provisioning account consumption and durable intents — October 8, 2026
+
+Live provisioning now resolves the explicit legal-customer account and refuses artist/account conflicts or missing bindings before provider calls. It no longer creates an artist-specific subaccount implicitly. Mock provisioning remains a synthetic workflow and does not establish live ownership.
+
+Migration 0007 adds `twilio_provision_operations`: tenant-composite artist/account foreign keys, unique organization/artist/step intent, and INTENT/COMPLETED state. SERVICE, NUMBER and ASSOCIATE writes commit their intent before remote actions; duplicate or unresolved intents return a reconciliation conflict. Number purchase is persisted locally before association, allowing a subsequent request to repair association without purchasing another number. Failures/crashes never automatically replay a provider write. No intent stores credentials or raw provider errors.
+
+Limitations: this is a conservative manual-reconciliation gate, not automated provider inventory reconciliation. An uncertain result, missing local resource or changed account requires explicitly reviewed repair; no intent reset/delete endpoint is supplied. First-account creation/review workflow, provider result recovery, replacement-number lifecycle and registration operation ledger remain outstanding. Deploy requires reviewed migrations 0006/0007 and account mappings; do not roll back to old provisioning while unresolved intents exist. Preserve intent evidence during rollback. No migration/deployment/provider action was performed outside disposable local tests. PR-2 and T01–T03 remain open.
+
+Local verification: real Drizzle clean install/populated upgrade/repeat-run and 51-table snapshot parity, tenant integrity, real PostgreSQL concurrent intent claims and foreign-tenant refusal passed (72 checks). Provider-mocked tests verify partial repair and missing binding; intent tests verify duplicate claims and ambiguous failures. TypeScript and staging safety passed.

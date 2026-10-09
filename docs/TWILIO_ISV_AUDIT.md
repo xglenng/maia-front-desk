@@ -137,3 +137,29 @@ The user confirmed the default studio legal customer and separately registered i
 `packages/integrations/twilio-provision-preflight.ts::twilioProvisionPreflight` now validates local live configuration and resource relationships before the provisioning endpoint creates resources. It rejects mock credentials/SIDs in live setup and unsafe webhook origins. `app/api/twilio/provision/route.ts::handlePOST` no longer treats missing service membership as complete and reuses a purchased number when repairing a missing service. Four mocked/direct tests pass, including zero provider calls on invalid configuration and no additional purchase in partial-service recovery. Raw provider error output was removed from this endpoint.
 
 T02 is only partially implemented: durable intents, concurrency serialization, ambiguous provider-success reconciliation, account-customer boundaries and one-primary database invariants remain outstanding. No authenticated Twilio call, registration, purchase or SMS occurred.
+
+### T01 interim account graph guard
+
+`packages/compliance/account-boundary.ts::registrationAccountResources`, called by `live-registration.ts::resources`, now refuses mixed owning accounts, tenant/account/service mismatches, inactive resources and mock SIDs before live credential use. Multiple artist services under one account pass. Three tests include the actual registration entry point with mixed-account refusal and zero provider calls/writes. Persistent legal-customer/account binding, independent-business onboarding UX and approved legacy mapping remain outstanding. This guard does not certify legal identity or permit resource transfers.
+
+### T01 storage foundation follow-up
+
+`packages/db/src/schema.ts::legalCustomers/legalCustomerAccounts` and migration 0006 persist explicit owning-tenant legal identity and one-to-one reviewed account mapping. Local composite FK and duplicate ownership tests pass, and seven-entry journal parity matches the snapshot. No existing graph was adopted/backfilled. These tables are not yet consumed by provisioning or registration; authorized review commands and legacy compatibility remain open. See LEGAL_CUSTOMER_BINDINGS.md.
+
+### T01 authorized commands and runtime resolution — October 8, 2026
+
+Implemented owner-only CREATE/BIND commands and GET resolution at `/api/compliance/legal-customer`, backed by `packages/compliance/legal-customer.server.ts`. Organization advisory locking and reviewer-role rechecks protect local review records; identical retries preserve the original evidence and identity/account replacement is refused. Binding checks the tenant's account/resource graph and requires explicit ownership review. This attestation is not Twilio verification; responses state `providerVerified: false`.
+
+Registration and approval synchronization require the persisted designated account before decrypting credentials or calling providers. Unbound, inactive and mixed-account graphs fail closed. Migration 0006 plus explicitly reviewed mappings are deployment prerequisites; no legacy binding is inferred. Provisioning consumption, first-account setup, operation intents/reconciliation and independent-business multi-organization UX remain outstanding. PR-1 and T01–T03 remain open.
+
+Evidence: actual synthetic PostgreSQL helper/HTTP tests passed for authorization, tenant boundaries, concurrent idempotence, strict reviewer inputs, review attestation, identity conflicts and resolver failure paths. Four registration boundary tests passed with provider networking blocked. No Railway, production, SMS, payment or Twilio registration actions occurred. Changes remain local and uncommitted. See LEGAL_CUSTOMER_BINDINGS.md for rollout and rollback.
+
+### T02 provisioning account consumption and durable intents — October 8, 2026
+
+Live provisioning now resolves the explicit legal-customer account and refuses artist/account conflicts or missing bindings before provider calls. It no longer creates an artist-specific subaccount implicitly. Mock provisioning remains a synthetic workflow and does not establish live ownership.
+
+Migration 0007 adds `twilio_provision_operations`: tenant-composite artist/account foreign keys, unique organization/artist/step intent, and INTENT/COMPLETED state. SERVICE, NUMBER and ASSOCIATE writes commit their intent before remote actions; duplicate or unresolved intents return a reconciliation conflict. Number purchase is persisted locally before association, allowing a subsequent request to repair association without purchasing another number. Failures/crashes never automatically replay a provider write. No intent stores credentials or raw provider errors.
+
+Limitations: this is a conservative manual-reconciliation gate, not automated provider inventory reconciliation. An uncertain result, missing local resource or changed account requires explicitly reviewed repair; no intent reset/delete endpoint is supplied. First-account creation/review workflow, provider result recovery, replacement-number lifecycle and registration operation ledger remain outstanding. Deploy requires reviewed migrations 0006/0007 and account mappings; do not roll back to old provisioning while unresolved intents exist. Preserve intent evidence during rollback. No migration/deployment/provider action was performed outside disposable local tests. PR-2 and T01–T03 remain open.
+
+Local verification: real Drizzle clean install/populated upgrade/repeat-run and 51-table snapshot parity, tenant integrity, real PostgreSQL concurrent intent claims and foreign-tenant refusal passed (72 checks). Provider-mocked tests verify partial repair and missing binding; intent tests verify duplicate claims and ambiguous failures. TypeScript and staging safety passed.

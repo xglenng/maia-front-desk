@@ -707,6 +707,34 @@ export const twilioAccounts = pgTable("twilio_accounts", {
   tenantArtistIdReference: foreignKey({ name: "twilio_accounts_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
 }));
 
+// Explicit legal ownership; existing resources are deliberately not backfilled.
+export const legalCustomers = pgTable("legal_customers", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull().unique(),
+  customerType: text("customer_type").notNull(),
+  legalName: text("legal_name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("legal_customers_id_organization_uidx").on(table.id, table.organizationId),
+  customerTypeCheck: check("legal_customers_type_check", sql`${table.customerType} IN ('STUDIO', 'INDEPENDENT_BUSINESS')`),
+  legalNameCheck: check("legal_customers_name_check", sql`length(btrim(${table.legalName})) > 0`),
+}));
+
+export const legalCustomerAccounts = pgTable("legal_customer_accounts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  legalCustomerId: uuid("legal_customer_id").notNull().unique(),
+  twilioAccountId: uuid("twilio_account_id").notNull().unique(),
+  verifiedByUserId: uuid("verified_by_user_id").notNull(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+  verificationReference: text("verification_reference").notNull(),
+}, table => ({
+  tenantCustomerReference: foreignKey({ name: "legal_customer_accounts_customer_tenant_fk", columns: [table.legalCustomerId, table.organizationId], foreignColumns: [legalCustomers.id, legalCustomers.organizationId] }),
+  tenantAccountReference: foreignKey({ name: "legal_customer_accounts_account_tenant_fk", columns: [table.twilioAccountId, table.organizationId], foreignColumns: [twilioAccounts.id, twilioAccounts.organizationId] }),
+  tenantVerifierReference: foreignKey({ name: "legal_customer_accounts_verifier_tenant_fk", columns: [table.verifiedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+  verificationReferenceCheck: check("legal_customer_accounts_reference_check", sql`length(btrim(${table.verificationReference})) > 0`),
+}));
+
 export const twilioMessagingServices = pgTable("twilio_messaging_services", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
@@ -964,3 +992,20 @@ export const studioActivationEvents = pgTable("studio_activation_events", {
   tenantArtistIdReference: foreignKey({ name: "studio_activation_events_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
   tenantUserIdReference: foreignKey({ name: "studio_activation_events_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
 }));
+
+export const twilioProvisionOperations = pgTable('twilio_provision_operations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  artistId: uuid('artist_id').notNull(),
+  twilioAccountId: uuid('twilio_account_id').notNull(),
+  step: text('step').notNull(),
+  status: text('status').notNull().default('INTENT'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp('completed_at', { withTimezone: true })
+}, table => [
+  uniqueIndex('twilio_provision_operations_step_uidx').on(table.organizationId, table.artistId, table.step),
+  foreignKey({ name: 'twilio_provision_operations_artist_tenant_fk', columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  foreignKey({ name: 'twilio_provision_operations_account_tenant_fk', columns: [table.twilioAccountId, table.organizationId], foreignColumns: [twilioAccounts.id, twilioAccounts.organizationId] }),
+  check('twilio_provision_operations_status_check', sql`${table.status} IN ('INTENT', 'COMPLETED')`),
+  check('twilio_provision_operations_step_check', sql`${table.step} IN ('SERVICE', 'NUMBER', 'ASSOCIATE')`)
+]);

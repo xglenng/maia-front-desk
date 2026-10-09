@@ -209,3 +209,35 @@ Regression 231 passed, 9 optional groups skipped; TypeScript and whitespace pass
 Four tests in `packages/integrations/__tests__/twilio-provision-preflight.test.ts` passed: public webhook origin validation; missing encryption/credentials; mock/foreign resource rejection; actual authenticated owner endpoint refusal with zero resource writes/provider calls; and repair of a missing Messaging Service using the already purchased number. Repair uses two mocked fetch responses; unexpected account/inventory/purchase paths fail the test. No real fetch/network request occurred.
 
 Regression 235 passed, 9 optional PostgreSQL groups skipped; TypeScript and whitespace passed. No new schema/migration was introduced by this preflight. Existing resources were not accessed. No manual external setup is needed for this checkpoint. Future staging/live tests need the customer/account model and durable operation ledger first, with separate approval for real resource creation.
+
+## Registration account boundary — local tests after 77ed570
+
+Three tests passed: same-account artist services accepted; foreign/mixed/inactive/mock graphs rejected; actual startLiveRegistration rejected mixed accounts before decrypting tokens or making provider calls/writes. No database/provider connection occurred. Persistent legal-customer mapping and deployed behavior remain unverified.
+
+## Legal-customer storage foundation — disposable local PostgreSQL
+
+72 checks passed across legal-customer bindings, baseline migration parity and the existing tenant integrity suite. Valid studio/independent-business bindings persisted; foreign tenant customer/account/reviewer references and duplicate bindings were rejected. Seven-entry real Drizzle install/upgrade/repeat-run matches the current 50-table snapshot structurally. Synthetic fixtures only; no provider or Railway connections. Current deployed staging remains at its older schema and must not use historical journal replay.
+
+Opt-in binding test uses MAIA_LEGAL_CUSTOMER_TEST_SOCKET with the approved disposable socket and `packages/db/__tests__/legal-customer-postgres.test.ts`. No browser/provider test is required for tables with no exposed workflow. Registration consuming these bindings and real ownership review are still outstanding.
+
+### T01 authorized commands and runtime resolution — October 8, 2026
+
+Implemented owner-only CREATE/BIND commands and GET resolution at `/api/compliance/legal-customer`, backed by `packages/compliance/legal-customer.server.ts`. Organization advisory locking and reviewer-role rechecks protect local review records; identical retries preserve the original evidence and identity/account replacement is refused. Binding checks the tenant's account/resource graph and requires explicit ownership review. This attestation is not Twilio verification; responses state `providerVerified: false`.
+
+Registration and approval synchronization require the persisted designated account before decrypting credentials or calling providers. Unbound, inactive and mixed-account graphs fail closed. Migration 0006 plus explicitly reviewed mappings are deployment prerequisites; no legacy binding is inferred. Provisioning consumption, first-account setup, operation intents/reconciliation and independent-business multi-organization UX remain outstanding. PR-1 and T01–T03 remain open.
+
+Evidence: actual synthetic PostgreSQL helper/HTTP tests passed for authorization, tenant boundaries, concurrent idempotence, strict reviewer inputs, review attestation, identity conflicts and resolver failure paths. Four registration boundary tests passed with provider networking blocked. No Railway, production, SMS, payment or Twilio registration actions occurred. Changes remain local and uncommitted. See LEGAL_CUSTOMER_BINDINGS.md for rollout and rollback.
+
+Final command/resolver validation: regression 239 passed, 10 opt-in database groups skipped; targeted synthetic PostgreSQL command/HTTP group passed separately; TypeScript and whitespace passed. Disposable PostgreSQL stopped after verification. No external environment was tested or migrated.
+
+### T02 provisioning account consumption and durable intents — October 8, 2026
+
+Live provisioning now resolves the explicit legal-customer account and refuses artist/account conflicts or missing bindings before provider calls. It no longer creates an artist-specific subaccount implicitly. Mock provisioning remains a synthetic workflow and does not establish live ownership.
+
+Migration 0007 adds `twilio_provision_operations`: tenant-composite artist/account foreign keys, unique organization/artist/step intent, and INTENT/COMPLETED state. SERVICE, NUMBER and ASSOCIATE writes commit their intent before remote actions; duplicate or unresolved intents return a reconciliation conflict. Number purchase is persisted locally before association, allowing a subsequent request to repair association without purchasing another number. Failures/crashes never automatically replay a provider write. No intent stores credentials or raw provider errors.
+
+Limitations: this is a conservative manual-reconciliation gate, not automated provider inventory reconciliation. An uncertain result, missing local resource or changed account requires explicitly reviewed repair; no intent reset/delete endpoint is supplied. First-account creation/review workflow, provider result recovery, replacement-number lifecycle and registration operation ledger remain outstanding. Deploy requires reviewed migrations 0006/0007 and account mappings; do not roll back to old provisioning while unresolved intents exist. Preserve intent evidence during rollback. No migration/deployment/provider action was performed outside disposable local tests. PR-2 and T01–T03 remain open.
+
+Local verification: real Drizzle clean install/populated upgrade/repeat-run and 51-table snapshot parity, tenant integrity, real PostgreSQL concurrent intent claims and foreign-tenant refusal passed (72 checks). Provider-mocked tests verify partial repair and missing binding; intent tests verify duplicate claims and ambiguous failures. TypeScript and staging safety passed.
+
+Commit checkpoint validation: 242 regression tests passed, 11 opt-in database groups skipped; 72 disposable PostgreSQL checks passed separately. TypeScript, whitespace and staging safety (3 passed, 1 optional skipped) passed. Local PostgreSQL stopped. Migrations 0006/0007 prepared only.

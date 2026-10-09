@@ -5,7 +5,7 @@ const {bootstrapSql,initialize}=require('./staging-bootstrap.cjs');
 test('staging bootstrap snapshot matches source and contains no data inserts',()=>{
   const {sql,hash}=bootstrapSql();
   assert.equal(hash.length,64);
-  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,48);
+  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,51);
   assert.match(sql,/users_normalized_email_uidx/);
   assert.equal(/^\s*(?:INSERT|DELETE|TRUNCATE|DROP)\b/im.test(sql),false);
 });
@@ -18,7 +18,7 @@ test('full-schema initialization is atomic and refuses an existing database',{sk
     const snapshot=bootstrapSql();
     await assert.rejects(initialize(pool,{...snapshot,sql:snapshot.sql+'; SELECT missing_function_for_rollback_test()'}),{code:'42883'});
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'")).rows[0].n,0);
-    assert.equal(await initialize(pool,snapshot),48);
+    assert.equal(await initialize(pool,snapshot),51);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM maia_staging_meta.bootstrap')).rows[0].n,1);
     await assert.rejects(initialize(pool,snapshot),/existing relations/);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM maia_staging_meta.bootstrap')).rows[0].n,1);
@@ -27,7 +27,7 @@ test('full-schema initialization is atomic and refuses an existing database',{sk
       await client.query('BEGIN');
       const org=await client.query("INSERT INTO organizations(name,slug) VALUES('Synthetic Studio','synthetic-studio') RETURNING id");
       await client.query("INSERT INTO users(organization_id,email,name) VALUES($1,'synthetic@example.test','Owner')",[org.rows[0].id]);
-      await assert.rejects(client.query("INSERT INTO users(organization_id,email,name) VALUES($1,' SYNTHETIC@example.test ','Owner')",[org.rows[0].id]),{code:'23505'});
+      await assert.rejects(client.query("INSERT INTO users(organization_id,email,name) VALUES($1,' SYNTHETIC@example.test ','Owner')",[org.rows[0].id]),{code:'23515'});
       await client.query('ROLLBACK');
     } finally {client.release();}
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM organizations')).rows[0].n,0);

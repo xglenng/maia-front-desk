@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 93773c9de890d90a7b4efea02bfd7dc2e4956bd9bfffe8a0a5477f8b4dc67a3f
+-- schema-source-sha256: 67f55b20c4f1d51b06a1bc9ea54ec29e5914577ff88b867037c010cec367c3a8
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -440,6 +440,30 @@ CREATE TABLE "external_waiver_forms" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "legal_customer_accounts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"legal_customer_id" uuid NOT NULL,
+	"twilio_account_id" uuid NOT NULL,
+	"verified_by_user_id" uuid NOT NULL,
+	"verified_at" timestamp with time zone NOT NULL,
+	"verification_reference" text NOT NULL,
+	CONSTRAINT "legal_customer_accounts_legal_customer_id_unique" UNIQUE("legal_customer_id"),
+	CONSTRAINT "legal_customer_accounts_twilio_account_id_unique" UNIQUE("twilio_account_id"),
+	CONSTRAINT "legal_customer_accounts_reference_check" CHECK (length(btrim("legal_customer_accounts"."verification_reference")) > 0)
+);
+--> statement-breakpoint
+CREATE TABLE "legal_customers" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"customer_type" text NOT NULL,
+	"legal_name" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "legal_customers_organization_id_unique" UNIQUE("organization_id"),
+	CONSTRAINT "legal_customers_type_check" CHECK ("legal_customers"."customer_type" IN ('STUDIO', 'INDEPENDENT_BUSINESS')),
+	CONSTRAINT "legal_customers_name_check" CHECK (length(btrim("legal_customers"."legal_name")) > 0)
+);
+--> statement-breakpoint
 CREATE TABLE "legal_documents" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -769,6 +793,19 @@ CREATE TABLE "twilio_messaging_services" (
 	CONSTRAINT "twilio_messaging_services_service_sid_unique" UNIQUE("service_sid")
 );
 --> statement-breakpoint
+CREATE TABLE "twilio_provision_operations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"twilio_account_id" uuid NOT NULL,
+	"step" text NOT NULL,
+	"status" text DEFAULT 'INTENT' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"completed_at" timestamp with time zone,
+	CONSTRAINT "twilio_provision_operations_status_check" CHECK ("twilio_provision_operations"."status" IN ('INTENT', 'COMPLETED')),
+	CONSTRAINT "twilio_provision_operations_step_check" CHECK ("twilio_provision_operations"."step" IN ('SERVICE', 'NUMBER', 'ASSOCIATE'))
+);
+--> statement-breakpoint
 CREATE TABLE "users" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -845,6 +882,8 @@ CREATE UNIQUE INDEX "external_waiver_assignments_id_organization_uidx" ON "exter
 --> statement-breakpoint
 CREATE UNIQUE INDEX "external_waiver_forms_id_organization_uidx" ON "external_waiver_forms" USING btree ("id","organization_id");
 --> statement-breakpoint
+CREATE UNIQUE INDEX "legal_customers_id_organization_uidx" ON "legal_customers" USING btree ("id","organization_id");
+--> statement-breakpoint
 CREATE UNIQUE INDEX "phone_numbers_id_organization_uidx" ON "phone_numbers" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "scheduling_connections_id_organization_uidx" ON "scheduling_connections" USING btree ("id","organization_id");
@@ -874,6 +913,8 @@ CREATE UNIQUE INDEX "studio_locations_one_primary_per_org_idx" ON "studio_locati
 CREATE UNIQUE INDEX "twilio_accounts_id_organization_uidx" ON "twilio_accounts" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "twilio_messaging_services_id_organization_uidx" ON "twilio_messaging_services" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "twilio_provision_operations_step_uidx" ON "twilio_provision_operations" USING btree ("organization_id","artist_id","step");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "users_id_organization_uidx" ON "users" USING btree ("id","organization_id");
 --> statement-breakpoint
@@ -1085,6 +1126,16 @@ ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_artist
 --> statement-breakpoint
 ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
+ALTER TABLE "legal_customer_accounts" ADD CONSTRAINT "legal_customer_accounts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "legal_customer_accounts" ADD CONSTRAINT "legal_customer_accounts_customer_tenant_fk" FOREIGN KEY ("legal_customer_id","organization_id") REFERENCES "public"."legal_customers"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "legal_customer_accounts" ADD CONSTRAINT "legal_customer_accounts_account_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "legal_customer_accounts" ADD CONSTRAINT "legal_customer_accounts_verifier_tenant_fk" FOREIGN KEY ("verified_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "legal_customers" ADD CONSTRAINT "legal_customers_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
 ALTER TABLE "legal_documents" ADD CONSTRAINT "legal_documents_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE no action ON UPDATE no action;
@@ -1222,6 +1273,12 @@ ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_service
 ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_services_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_messaging_services" ADD CONSTRAINT "twilio_messaging_services_twilio_account_id_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_operations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_operations_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_operations_account_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

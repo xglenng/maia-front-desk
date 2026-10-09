@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server';
 import { db, pool } from '@db';
-import { artists, organizations, phoneNumbers, twilioAccounts, twilioMessagingServices } from '@db/schema';
+import { legalCustomerAccounts, artists, organizations, phoneNumbers, twilioAccounts, twilioMessagingServices } from '@db/schema';
 import { POST } from '../../../app/api/twilio/provision/route';
 import { encryptSecret } from '../twilio';
 import { TwilioProvisionConfigurationError, twilioProvisionPreflight } from '../twilio-provision-preflight';
@@ -42,7 +42,7 @@ test('actual owner endpoint refuses configuration before any provider call or re
   config(t); delete process.env.TWILIO_ENCRYPTION_KEY;
   const org = '11111111-1111-4111-8111-111111111111', artist = '22222222-2222-4222-8222-222222222222';
   t.mock.method(pool, 'query', async () => ({ rows: [{ id: org, organization_id: org, role: 'OWNER' }], rowCount: 1 }));
-  t.mock.method(db, 'select', (() => ({ from: (table: unknown) => ({ where: async () => table === organizations ? [{ id: org, name: 'Synthetic Studio' }] : table === artists ? [{ id: artist, organizationId: org, displayName: 'Synthetic Artist' }] : [] }) })) as never);
+  t.mock.method(db, 'select', (() => ({ from: (table: unknown) => ({ innerJoin: () => ({ innerJoin: () => ({ where: () => ({ limit: async () => table === legalCustomerAccounts ? [{ legalCustomerId: 'customer', accountId: 'account', accountSid: 'AC' + 'b'.repeat(32), status: 'ACTIVE' }] : [] }) }) }), where: async () => table === organizations ? [{ id: org, name: 'Synthetic Studio' }] : table === artists ? [{ id: artist, organizationId: org, displayName: 'Synthetic Artist' }] : [] }) })) as never);
   let writes = 0, calls = 0;
   t.mock.method(db, 'insert', (() => { writes++; throw new Error('Unexpected write'); }) as never);
   t.mock.method(globalThis, 'fetch', async () => { calls++; throw new Error('Unexpected provider request'); });
@@ -58,7 +58,7 @@ test('partial live setup resumes the existing number without purchasing another'
   const number = { id: 'number', phoneNumber: '+15555550123', twilioAccountId: account.id, twilioPhoneNumberSid: 'PN' + 'd'.repeat(32), twilioMessagingServiceSid: null };
   const service = { id: 'service', serviceSid: 'MG' + 'c'.repeat(32), twilioAccountId: account.id, status: 'ACTIVE' };
   t.mock.method(pool, 'query', async () => ({ rows: [{ id: org, organization_id: org, role: 'OWNER' }], rowCount: 1 }));
-  t.mock.method(db, 'select', (() => ({ from: (table: unknown) => ({ where: async () => table === organizations ? [{ id: org, name: 'Synthetic Studio' }] : table === artists ? [{ id: artist, displayName: 'Synthetic Artist' }] : table === twilioAccounts ? [account] : table === phoneNumbers ? [number] : [] }) })) as never);
+  t.mock.method(db, 'select', (() => ({ from: (table: unknown) => ({ innerJoin: () => ({ innerJoin: () => ({ where: () => ({ limit: async () => table === legalCustomerAccounts ? [{ legalCustomerId: 'customer', accountId: 'account', accountSid: 'AC' + 'b'.repeat(32), status: 'ACTIVE' }] : [] }) }) }), where: async () => table === organizations ? [{ id: org, name: 'Synthetic Studio' }] : table === artists ? [{ id: artist, displayName: 'Synthetic Artist' }] : table === twilioAccounts ? [account] : table === phoneNumbers ? [number] : [] }) })) as never);
   let created = 0, updates = 0;
   t.mock.method(db, 'insert', ((table: unknown) => { assert.equal(table, twilioMessagingServices); created++; return { values: () => ({ returning: async () => [service] }) }; }) as never);
   t.mock.method(db, 'update', ((table: unknown) => { assert.equal(table, phoneNumbers); return { set: (value: { twilioMessagingServiceSid: string }) => { assert.equal(value.twilioMessagingServiceSid, service.serviceSid); return { where: async () => { updates++; } }; } }; }) as never);
@@ -72,4 +72,19 @@ test('partial live setup resumes the existing number without purchasing another'
   const response = await POST(new NextRequest('http://localhost/api/twilio/provision', { method: 'POST', headers: { origin: 'http://localhost', cookie: `inkflow_session=${'a'.repeat(64)}`, 'content-type': 'application/json' }, body: JSON.stringify({ organizationId: org, artistId: artist }) }), undefined);
   assert.equal(response.status, 200); assert.equal((await response.json()).status, 'repaired_provisioning');
   assert.equal(created, 1); assert.equal(updates, 1); assert.equal(requests.length, 2);
+});
+
+test('unbound live artist cannot create an account or make provider requests', async t => {
+  config(t);
+  const org='11111111-1111-4111-8111-111111111111', artist='22222222-2222-4222-8222-222222222222';
+  t.mock.method(pool,'query',async()=>({rows:[{id:org,organization_id:org,role:'OWNER'}],rowCount:1}));
+  t.mock.method(db,'select',(()=>({from:(table:unknown)=>({
+    where:async()=>table===organizations?[{id:org,name:'Synthetic'}]:table===artists?[{id:artist,displayName:'Synthetic'}]:[],
+    innerJoin:()=>({innerJoin:()=>({where:()=>({limit:async()=>[]})})})
+  })})) as never);
+  let writes=0,calls=0;
+  t.mock.method(db,'insert',(()=>{writes++;throw new Error('Unexpected resource write');}) as never);
+  t.mock.method(globalThis,'fetch',async()=>{calls++;throw new Error('Unexpected provider request');});
+  const response=await POST(new NextRequest('http://localhost/api/twilio/provision',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${'a'.repeat(64)}`,'content-type':'application/json'},body:JSON.stringify({organizationId:org,artistId:artist})}),undefined);
+  assert.equal(response.status,409);assert.equal(writes,0);assert.equal(calls,0);
 });

@@ -1,3 +1,5 @@
+import { resolveLegalCustomerAccount } from "./legal-customer.server";
+import { registrationAccountResources } from "./account-boundary";
 import { and, eq } from "drizzle-orm";
 import { db } from "@db";
 import { a2pCampaigns, artistConsentForms, complianceEvents, complianceProfiles, organizations, phoneNumbers, twilioAccounts, twilioMessagingServices } from "@db/schema";
@@ -29,8 +31,10 @@ async function resources(organizationId: string) {
   const rows = await db.select({ account: twilioAccounts, service: twilioMessagingServices }).from(twilioMessagingServices)
     .innerJoin(twilioAccounts, and(eq(twilioMessagingServices.twilioAccountId, twilioAccounts.id), eq(twilioMessagingServices.organizationId, twilioAccounts.organizationId)))
     .where(and(eq(twilioMessagingServices.organizationId, organizationId), eq(twilioMessagingServices.status, "ACTIVE")));
-  if (!rows.length) throw new Error("Provision at least one studio Twilio number before starting carrier registration.");
-  return rows.map(row => ({ ...row, credentials: { accountSid: row.account.accountSid, authToken: decryptSecret(row.account.authTokenEncrypted) } }));
+  const validated = registrationAccountResources(organizationId, rows);
+  const binding = await resolveLegalCustomerAccount(organizationId);
+  if (validated.some(row => row.account.id !== binding.accountId)) throw new Error("Registration services do not belong to the bound legal customer account.");
+  return validated.map(row => ({ ...row, credentials: { accountSid: row.account.accountSid, authToken: decryptSecret(row.account.authTokenEncrypted) } }));
 }
 
 async function saveProfile(organizationId: string, values: Partial<typeof complianceProfiles.$inferInsert>) {

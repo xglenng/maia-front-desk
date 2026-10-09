@@ -13,7 +13,7 @@ const journal = JSON.parse(readFileSync('packages/db/drizzle/meta/_journal.json'
 test('versioned baseline matches its preserved historical schema source', () => {
   const hash = createHash('sha256').update(readFileSync('packages/db/baseline/pre-journal-schema.ts')).digest('hex');
   assert.ok(baseline.includes(`schema-source-sha256: ${hash}`));
-  assert.equal(journal.entries.length, 6);
+  assert.equal(journal.entries.length, 8);
 });
 test('empty baseline and populated supported upgrade use the real Drizzle journal', { skip: !socket }, async () => {
   assert.match(socket!, /^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
@@ -36,14 +36,14 @@ test('empty baseline and populated supported upgrade use the real Drizzle journa
       await migrate(drizzle(pools[index]), { migrationsFolder: folder, migrationsSchema: schemas[index] + '_journal' });
     }
     for (const pool of pools.slice(0, 2)) await pool.query(baseline.replaceAll('"public".', `"${schemas[pools.indexOf(pool)]}".`));
-    await forward(0, 6);
+    await forward(0, journal.entries.length);
     await forward(1, 3);
     const id = randomUUID();
     await pools[1].query("INSERT INTO organizations(id,name,slug) VALUES($1,'Synthetic preserved','synthetic-preserved')", [id]);
-    await forward(1, 6);
-    await forward(1, 6); // Real journal repeat is a no-op.
+    await forward(1, journal.entries.length);
+    await forward(1, journal.entries.length); // Real journal repeat is a no-op.
     assert.equal((await pools[1].query('SELECT name FROM organizations WHERE id=$1', [id])).rows[0].name, 'Synthetic preserved');
-    for (const i of [0, 1]) assert.equal((await pools[i].query(`SELECT count(*)::integer AS count FROM ${schemas[i]}_journal.__drizzle_migrations`)).rows[0].count, 6);
+    for (const i of [0, 1]) assert.equal((await pools[i].query(`SELECT count(*)::integer AS count FROM ${schemas[i]}_journal.__drizzle_migrations`)).rows[0].count, journal.entries.length);
     await pools[2].query(readFileSync('packages/db/staging/schema.sql', 'utf8').replaceAll('"public".', `"${schemas[2]}".`));
     async function columns(index: number) {
       return (await pools[index].query("SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 ORDER BY table_name,column_name", [schemas[index]])).rows;

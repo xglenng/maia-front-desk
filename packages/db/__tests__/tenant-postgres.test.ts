@@ -33,7 +33,7 @@ test('real PostgreSQL refuses dirty tenant migration and rejects all 65 cross-te
     // Legacy fixture: current snapshot minus exactly this migration's additions.
     const additions=[...manifest.parents.map(p=>p.index),...manifest.relations.map(r=>r.name)];
     const baseline=readFileSync('packages/db/staging/schema.sql','utf8').split('--> statement-breakpoint')
-      .filter(part=>!additions.some(name=>part.includes(`"${name}"`))).join(';\n').replaceAll('"public".',`"${fixture}".`);
+      .filter(part=>!additions.some(name=>part.includes(`"${name}"`)) && !part.includes('"legal_customers"') && !part.includes('"legal_customer_accounts"') && !part.includes('"twilio_provision_operations"')).join(';\n').replaceAll('"public".',`"${fixture}".`);
     await local.query(baseline);
     const orgA=randomUUID(),orgB=randomUUID();
     await local.query("INSERT INTO organizations(id,name,slug) VALUES($1,'Synthetic Tenant A','synthetic-tenant-a'),($2,'Synthetic Tenant B','synthetic-tenant-b')",[orgA,orgB]);

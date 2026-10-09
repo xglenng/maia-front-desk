@@ -266,3 +266,37 @@ Next: implement legal-customer/account bindings and local two-studio/two-artist 
 User authorized committing and pushing the accumulated local changes to `codex/pr1-production-readiness` on `xglenng/maia-front-desk`. This checkpoint covers A07/A27 fixes and local worker evidence, A24 baseline/journal parity and schema drift alignment, A20 atomic inbound reconsent/history checks, and T02 provisioning preflight/partial-service repair. PR-1 remains open and PR-2 remains in local development. Main/production deployment is not authorized by this branch push.
 
 Resume with explicit legal-customer/account bindings (T01), then account/service/number operation intents and ambiguous-outcome reconciliation (T02/T03). Honor the accepted studio default plus independent-business artist requirement in TWILIO_LEGAL_CUSTOMERS.md. Do not infer deployed schema or transfer existing approved resources from local mappings.
+
+### T01 interim safety guard — after pushed checkpoint
+
+Commit 77ed570 was pushed to origin/codex/pr1-production-readiness. Main was not updated. Subsequent T01 work adds `registrationAccountResources`: current organization-scoped registration rejects multiple owning accounts, foreign tenant/service relationships, inactive resources and mock SIDs before decrypting credentials or making provider calls. Multiple artist services sharing one active owning account are accepted and deterministically ordered. Both start and synchronization use this guard through the existing resources helper.
+
+Three direct/mock tests passed, including actual startLiveRegistration refusal with zero provider calls/writes. This is a local fail-closed boundary, not persistent legal-customer binding or proof of live identity. Legacy multi-account studios require explicit mapping and are not transferred/recreated. Next: additive legal-customer/account records and their authorization/migration tests. This follow-up is uncommitted.
+
+T01 guard validation: regression 238 passed, 9 opt-in groups skipped; TypeScript and whitespace passed. No production access or deployment.
+
+### T01 persistent binding foundation — October 8, 2026
+
+Added legal_customers and legal_customer_accounts declarations and additive migration 0006. One explicit owning tenant per legal business; STUDIO and INDEPENDENT_BUSINESS kinds; one designated account per customer and one customer per account; review identity/timestamp/reference. Three composite FKs refuse foreign customer/account/reviewer tenants. Existing account/profile rows are unchanged and there is no automatic backfill, provider call or public adoption API.
+
+Regenerated the synthetic snapshot to 50 tables and updated empty bootstrap expectations. The real Drizzle parity test now applies all seven journal entries. It passed alongside the new binding isolation group and the preexisting tenant integrity group: 72 local PostgreSQL checks passed. No Railway migrations occurred. Storage is implemented; authorized binding commands, provisioning/registration consumption, multi-organization independent-business UX and operation ledger remain next. T01 remains open. See LEGAL_CUSTOMER_BINDINGS.md for deployment/rollback and exact boundaries. This follow-up is local and uncommitted.
+
+Final storage validation: regression 238 passed, 10 optional database groups skipped; TypeScript passed; staging safety 3 passed, 1 optional skipped; whitespace passed. Disposable local PostgreSQL stopped after tests. Migration 0006 is prepared, not applied to Railway or production. Next implementation task is authorized legal-customer review/binding commands and stable account resolution, with no provider calls.
+
+### T01 authorized commands and runtime resolution — October 8, 2026
+
+Implemented owner-only CREATE/BIND commands and GET resolution at `/api/compliance/legal-customer`, backed by `packages/compliance/legal-customer.server.ts`. Organization advisory locking and reviewer-role rechecks protect local review records; identical retries preserve the original evidence and identity/account replacement is refused. Binding checks the tenant's account/resource graph and requires explicit ownership review. This attestation is not Twilio verification; responses state `providerVerified: false`.
+
+Registration and approval synchronization require the persisted designated account before decrypting credentials or calling providers. Unbound, inactive and mixed-account graphs fail closed. Migration 0006 plus explicitly reviewed mappings are deployment prerequisites; no legacy binding is inferred. Provisioning consumption, first-account setup, operation intents/reconciliation and independent-business multi-organization UX remain outstanding. PR-1 and T01–T03 remain open.
+
+Evidence: actual synthetic PostgreSQL helper/HTTP tests passed for authorization, tenant boundaries, concurrent idempotence, strict reviewer inputs, review attestation, identity conflicts and resolver failure paths. Four registration boundary tests passed with provider networking blocked. No Railway, production, SMS, payment or Twilio registration actions occurred. Changes remain local and uncommitted. See LEGAL_CUSTOMER_BINDINGS.md for rollout and rollback.
+
+### T02 provisioning account consumption and durable intents — October 8, 2026
+
+Live provisioning now resolves the explicit legal-customer account and refuses artist/account conflicts or missing bindings before provider calls. It no longer creates an artist-specific subaccount implicitly. Mock provisioning remains a synthetic workflow and does not establish live ownership.
+
+Migration 0007 adds `twilio_provision_operations`: tenant-composite artist/account foreign keys, unique organization/artist/step intent, and INTENT/COMPLETED state. SERVICE, NUMBER and ASSOCIATE writes commit their intent before remote actions; duplicate or unresolved intents return a reconciliation conflict. Number purchase is persisted locally before association, allowing a subsequent request to repair association without purchasing another number. Failures/crashes never automatically replay a provider write. No intent stores credentials or raw provider errors.
+
+Limitations: this is a conservative manual-reconciliation gate, not automated provider inventory reconciliation. An uncertain result, missing local resource or changed account requires explicitly reviewed repair; no intent reset/delete endpoint is supplied. First-account creation/review workflow, provider result recovery, replacement-number lifecycle and registration operation ledger remain outstanding. Deploy requires reviewed migrations 0006/0007 and account mappings; do not roll back to old provisioning while unresolved intents exist. Preserve intent evidence during rollback. No migration/deployment/provider action was performed outside disposable local tests. PR-2 and T01–T03 remain open.
+
+Local verification: real Drizzle clean install/populated upgrade/repeat-run and 51-table snapshot parity, tenant integrity, real PostgreSQL concurrent intent claims and foreign-tenant refusal passed (72 checks). Provider-mocked tests verify partial repair and missing binding; intent tests verify duplicate claims and ambiguous failures. TypeScript and staging safety passed.
