@@ -57,6 +57,20 @@
       "when": 1791936000000,
       "tag": "0007_twilio_provision_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792022400000,
+      "tag": "0008_provision_review_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792108800000,
+      "tag": "0009_first_account_creation_intents",
+      "breakpoints": true
     }
   ]
 }

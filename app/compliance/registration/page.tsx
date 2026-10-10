@@ -1,6 +1,7 @@
 "use client";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
+import { LegalCustomerSetup } from "@/components/legal-customer-setup";
 
 type Readiness = { ready: boolean; missing: string[]; completed: number; total: number };
 type Profile = { status: string; statusMessage?: string | null; providerErrors?: unknown; readiness: Readiness; hasBusinessRegistrationNumber: boolean; businessRegistrationNumberLast4?: string | null; [key: string]: unknown };
@@ -128,7 +129,8 @@ export default function A2pRegistrationPage() {
     <h1 style={{ marginBottom: 6 }}>A2P campaign registration</h1>
     <p style={{ color: "#77736e", lineHeight: 1.5 }}>Prepare each studio&apos;s SMS campaign for carrier review. Complete legal-page setup before submitting this form.</p>
 
-    {!profile && <section style={card}><h2>Loading your studio registration…</h2><p>{message || "Your signed-in studio is selected automatically."}</p></section>}
+    {organizationId && user?.role === 'OWNER' && <LegalCustomerSetup organizationId={organizationId} />}
+    {!profile && <section style={card}><h2>{message ? 'Registration setup needed' : 'Loading your studio registration…'}</h2><p>{message || "Your signed-in studio is selected automatically."}</p></section>}
 
     {profile && <>
       {adoptedExisting && profile.status === "APPROVED" ? <section style={{...card,borderColor:"#b9d8c4"}}><h2 style={{marginTop:0}}>Existing Twilio Registration — Approved</h2><p style={{fontSize:14,lineHeight:1.6}}><strong>Outbound messaging is active.</strong> Maia adopted the studio&apos;s existing approved A2P registration and will not create duplicate registration resources.</p><div style={{display:"grid",gap:8,fontSize:13,marginTop:16}}>{Boolean(adoptedMessagingServiceSid) && <div><strong>Messaging Service:</strong> <code>{String(adoptedMessagingServiceSid)}</code></div>}{Boolean(profile.twilioCampaignSid) && <div><strong>Campaign:</strong> <code>{String(profile.twilioCampaignSid)}</code></div>}{Boolean(profile.twilioBrandSid) && <div><strong>Brand:</strong> <code>{String(profile.twilioBrandSid)}</code></div>}{adoptedSenders.length > 0 && <div><strong>Sender:</strong> {adoptedSenders.map(sender => sender.phoneNumber).join(", ")}</div>}<div><strong>Twilio status:</strong> APPROVED · <strong>Mode:</strong> {mode}</div></div>{Boolean(profile.statusMessage) && <p style={{color:"#5f6f64",fontSize:13,marginTop:16}}>{String(profile.statusMessage)}</p>}<button disabled={busy} onClick={sync} style={{marginTop:8,padding:"11px 18px"}}>Sync Twilio status</button></section> : <section style={card}><h2 style={{ marginTop: 0 }}>Readiness</h2><p><strong>{profile.readiness.completed}/{profile.readiness.total}</strong> requirements complete · Status: <strong>{profile.status}</strong> · Mode: <strong>{mode}</strong></p>{Boolean(profile.statusMessage) && <p>{String(profile.statusMessage)}</p>}{profile.readiness.missing.length > 0 && <p style={{ color: "#8f2f22" }}>Still required: {profile.readiness.missing.join(", ")}</p>}{Boolean(profile.providerErrors) && <details open><summary style={{color:"#8f2f22",fontWeight:700}}>Twilio review details</summary><pre style={{whiteSpace:"pre-wrap",fontSize:12}}>{JSON.stringify(profile.providerErrors,null,2)}</pre></details>}</section>}

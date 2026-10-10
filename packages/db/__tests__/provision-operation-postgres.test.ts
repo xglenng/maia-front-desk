@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { pool } from '@db';
 import { provisionOperation, ProvisionReconciliationRequired } from '../../integrations/provision-operation';
+import { provisioningRecoveryReport } from '../../integrations/provision-recovery';
+import { reviewPersistedProvision,ProvisionReviewConflict } from '../../integrations/provision-review';
+import { NextRequest } from 'next/server';
+import { POST } from '../../../app/api/twilio/provision/review/route';
 const socket = process.env.MAIA_BASELINE_TEST_SOCKET;
 test('real PostgreSQL persists remote intents, serializes duplicates and enforces tenant ownership', { skip: !socket }, async t => {
   assert.match(socket!, /^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
@@ -29,5 +33,38 @@ test('real PostgreSQL persists remote intents, serializes duplicates and enforce
     assert.equal(calls,1);
     await assert.rejects(provisionOperation(foreign,artist,account,'SERVICE',work),{code:'23503'});
     assert.equal(calls,1);
+    const report = await provisioningRecoveryReport(org);
+    assert.equal(report.length,2);
+    assert.ok(report.every(row=>row.decision==='ACCOUNT_REVIEW_REQUIRED' && row.providerVerified===false && row.automaticRetryAllowed===false));
+    assert.deepEqual(await provisioningRecoveryReport(foreign),[]);
+    const reviewer=randomUUID(),customer=randomUUID();
+    await local.query("INSERT INTO users(id,organization_id,email,name,role) VALUES($1,$2,'synthetic-review@example.test','Owner','OWNER')",[reviewer,org]);
+    await local.query("INSERT INTO legal_customers(id,organization_id,customer_type,legal_name) VALUES($1,$2,'STUDIO','Synthetic')",[customer,org]);
+    await local.query("INSERT INTO legal_customer_accounts(organization_id,legal_customer_id,twilio_account_id,verified_by_user_id,verified_at,verification_reference) VALUES($1,$2,$3,$4,now(),'synthetic review')",[org,customer,account,reviewer]);
+    t.mock.method(pool,'connect',local.connect.bind(local) as never);
+    const actor={id:reviewer,organization_id:org,role:'OWNER' as const,name:'Synthetic Owner',email:'synthetic-review@example.test'};
+    const numberIntent=(await local.query("SELECT id FROM twilio_provision_operations WHERE step='NUMBER'")).rows[0].id;
+    await assert.rejects(reviewPersistedProvision(actor,numberIntent,'synthetic evidence'),ProvisionReviewConflict);
+    await assert.rejects(reviewPersistedProvision({...actor,role:'ARTIST'},numberIntent,'synthetic evidence'),ProvisionReviewConflict);
+    const serviceIntent=(await local.query("SELECT id FROM twilio_provision_operations WHERE step='SERVICE'")).rows[0].id;
+    await local.query("UPDATE twilio_provision_operations SET status='INTENT',completed_at=NULL WHERE id=$1",[serviceIntent]);
+    await local.query("INSERT INTO twilio_messaging_services(organization_id,artist_id,twilio_account_id,service_sid,status) VALUES($1,$2,$3,$4,'ACTIVE')",[org,artist,account,'MG'+'c'.repeat(32)]);
+    await assert.rejects(reviewPersistedProvision({...actor,organization_id:foreign},serviceIntent,'synthetic evidence'),ProvisionReviewConflict);
+    const reviews=await Promise.all([reviewPersistedProvision(actor,serviceIntent,'first review'),reviewPersistedProvision(actor,serviceIntent,'second review')]);
+    assert.ok(reviews.every(r=>r.status==='COMPLETED'));
+    const evidence=(await local.query('SELECT reviewed_by_user_id,review_reference FROM twilio_provision_operations WHERE id=$1',[serviceIntent])).rows[0];
+    assert.equal(evidence.reviewed_by_user_id,reviewer);assert.equal(evidence.review_reference,'first review');
+    let sessionRole='OWNER';
+    t.mock.method(pool,'query',(async(sql:string,values:unknown[])=>sql.includes('FROM auth_sessions')?{rows:[{id:reviewer,organization_id:org,role:sessionRole}],rowCount:1}:local.query(sql,values)) as never);
+    const request=(body:object)=>new NextRequest('http://localhost/api/twilio/provision/review',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${'a'.repeat(64)}`,'content-type':'application/json'},body:JSON.stringify(body)});
+    const command={organizationId:org,operationId:serviceIntent,reference:'later review',localResourceReviewed:true};
+    const response=await POST(request(command),undefined);assert.equal(response.status,200);assert.equal((await response.json()).providerVerified,false);
+    assert.equal((await POST(request({...command,organizationId:foreign}),undefined)).status,403);
+    assert.equal((await POST(request({...command,reviewedByUserId:reviewer}),undefined)).status,400);
+    assert.equal((await POST(request({...command,localResourceReviewed:false}),undefined)).status,400);
+    sessionRole='ARTIST';assert.equal((await POST(request(command),undefined)).status,403);
+
+    await assert.rejects(provisionOperation(org,artist,account,'SERVICE',work),ProvisionReconciliationRequired);
+
   } finally { await local.end(); }
 });

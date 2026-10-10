@@ -241,3 +241,114 @@ Limitations: this is a conservative manual-reconciliation gate, not automated pr
 Local verification: real Drizzle clean install/populated upgrade/repeat-run and 51-table snapshot parity, tenant integrity, real PostgreSQL concurrent intent claims and foreign-tenant refusal passed (72 checks). Provider-mocked tests verify partial repair and missing binding; intent tests verify duplicate claims and ambiguous failures. TypeScript and staging safety passed.
 
 Commit checkpoint validation: 242 regression tests passed, 11 opt-in database groups skipped; 72 disposable PostgreSQL checks passed separately. TypeScript, whitespace and staging safety (3 passed, 1 optional skipped) passed. Local PostgreSQL stopped. Migrations 0006/0007 prepared only.
+
+### T02 local recovery inspection — October 9, 2026
+
+Added owner-only `GET /api/twilio/provision/recovery?organizationId=<own tenant>` and `packages/integrations/provision-recovery.ts`. The read-only report compares operation intents with tenant-scoped local services, primary numbers, service associations and active account binding. Decisions distinguish account review, ambiguous resources, missing completed resources, unresolved remote outcomes, and persisted local evidence. It returns neither tokens nor customer contact data. Every result explicitly states providerVerified=false and automaticRetryAllowed=false.
+
+This endpoint does not reconcile provider inventory, reset intents, adopt remote resources or authorize retry. A persisted record alone cannot prove remote ownership, approval or that an in-flight request has finished. Next: durable reviewer evidence and a repair command with independently verified resource/account ownership and concurrency checks; first-account creation remains pending. No live provider access is authorized by this checkpoint.
+
+Validation: 244 regression tests passed, 11 optional DB groups skipped; actual recovery SQL passed against disposable local PostgreSQL, including foreign-tenant empty results. TypeScript passed. No Railway access, migrations, live messages, registration or deployment. This follow-up is local and uncommitted.
+
+### T02 audited local bookkeeping repair — October 9, 2026
+
+Added owner-only `POST /api/twilio/provision/review` (`organizationId`, `operationId`, `reference`, `localResourceReviewed:true`). Strict input rejects caller-supplied reviewer identity. The server rechecks the owner's tenant role, locks organization review and operation rows, requires an active designated account and a unique matching persisted service/number/association, and records reviewer/time/reference while marking local bookkeeping COMPLETED. Identical/concurrent review preserves the first evidence. Unknown provider outcomes and ambiguous records cannot be cleared.
+
+Migration 0008 adds nullable review columns, tenant reviewer FK and all-or-none evidence/status constraint without altering existing intents. Nine-entry Drizzle clean/populated/repeat parity passed against the 51-table snapshot. This command does not prove remote ownership, certify approval, adopt resources, reset intents or retry provider actions. The unique operation key continues to block a repeated write after review. Real provider reconciliation and first-account onboarding remain pending; T02/T03 remain open.
+
+Actual disposable PostgreSQL helper and HTTP tests passed: persisted-resource review, unknown-outcome refusal, owner/artist and foreign-tenant checks, strict attestation/reviewer rejection, concurrent review preservation and no provider replay. No Railway or live provider access occurred. Migration is prepared only; deployment must include reviewed 0006–0008 migration/account setup. Preserve review evidence on application rollback; do not drop populated columns. This work remains local and uncommitted.
+
+Final review validation: 244 regression tests passed, 11 optional database groups skipped; real nine-migration parity and synthetic helper/HTTP review checks passed separately. TypeScript passed after completing the synthetic Identity fixture; staging safety 3 passed, 1 skipped; whitespace passed. Disposable PostgreSQL stopped.
+
+### T01 first-account onboarding implementation — October 9, 2026
+
+Added owner-only POST/GET `/api/compliance/legal-customer/account`. POST requires explicit `liveAccountCreationAuthorized:true`, an existing same-tenant legal customer and founding artist, live mode and operator `TWILIO_ACCOUNT_CREATION_ENABLED=true`. The operator flag is absent/disabled by default; mock mode cannot create live accounts. No flag or live credential was configured outside isolated tests.
+
+Migration 0009 introduces one durable account-creation intent per owning organization, tenant-scoped customer/artist/requester/account FKs and state constraints. Organization review locking and a committed intent precede the remote request; existing account/service/phone resources reject first-account creation instead of being adopted. Successful returned credentials are encrypted and account + legal-customer binding + completed intent persist atomically. Any uncertain remote result or failed local save leaves the intent blocked; there is no automatic account retry or intent deletion/reset. GET exposes sanitized intent state, not credentials. Account creation does not approve a Secondary Profile, brand, campaign or messaging.
+
+The account retains the founding artist foreign key for schema compatibility while legal ownership belongs to the organization/customer. Artists under that entity use its designated account; independent businesses require separate owning tenants. Multi-organization artist UX and a customer-facing onboarding wizard remain open. Real provider inventory reconciliation and legitimate-business end-to-end verification remain pending.
+
+Validation: synthetic PostgreSQL tests with mocked Twilio prove distinct studio/independent-business accounts, foreign identity refusal, concurrency with one create call, encryption, atomic binding and blocked unknown outcomes. Ten-entry journal clean/populated/repeat parity and 52-table snapshot match passed together with tenant integrity (72 checks). No Railway, production or live provider action occurred. Migration is prepared only. Preserve intents/bindings on rollback; do not deploy older auto-create provisioning over unresolved intents. Changes remain local and uncommitted.
+
+First-account final validation: 247 regression tests passed, 12 optional database groups skipped; 72 disposable PostgreSQL checks passed separately. TypeScript, whitespace and staging safety (3 passed, 1 skipped) passed. Disposable PostgreSQL stopped. No live account was created and operator creation remains disabled in actual environments. Browser staging and production verification remain pending.
+
+Production read-only evidence — October 10, 2026: user screenshots confirm all three applied journal records exactly match repository hashes/timestamps for 0000–0002. Duplicate normalized email groups=0 and duplicate provider/external-account groups=0. The four new ownership/intent tables are absent. These checks do not certify schema compatibility or complete tenant integrity; next is the existing 65-relationship count-only preflight for 0005. No production modifications or deployment performed.
+
+## Approved production backup — October 10, 2026
+
+User explicitly approved reading production and saving a private backup outside the repository. Authenticated Railway CLI selected project efficient-clarity and the production Postgres service explicitly; staging endpoints were excluded. Credentials were captured privately and not printed or written to repository files. pg_dump used a read-only connection and custom archive without owner/grant restoration metadata.
+
+Backup directory: /Users/garrettglenn/maia-private-backups/production-20261010T185304Z (directory 0700; dump/metadata 0600). Archive size 186482 bytes; 297 TOC entries; SHA-256 05550f8dd14192270b76ce8a1468f78599b1fcc9087847f0f22bb81cf866431c. It contains sensitive production data; keep private and outside Git. This is a snapshot, not ongoing recovery coverage; subsequent production writes are not included.
+
+Restore verification passed in a disposable local Unix-socket-only PostgreSQL cluster: 48 public tables and three journal entries restored successfully. No Maia application, workers or provider actions ran. The verification server was stopped and restored test files removed. The private archive remains. No production data/schema was modified. Production screenshots also showed zero violations across the 65 tenant relationship preflight checks.
+
+Next: rehearse exact migrations 0003–0009 against an isolated restored copy and compare schema before requesting approval for the specific production DDL. No merge/deployment/production migration is performed by this backup authorization.
+
+## Restored-backup upgrade rehearsal — October 10, 2026
+
+Migrations 0003–0009 successfully applied with the actual Drizzle migrator to a disposable Unix-socket-only restore of the approved production snapshot. Original journal hashes/timestamps were reverified before applying. Row counts and content fingerprints for all 48 existing public tables matched before/after; fingerprints and customer data were not printed. Journal advanced from three to ten entries. Repeating the migrator was a no-op. Upgraded schema matched the current 52-table snapshot across column types/defaults/nullability, structural constraints and indexes, with zero differences. No application or automation workers ran; no provider/network actions occurred. Local restored data was removed afterward.
+
+Exact candidate upgrade is frozen by docs/sql/production-upgrade-manifest.json. 0003 adds normalized login uniqueness; 0004 adds channel ownership uniqueness; 0005 adds tenant relationship constraints; 0006 adds empty legal-business/account-binding tables; 0007 adds empty provisioning intent storage; 0008 adds nullable review evidence columns/constraints; 0009 adds empty account-creation intent storage. These migrations do not bind legacy resources, submit registrations, buy numbers, send messages or change existing customer rows. Database locks may briefly block writes while validating constraints/indexes.
+
+Production application deployment remains blocked on explicitly reviewed legacy mappings and Railway deployment/cron compatibility. Production migration approval is still required separately under AGENTS.md ('Never run production migrations without explicit authorization'). The production database may have changed since backup; duplicate/tenant preflights must be rechecked before execution. No production DDL or merge/deployment has been performed.
+
+## Approved production schema upgrade completed — October 10, 2026
+
+User explicitly approved production migrations 0003–0009. Fresh private pre-upgrade backup is /Users/garrettglenn/maia-private-backups/production-20261010T185904Z (custom archive readable, 186482 bytes; previous identical-sized snapshot was restore-tested). The initial Node PostgreSQL client rejected Railway's certificate before the migration lock; no DDL ran in that attempt. No application TLS configuration was changed.
+
+The alternative uses installed libpq psql with the same PGSSLMODE=require as the approved backup. Its exact SQL transaction was first tested on a disposable restore. Production transaction verified original journal hashes, duplicate identity/channel preflights and all tenant relationship counts; applied original 0003–0009 SQL with matching journal hash/timestamp inserts; and verified all ten journal hashes, 52 public tables, three review columns, empty new ownership/intent tables and zero tenant violations before COMMIT. The journal format matches the real Drizzle migrator; existing entries were not rewritten. Lock waits and statements were bounded. Credentials and raw provider/customer data were not printed.
+
+No live provider actions, new account creation, registrations, SMS, payment, resource adoption, app merge or deployment occurred. Exact manifest now records executed scope. No production rollback or data reset was performed. Disposable restored test data was removed.
+
+Next deployment prerequisite: explicitly reviewed legal-business/account mappings for existing studios, preserving approved campaigns and purchased numbers, then verify Railway auto-deploy/cron behavior before the authorized merge. New tables remain empty; deploying new registration/polling now would fail closed for unbound studios. Live campaign submission remains separately unauthorized.
+
+### Embellished staging preparation — October 10, 2026
+
+User chose Embellished Studios as the business model for isolated workflow tests. No real contact data, credentials, approved number, campaign or production organization was imported. Inspected only clean synthetic service switchyard:50219 and verified its synthetic-testing marker; the production-derived Postgres-ACf_ service was untouched.
+
+Clean staging was an older 48-table snapshot without a journal. Prepared docs/sql/clean-staging-upgrade.sql from catalog differences instead of replaying journal migrations. The guarded transaction creates four missing tables, adds 20 indexes and 107 constraints, removes three redundant single-column location FKs while preserving composite relationships, and updates the synthetic bootstrap hash. Rehearsal on a private local copy preserved all 48 existing table contents and matched current columns/constraints/indexes. Applied only to the clean staging service: now 52 tables, zero tenant violations, no invented journal and no provider actions. Existing synthetic fixtures remain.
+
+Staging configuration now explicitly sets TWILIO_COMPLIANCE_MODE=mock and TWILIO_ACCOUNT_CREATION_ENABLED=false. The isolated source-copy app was restarted on 127.0.0.1:3100 with credential-free provider environment and network guard. Signup GET returned 200 with a form. Tests: 247 regression passed, 12 optional database groups skipped; TypeScript passed; all four staging safety/bootstrap tests passed with a fresh disposable local database (no skipped bootstrap). Fixed an accidentally altered expected PostgreSQL uniqueness code back to 23505; the real bootstrap check now exercises it.
+
+Manual next step: create a separate synthetic owner/studio from local /signup, labeled Embellished Studios — staging test, with example.test email and synthetic owner/artist names. Browser signup, subsequent onboarding and mock approval progression are pending user results. This does not verify live Twilio approval or authorize submission. The dedicated legal-account APIs remain disabled for live creation in mock mode. Production deployment/account mapping remains pending; no main merge was performed.
+
+### 2026-10-10 — Val browser onboarding check (isolated synthetic staging)
+
+- Browser session confirmed Embellished Studios, owner Val Glenn, artist Val. This is the local app using the clean synthetic staging database, not production.
+- Created and visibly verified one active `Synthetic staging consultation` service: Tattoo, 30 minutes, flat $50, no deposit.
+- Test Maia preview session loaded for Val. A price question was persisted and received the expected canned mock response. This verifies the browser conversation round trip only; the mock does not retrieve service prices or exercise OpenAI reasoning/tools.
+- Core readiness correctly remains blocked because `app/api/onboarding/readiness/route.ts` requires an OpenAI key and a non-mock provider. Staging intentionally supplies neither. No live provider setting was enabled.
+- Outstanding: real model/configuration/tool correctness and live Twilio onboarding remain unverified. Browser wording describing saved configuration should make mock limitations clearer; the activity trace also replaces response-mode detail with `Conversation loaded` after refresh.
+
+- Val staging compliance follow-up: registration page correctly refused intake without a compliance profile. Saved a clearly labeled synthetic profile with example.test email and explicitly synthetic address, using the local hosted web presence. UI confirmed saved, hosted consent surface created, and LEGAL_REVIEW_REQUIRED status. No legal pages published or Twilio registration submitted. The registration page retains a misleading loading heading after prerequisite failure; record as a UI follow-up.
+
+- Generated Val staging Privacy Policy and Terms & Conditions v1 drafts in the browser. Both use the synthetic business label, synthetic address, example.test email and loopback hosted URL. Verified draft text contains STOP/HELP, message/data rates, optional SMS consent, and marketing-sharing exclusion language. This is template rendering verification, not legal sufficiency or carrier approval. Publication remains pending owner review/attestation; the checkbox is unchecked and Publish disabled. No registration or live provider action occurred.
+
+- Owner confirmed publication of Val synthetic legal pages. UI status moved to PENDING_TWILIO_SETUP. Both public loopback pages loaded. Found and fixed heading-adjacent paragraph loss in the shared LegalDocument renderer; browser confirmed restored Privacy disclosures and Terms appointment-confirmation paragraph. Added passing server-rendered preservation/escaping regression. No production deployment or live A2P verification.
+
+### 2026-10-10 — Val staging registration prerequisites
+
+- Registration page loads after legal publication and explicitly reports mock mode, 8/28 requirements complete. Intake lacks representative/registration/address details and no number is provisioned; no fictional EIN or live registration was submitted.
+- Consent settings show Val's Maia-hosted optional checkbox workflow and loopback public form URL. Its `Ready for Twilio review` label is local configuration readiness only; localhost remains ineligible for live registration.
+- Twilio setup correctly reports provider actions/webhooks/automations disabled in isolated staging and disables provisioning. This is intentional safety enforcement; browser mock provisioning/approval cannot be claimed completed in this configuration.
+- Focused A2P/account-boundary/first-account tests: 24 passed, zero skipped, using mocked provider calls; this run does not exercise actual PostgreSQL or Twilio. Live business ownership, provider approval and message delivery remain outstanding.
+
+### 2026-10-10 — legal-business/account UI
+
+- Added owner-only setup snapshot and registration-page panel. Browser saved Val's explicitly synthetic STUDIO legal identity, refreshed it, and confirmed Create first Twilio account is disabled in isolated staging.
+- Regression suite: 249 passed, 12 optional groups skipped. TypeScript and whitespace passed. New snapshot security test covers foreign tenant/artist denial, credential-free projection and isolated live-creation disablement.
+- Not verified in browser: independent-business tenant creation, reviewed legacy binding, live first-account creation and ambiguous provider recovery. No live provider actions or production changes.
+
+### 2026-10-10 — independent-business manual UI verification
+
+User screenshot confirms a separate session signed in as Synthetic Independent Owner saved `Synthetic Independent Artist` with ownership type `Independent artist legal business`. The panel reports setup saved, first Twilio account creation disabled, and missing business compliance setup. This verifies the independent-business identity UI save in a separate synthetic signup; it does not verify Twilio account ownership or cross-tenant account binding. Codex browser remains in the Val session, so screenshots are the evidence for this manual result. No live account or registration was created.
+
+- Account setup policy checks: first account creation is unavailable after any INTENT/COMPLETED attempt, when accounts/bindings already exist, when identity is ambiguous or live creation disabled. Binding disallows mock, suspended, duplicate accounts and uncertain intents. Customer/account mismatch does not show ownership recorded. Regression total 251 passed, 12 optional skipped; TypeScript and whitespace passed. Fixed stale eligibility during failed refresh; UI now clears snapshot and acknowledgements and offers read-only refresh. Full browser failure/binding branch tests remain pending.
+
+### 2026-10-10 — controlled browser account-state tests
+
+Temporary GET-only synthetic setup responses in the isolated runtime source copy exercised the actual registration panel. No binding or account-creation command was submitted and no fixture account was persisted. Existing-account button stayed disabled with review reference alone and enabled only after the unsaved synthetic acknowledgement. A simulated 503 refresh removed binding controls and retained read-only refresh. INTENT state exposed neither binding nor replacement-creation controls. Matching saved binding displayed ownership recorded while explicitly leaving provider ownership/A2P approval unverified. Restored runtime GET route byte-for-byte to repository implementation after checks. Normal synthetic staging data refreshed; live actions remain disabled. These verify browser presentation/control gates, not live provider ownership or completed binding transactions.
+
+### 2026-10-10 — commit checkpoint review
+
+Server-side first-account creation now explicitly rejects isolated staging even if live creation flags are accidentally enabled; regression coverage confirms the rejection. Final regression run: 251 passed, 12 optional database groups skipped. Staging safety checks: 3 passed, 1 optional database check skipped. TypeScript and whitespace checks passed. Application source contains no temporary browser response fixtures. Live Twilio ownership, registration and delivery remain unverified; no provider actions were performed during this review.

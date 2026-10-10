@@ -1001,11 +1001,34 @@ export const twilioProvisionOperations = pgTable('twilio_provision_operations', 
   step: text('step').notNull(),
   status: text('status').notNull().default('INTENT'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  reviewedByUserId: uuid('reviewed_by_user_id'),
+  reviewReference: text('review_reference'),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true })
 }, table => [
   uniqueIndex('twilio_provision_operations_step_uidx').on(table.organizationId, table.artistId, table.step),
   foreignKey({ name: 'twilio_provision_operations_artist_tenant_fk', columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
   foreignKey({ name: 'twilio_provision_operations_account_tenant_fk', columns: [table.twilioAccountId, table.organizationId], foreignColumns: [twilioAccounts.id, twilioAccounts.organizationId] }),
+  foreignKey({ name: 'twilio_provision_operations_reviewer_tenant_fk', columns: [table.reviewedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+  check('twilio_provision_operations_review_check', sql`(${table.reviewedAt} IS NULL AND ${table.reviewedByUserId} IS NULL AND ${table.reviewReference} IS NULL) OR (${table.reviewedAt} IS NOT NULL AND ${table.reviewedByUserId} IS NOT NULL AND ${table.reviewReference} IS NOT NULL AND length(btrim(${table.reviewReference})) > 0 AND ${table.status} = 'COMPLETED')`),
   check('twilio_provision_operations_status_check', sql`${table.status} IN ('INTENT', 'COMPLETED')`),
   check('twilio_provision_operations_step_check', sql`${table.step} IN ('SERVICE', 'NUMBER', 'ASSOCIATE')`)
+]);
+
+export const twilioAccountCreationIntents = pgTable('twilio_account_creation_intents', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().unique().references(() => organizations.id),
+  legalCustomerId: uuid('legal_customer_id').notNull(),
+  artistId: uuid('artist_id').notNull(),
+  requestedByUserId: uuid('requested_by_user_id').notNull(),
+  twilioAccountId: uuid('twilio_account_id'),
+  status: text('status').notNull().default('INTENT'),
+  createdAt: timestamp('created_at',{withTimezone:true}).defaultNow().notNull(),
+  completedAt: timestamp('completed_at',{withTimezone:true})
+},table=>[
+  foreignKey({name:'account_creation_customer_tenant_fk',columns:[table.legalCustomerId,table.organizationId],foreignColumns:[legalCustomers.id,legalCustomers.organizationId]}),
+  foreignKey({name:'account_creation_artist_tenant_fk',columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+  foreignKey({name:'account_creation_requester_tenant_fk',columns:[table.requestedByUserId,table.organizationId],foreignColumns:[users.id,users.organizationId]}),
+  foreignKey({name:'account_creation_account_tenant_fk',columns:[table.twilioAccountId,table.organizationId],foreignColumns:[twilioAccounts.id,twilioAccounts.organizationId]}),
+  check('account_creation_state_check',sql`(${table.status} = 'INTENT' AND ${table.twilioAccountId} IS NULL AND ${table.completedAt} IS NULL) OR (${table.status} = 'COMPLETED' AND ${table.twilioAccountId} IS NOT NULL AND ${table.completedAt} IS NOT NULL)`)
 ]);

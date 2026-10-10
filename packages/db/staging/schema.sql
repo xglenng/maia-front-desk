@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 67f55b20c4f1d51b06a1bc9ea54ec29e5914577ff88b867037c010cec367c3a8
+-- schema-source-sha256: 160de53849ea9bf06136bfe07eb6d32449543e29697ae45dc00a9708ee88048e
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -767,6 +767,20 @@ CREATE TABLE "studio_locations" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "twilio_account_creation_intents" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"legal_customer_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"requested_by_user_id" uuid NOT NULL,
+	"twilio_account_id" uuid,
+	"status" text DEFAULT 'INTENT' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"completed_at" timestamp with time zone,
+	CONSTRAINT "twilio_account_creation_intents_organization_id_unique" UNIQUE("organization_id"),
+	CONSTRAINT "account_creation_state_check" CHECK (("twilio_account_creation_intents"."status" = 'INTENT' AND "twilio_account_creation_intents"."twilio_account_id" IS NULL AND "twilio_account_creation_intents"."completed_at" IS NULL) OR ("twilio_account_creation_intents"."status" = 'COMPLETED' AND "twilio_account_creation_intents"."twilio_account_id" IS NOT NULL AND "twilio_account_creation_intents"."completed_at" IS NOT NULL))
+);
+--> statement-breakpoint
 CREATE TABLE "twilio_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -801,7 +815,11 @@ CREATE TABLE "twilio_provision_operations" (
 	"step" text NOT NULL,
 	"status" text DEFAULT 'INTENT' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"reviewed_by_user_id" uuid,
+	"review_reference" text,
+	"reviewed_at" timestamp with time zone,
 	"completed_at" timestamp with time zone,
+	CONSTRAINT "twilio_provision_operations_review_check" CHECK (("twilio_provision_operations"."reviewed_at" IS NULL AND "twilio_provision_operations"."reviewed_by_user_id" IS NULL AND "twilio_provision_operations"."review_reference" IS NULL) OR ("twilio_provision_operations"."reviewed_at" IS NOT NULL AND "twilio_provision_operations"."reviewed_by_user_id" IS NOT NULL AND "twilio_provision_operations"."review_reference" IS NOT NULL AND length(btrim("twilio_provision_operations"."review_reference")) > 0 AND "twilio_provision_operations"."status" = 'COMPLETED')),
 	CONSTRAINT "twilio_provision_operations_status_check" CHECK ("twilio_provision_operations"."status" IN ('INTENT', 'COMPLETED')),
 	CONSTRAINT "twilio_provision_operations_step_check" CHECK ("twilio_provision_operations"."step" IN ('SERVICE', 'NUMBER', 'ASSOCIATE'))
 );
@@ -1258,6 +1276,16 @@ ALTER TABLE "studio_faqs" ADD CONSTRAINT "studio_faqs_tenant_location_fk" FOREIG
 --> statement-breakpoint
 ALTER TABLE "studio_locations" ADD CONSTRAINT "studio_locations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
+ALTER TABLE "twilio_account_creation_intents" ADD CONSTRAINT "twilio_account_creation_intents_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_account_creation_intents" ADD CONSTRAINT "account_creation_customer_tenant_fk" FOREIGN KEY ("legal_customer_id","organization_id") REFERENCES "public"."legal_customers"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_account_creation_intents" ADD CONSTRAINT "account_creation_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_account_creation_intents" ADD CONSTRAINT "account_creation_requester_tenant_fk" FOREIGN KEY ("requested_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_account_creation_intents" ADD CONSTRAINT "account_creation_account_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
 ALTER TABLE "twilio_accounts" ADD CONSTRAINT "twilio_accounts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_accounts" ADD CONSTRAINT "twilio_accounts_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
@@ -1279,6 +1307,8 @@ ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_opera
 ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_operations_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_operations_account_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_operations_reviewer_tenant_fk" FOREIGN KEY ("reviewed_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

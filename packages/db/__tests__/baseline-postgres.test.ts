@@ -13,7 +13,7 @@ const journal = JSON.parse(readFileSync('packages/db/drizzle/meta/_journal.json'
 test('versioned baseline matches its preserved historical schema source', () => {
   const hash = createHash('sha256').update(readFileSync('packages/db/baseline/pre-journal-schema.ts')).digest('hex');
   assert.ok(baseline.includes(`schema-source-sha256: ${hash}`));
-  assert.equal(journal.entries.length, 8);
+  assert.equal(journal.entries.length, 10);
 });
 test('empty baseline and populated supported upgrade use the real Drizzle journal', { skip: !socket }, async () => {
   assert.match(socket!, /^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);

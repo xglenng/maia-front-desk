@@ -15,7 +15,7 @@ function stagingConfig(contents) {
     throw new Error('Database URL must target only the verified clean staging endpoint and railway database, without query options.');
   }
   return {DATABASE_URL: values.DATABASE_URL, MAIA_STAGING_ISOLATED: '1', AI_PROVIDER: 'mock',
-    TWILIO_PROVISION_MODE: 'mock', TWILIO_PORT_MODE: 'mock', NEXT_PUBLIC_APP_URL: 'http://127.0.0.1:3100',
+    TWILIO_PROVISION_MODE: 'mock', TWILIO_PORT_MODE: 'mock', TWILIO_COMPLIANCE_MODE: 'mock', TWILIO_ACCOUNT_CREATION_ENABLED: 'false', NEXT_PUBLIC_APP_URL: 'http://127.0.0.1:3100',
     NEXT_TELEMETRY_DISABLED: '1', __NEXT_PROCESSED_ENV: 'true'};
 }
 module.exports = {stagingConfig, HOST, PORT};

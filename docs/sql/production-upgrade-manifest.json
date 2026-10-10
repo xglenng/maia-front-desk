@@ -1,0 +1,47 @@
+{
+  "source_applied_entries": [
+    "0000",
+    "0001",
+    "0002"
+  ],
+  "approved_target_pending": false,
+  "pending_entries": [
+    {
+      "tag": "0003_signup_identity_uniqueness",
+      "when": 1791590400000,
+      "sha256": "ee8c2f71e411fd60595b49b27e1325c61cf0a59ac6a9424c86b88a1dbd04b716"
+    },
+    {
+      "tag": "0004_channel_routing_ownership",
+      "when": 1791676800000,
+      "sha256": "3ed13b6ca9b84fc2269751f4461eb2127edc51a48665562774f94d1709bcff92"
+    },
+    {
+      "tag": "0005_tenant_relationship_boundaries",
+      "when": 1791763200000,
+      "sha256": "e88947d38bb75ba103877c266d0f5f0bb4b31157eaa18611d12561a401e890e4"
+    },
+    {
+      "tag": "0006_legal_customer_account_bindings",
+      "when": 1791849600000,
+      "sha256": "8dd717b41c6f3b78f9b36da6633cf53d5bd86770c212ae1b21f3c83d49bb6b3f"
+    },
+    {
+      "tag": "0007_twilio_provision_operations",
+      "when": 1791936000000,
+      "sha256": "fdabc7261ebed74c0f53774e3fcea554448aa072d452844132ddabcb378f1333"
+    },
+    {
+      "tag": "0008_provision_review_evidence",
+      "when": 1792022400000,
+      "sha256": "d473b6b97160d5e074e5827419c5378957169ef84a3dd8bd5bc203c6051d2e57"
+    },
+    {
+      "tag": "0009_first_account_creation_intents",
+      "when": 1792108800000,
+      "sha256": "af4b62e7f22b2da64533c79dd954c1ddcb656eab0a49db66ac4c28a531e8aff0"
+    }
+  ],
+  "production_executed": true,
+  "production_execution_date": "2026-10-10"
+}

@@ -23,7 +23,7 @@ async function initialize(pool,{sql,hash}) {
       CREATE TABLE maia_staging_meta.bootstrap(schema_hash text PRIMARY KEY, initialized_at timestamptz NOT NULL DEFAULT now(), purpose text NOT NULL CHECK(purpose='synthetic-testing'));`);
     await client.query("INSERT INTO maia_staging_meta.bootstrap(schema_hash,purpose) VALUES($1,'synthetic-testing')",[hash]);
     const tables=await client.query("SELECT count(*)::int AS count FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'");
-    if(tables.rows[0].count!==51)throw new Error('Unexpected staging table count; initialization rolled back.');
+    if(tables.rows[0].count!==52)throw new Error('Unexpected staging table count; initialization rolled back.');
     await client.query('COMMIT');
     return tables.rows[0].count;
   } catch(error) {

@@ -8,6 +8,8 @@ test('staging configuration accepts only the clean endpoint and excludes provide
   const result=stagingConfig(`DATABASE_URL=${valid}`);
   assert.equal(result.DATABASE_URL,valid);
   assert.equal(result.AI_PROVIDER,'mock');
+  assert.equal(result.TWILIO_ACCOUNT_CREATION_ENABLED,'false');
+  assert.equal(result.TWILIO_COMPLIANCE_MODE,'mock');
   assert.equal(result.AUTOMATION_CRON_SECRET,undefined);
   assert.equal(result.TWILIO_AUTH_TOKEN,undefined);
   for(const contents of [`DATABASE_URL=${valid}\nSTRIPE_SECRET_KEY=fake`, `DATABASE_URL=${valid}\nDATABASE_URL=${valid}`, 'DATABASE_URL=not-a-url', `DATABASE_URL=${valid}?host=production`, `DATABASE_URL=${valid.replace(HOST,'production.example')}`, `DATABASE_URL=${valid.replace(PORT,'56100')}`, `DATABASE_URL=${valid.replace('/railway','/production')}`])assert.throws(()=>stagingConfig(contents));
