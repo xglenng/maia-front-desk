@@ -1,4 +1,5 @@
 import 'server-only';
+import { hasBookingName } from './client-name-policy';
 import { and, desc, eq, gte, lt, or, isNull, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
@@ -21,7 +22,16 @@ export async function getClient(ctx: AgentContext) {
   const [client] = await db.select({ firstName: clients.firstName, lastName: clients.lastName })
     .from(clients).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
   if (!client) throw new Error('Client not found');
-  return client;
+  return { ...client, nameRequired: !hasBookingName(client.firstName) };
+}
+
+export async function saveClientName(ctx: AgentContext, input: { firstName: string; lastName?: string }) {
+  if (!hasBookingName(input.firstName)) return { status: 'NAME_REQUIRED' as const };
+  const [client] = await db.update(clients).set({ firstName: input.firstName.trim(), lastName: input.lastName?.trim() || null })
+    .where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)))
+    .returning({ id: clients.id });
+  if (!client) throw new Error('Client not found');
+  return { status: 'SAVED' as const };
 }
 
 export async function getClientAppointments(ctx: AgentContext) {
@@ -117,6 +127,8 @@ export async function getSlots(ctx: AgentContext, input: { serviceId?: string; d
 }
 
 export async function createBookingHold(ctx: AgentContext, input: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) {
+  const client = await getClient(ctx);
+  if (client.nameRequired) return { status: 'NAME_REQUIRED' as const, message: 'Ask the client for their name before booking. Save only the name they explicitly provide.' };
   const internalScheduling = await usesInternalScheduling(ctx.organizationId, ctx.artistId);
   const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
   if (!service) throw new Error('Service not found');

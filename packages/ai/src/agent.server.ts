@@ -10,7 +10,7 @@ import { db } from '@db/index';
 import { agentActions, agentRuns, artists, conversations, messages } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
 import { shouldRunAi } from '@/packages/inbox/state';
-import { createBookingHold, createDepositRequest, escalate, getClient, getContextTimezone, getWaiverLink, sendMessage } from './tools';
+import { createBookingHold, createDepositRequest, escalate, getClient, getContextTimezone, getWaiverLink, saveClientName, sendMessage } from './tools';
 import { checkAvailability, getClientAppointmentsForReceptionist, getServicePricing, getStudioContext, getStudioPromptConfiguration, listArtists, searchServices } from './read-tools.server';
 import type { MaiaAgentContext } from './context-policy';
 
@@ -171,6 +171,11 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           execute: audit('get_client_appointments', async () => getClientAppointmentsForReceptionist(context)),
         }),
         ...(context.channel === 'WEB_TEST' ? {} : {
+        save_client_name: tool({
+          description: 'Save the name this conversation client explicitly provides for their appointment. Never infer it from a phone number or invent a name. This does not change SMS consent.',
+          parameters: z.object({ firstName: z.string().trim().min(1).max(100), lastName: z.string().trim().min(1).max(100).optional() }),
+          execute: audit('save_client_name', async (args: { firstName: string; lastName?: string }) => saveClientName(context, args)),
+        }),
         createBookingHold: tool({
           description: 'Create a booking only after the client explicitly selects one specific slot returned by check_availability. Pass its canonical startsAt as start. This existing booking action is distinct from the read-only availability lookup. Inspect depositRequired and do not create a deposit link unless it is true.',
           parameters: z.object({ serviceId: z.string().uuid(), start: z.string() }),
