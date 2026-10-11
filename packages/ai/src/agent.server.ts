@@ -149,7 +149,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           execute: audit('search_services', async (args: { query?: string; serviceType?: string; category?: string; artistPreference?: string }) => searchServices(context, args)),
         }),
         get_service_pricing: tool({
-          description: 'Return configured flat, hourly, starting-at, or quote-required pricing for a service already identified by search_services. Never guess or substitute studio-wide pricing.',
+          description: 'Return configured flat, hourly, starting-at, or quote-required pricing for a service already identified by search_services. Call this in the current turn whenever answering service price or deposit questions, even if a previous assistant answer already quoted an amount. Use priceLabel and deposit.amountLabel as dollar amounts. Never guess or substitute studio-wide pricing.',
           parameters: z.object({ serviceId: z.string().uuid().describe('The serviceId returned by search_services.') }),
           execute: audit('get_service_pricing', async (args: { serviceId: string }) => getServicePricing(context, args.serviceId)),
         }),
