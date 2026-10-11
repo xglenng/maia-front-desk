@@ -3,3 +3,20 @@
 @media(max-width:900px){.inbox-page{padding:18px}.inbox-topbar{align-items:flex-start;flex-direction:column}.inbox-stats{width:100%}.inbox-stats span{flex:1}.inbox-grid{grid-template-columns:1fr;max-height:none}.thread-panel{border-right:0;border-bottom:1px solid var(--line);max-height:420px}.chat-panel{min-height:650px}.chat-header{align-items:flex-start;flex-direction:column}.chat-actions{justify-content:flex-start}.message-bubble{max-width:88%}}
 @media(max-width:520px){.inbox-page{padding:10px}.inbox-topbar h1{font-size:32px}.inbox-stats span{padding:10px}.thread{grid-template-columns:38px minmax(0,1fr)}.thread-avatar{width:38px;height:38px}.thread-flags{grid-column:2;flex-direction:row;align-items:center}.chat-person p{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.message-stream{padding:14px}.composer-area{padding:10px}}
 .inbox-grid{height:calc(100dvh - 210px);min-height:520px;max-height:none}.thread-panel,.chat-panel,.message-stream{min-height:0}.message-stream{overscroll-behavior:contain;scroll-behavior:smooth}@media(max-width:900px){.inbox-grid{height:auto;min-height:0}.chat-panel{height:650px;min-height:650px}}
+
+.conversation-back{display:none}
+.message-bubble{overflow-wrap:anywhere}
+@media(max-width:900px){
+  .inbox-grid{display:flex;flex-direction:column;min-height:60dvh}
+  .thread-panel{max-height:none;border-bottom:0;flex:1}
+  .chat-panel{display:none}
+  .conversation-open{position:fixed;inset:0;z-index:100;height:100dvh;min-height:0;padding:0;gap:0;overflow:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  .conversation-open .inbox-topbar,.conversation-open .thread-panel{display:none}
+  .conversation-open .inbox-grid{flex:1;height:auto;min-height:0;border:0;border-radius:0}
+  .conversation-open .chat-panel{display:flex;flex:1;height:auto;min-height:0;overflow:hidden}
+  .conversation-back{display:block;flex:none;text-align:left;border:0;border-bottom:1px solid var(--line);background:white;color:var(--accent);padding:14px 18px;font:inherit;font-weight:600;min-height:48px}
+  .chat-header,.composer-area{flex:none}
+  .chat-header{padding:12px 14px;gap:10px}
+  .message-stream{min-height:0;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .conversation-open .inbox-alert{margin:8px;flex:none}
+}

@@ -54,6 +54,7 @@ export default function InboxPage() {
   const session = useSession();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [counts, setCounts] = useState({ total: 0, unread: 0, human: 0 });
+  const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -69,7 +70,7 @@ export default function InboxPage() {
       const data = await json<{ conversations: InboxItem[]; counts: typeof counts }>(await fetch("/api/inbox", { cache: "no-store" }));
       setItems(data.conversations);
       setCounts(data.counts);
-      setSelectedId(current => current ?? data.conversations[0]?.id ?? null);
+      setSelectedId(current => current ?? (window.matchMedia("(max-width: 900px)").matches ? null : data.conversations[0]?.id ?? null));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load inbox");
@@ -146,7 +147,7 @@ export default function InboxPage() {
     }
   }
 
-  return <main className="inbox-page">
+  return <main className={`inbox-page ${mobileConversationOpen ? "conversation-open" : ""}`}>
     <header className="inbox-topbar">
       <div>
         <a href="/" className="back-link">← Dashboard</a>
@@ -172,7 +173,7 @@ export default function InboxPage() {
         </div>
         <div className="thread-list">
           {loading ? <div className="inbox-empty">Loading conversations…</div> : visible.length === 0 ? <div className="inbox-empty">No conversations match this view.</div> : visible.map(item =>
-            <button key={item.id} className={`thread ${selectedId === item.id ? "active" : ""}`} onClick={() => setSelectedId(item.id)}>
+            <button key={item.id} className={`thread ${selectedId === item.id ? "active" : ""}`} onClick={() => { setDraft(""); setSelectedId(item.id); setMobileConversationOpen(true); }}>
               <span className="thread-avatar">{initials(item.clientName)}</span>
               <span className="thread-copy">
                 <span className="thread-line"><strong>{item.clientName}</strong><time>{time(item.lastMessageAt)}</time></span>
@@ -185,7 +186,8 @@ export default function InboxPage() {
       </section>
 
       <section className="chat-panel" aria-label="Selected conversation">
-        {!detail ? <div className="chat-placeholder"><div>◌</div><h2>Select a conversation</h2><p>Messages and takeover controls will appear here.</p></div> : <>
+        <button className="conversation-back" onClick={() => { setMobileConversationOpen(false); setSelectedId(null); setDraft(""); }}>← Conversations</button>
+        {!detail || detail.conversation.id !== selectedId ? <div className="chat-placeholder"><div>◌</div><h2>{selectedId ? "Loading conversation…" : "Select a conversation"}</h2><p>Messages and takeover controls will appear here.</p></div> : <>
           <header className="chat-header">
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
