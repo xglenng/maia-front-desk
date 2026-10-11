@@ -128,6 +128,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       system,
       messages: conversationMessages,
       maxSteps: 6,
+      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && /\b(price|prices|cost|costs|deposit)\b|how much/i.test(input.message)
+        ? { toolChoice: { type: 'tool', toolName: 'search_services' } }
+        : undefined,
       tools: {
         getClient: tool({ description: 'Read the current client name when needed for a natural receptionist response. Returns only first and last name.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
         get_studio_context: tool({
