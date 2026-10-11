@@ -1,3 +1,4 @@
+import { validServiceDuration } from '@/packages/studio/service-duration-policy';
 import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { eq, and, asc } from 'drizzle-orm';
@@ -12,7 +13,7 @@ const serviceFields = {
   category: z.string().trim().max(80).nullable().optional().transform(value => value === '' ? null : value),
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(500).nullable().optional().transform(value => value === '' ? null : value),
-  durationMinutes: z.number().int().positive().max(1440),
+  durationMinutes: z.number().int().nonnegative().max(1440),
   pricingType: z.enum(['FLAT', 'HOURLY', 'QUOTE']),
   basePriceCents: z.number().int().nonnegative().nullable().optional(),
   hourlyRateCents: z.number().int().nonnegative().nullable().optional(),
@@ -55,6 +56,7 @@ async function handleGET(request: NextRequest) {
 async function handlePOST(request: NextRequest) {
   const parsed = createServiceSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  if (!validServiceDuration(parsed.data)) return NextResponse.json({ error: 'A pending duration requires Quote pricing and provider approval.' }, { status: 400 });
   const deposit = normalizeServiceDeposit(parsed.data);
   if (!validServiceDeposit(deposit)) return NextResponse.json({ error: 'Configure no deposit, a positive fixed amount, or a percentage from 1 to 100.' }, { status: 400 });
   const [service] = await db.insert(services).values({ ...parsed.data, ...normalizeServicePricing(parsed.data), ...deposit }).returning();

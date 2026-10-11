@@ -1,3 +1,4 @@
+import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
 import { clients, organizations, schedulingConnections, services, serviceProviderMappings } from '@db/schema';
@@ -65,6 +66,10 @@ export async function getSchedulingAvailability(
   input: AvailabilityRequest,
 ): Promise<AvailabilityResult> {
   try {
+    if (input.serviceId) {
+      const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.organizationId, organizationId), eq(services.artistId, artistId), eq(services.active, true))).limit(1);
+      if (service && needsServiceQuote(service)) return { status: 'ARTIST_QUOTE_REQUIRED', slots: [], message: 'The artist must approve the duration and quote before scheduling.' };
+    }
     return await resolveSchedulingAvailability(organizationId, artistId, input);
   } catch {
     console.error(JSON.stringify({ event: 'scheduling_resolution_failure', organizationId, artistId, serviceId: input.serviceId }));
@@ -181,6 +186,7 @@ export async function createSchedulingBooking(
     db.select().from(clients).where(and(eq(clients.id, input.clientId), eq(clients.organizationId, organizationId))).limit(1),
   ]);
   if (!service || !mapping) return { status: 'SERVICE_NOT_MAPPED', message: 'This service is not configured for online booking.' };
+  if (needsServiceQuote(service)) return { status: 'ARTIST_QUOTE_REQUIRED', message: 'The artist must approve the duration and quote before booking.' };
   if (!client) return { status: 'CUSTOMER_ERROR', message: 'The client profile could not be loaded.' };
   try {
     return await resolution.implementation.createBooking({ ...input, organizationId, artistId, connection, mapping, service, client });

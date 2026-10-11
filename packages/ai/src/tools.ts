@@ -1,4 +1,5 @@
 import 'server-only';
+import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
 import { hasBookingName } from './client-name-policy';
 import { and, desc, eq, gte, lt, or, isNull, sql } from 'drizzle-orm';
 import { db } from '@db/index';
@@ -132,6 +133,7 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
   const internalScheduling = await usesInternalScheduling(ctx.organizationId, ctx.artistId);
   const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.artistId, ctx.artistId), eq(services.organizationId, ctx.organizationId), eq(services.active, true)));
   if (!service) throw new Error('Service not found');
+  if (needsServiceQuote(service)) return { status: 'ARTIST_QUOTE_REQUIRED' as const, message: 'Collect the design details for artist review. Duration and price must be approved before booking or requesting a deposit.' };
   const startsAt = new Date(input.start);
   if (!Number.isFinite(startsAt.getTime())) throw new Error('Invalid appointment start time.');
   const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60_000);
@@ -263,6 +265,10 @@ export async function createDepositRequest(ctx: AgentContext, appointmentId: str
     .limit(1);
 
   if (!appointment) throw new Error('Appointment not found.');
+  if (appointment.serviceId) {
+    const [service] = await db.select().from(services).where(and(eq(services.id, appointment.serviceId), eq(services.organizationId, ctx.organizationId), eq(services.artistId, ctx.artistId))).limit(1);
+    if (service && needsServiceQuote(service)) throw new Error('Artist approval of duration and quote is required before requesting a deposit.');
+  }
 
   if (appointment.status !== 'PAYMENT_PENDING') {
     throw new Error('This deposit link is no longer available. Please choose an available appointment time.');

@@ -1,3 +1,4 @@
+import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
 import 'server-only';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@db/index';
@@ -129,6 +130,7 @@ export async function checkAvailability(context: MaiaAgentContext, input: {
   ]);
   const selected = resolveServiceForArtist(context.organizationId, input.serviceId, input.artistPreference, serviceRecords, artistRecords);
   if (!selected) throw new Error('An active matching service and artist could not be found in this studio.');
+  if (needsServiceQuote(selected.service)) return { status: 'ARTIST_QUOTE_REQUIRED' as const, slots: [], message: 'The artist must confirm the duration and quote before availability can be checked. Collect the design details for review.' };
   const timezone = await getContextTimezone(context.organizationId, selected.artist.id);
   const request = buildAvailabilityRequest({
     organizationId: context.organizationId,

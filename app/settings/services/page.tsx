@@ -86,7 +86,7 @@ function toDraft(service?: Service): Draft {
     category: service.category || '',
     name: service.name,
     description: service.description || '',
-    durationMinutes: String(service.durationMinutes),
+    durationMinutes: service.durationMinutes === 0 ? '' : String(service.durationMinutes),
     pricingType: service.pricingType,
     basePrice: centsToInput(service.basePriceCents),
     hourlyRate: centsToInput(service.hourlyRateCents),
@@ -301,7 +301,8 @@ export default function ServicesSettingsPage() {
           <input required maxLength={120} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} style={field} />
         </label>
         <label style={labelStyle}>Duration (minutes)
-          <input required type="number" min={1} max={1440} step={1} value={draft.durationMinutes} onChange={event => setDraft({ ...draft, durationMinutes: event.target.value })} style={field} />
+          <input required={draft.pricingType !== 'QUOTE' || !draft.requiresArtistApproval} placeholder="Pending artist approval" type="number" min={1} max={1440} step={1} value={draft.durationMinutes} onChange={event => setDraft({ ...draft, durationMinutes: event.target.value })} style={field} />
+          {draft.pricingType === 'QUOTE' && draft.requiresArtistApproval && <span style={{ fontSize: 12 }}>Leave blank when the artist must determine the duration. This service will accept inquiries; automatic scheduling and deposits are blocked.</span>}
         </label>
         <label style={labelStyle}>Pricing type
           <select value={draft.pricingType} onChange={event => setDraft({ ...draft, pricingType: event.target.value as PricingType })} style={field}>
@@ -358,7 +359,7 @@ export default function ServicesSettingsPage() {
           <div style={{ display: 'grid', gap: 8 }}>
             {group.map(service => <article key={service.id} style={serviceRow}>
               <div style={{ minWidth: 0 }}>
-                <strong>{service.name}</strong><div style={{ color: '#706b66', fontSize: 13, marginTop: 4 }}>{service.durationMinutes} min · {service.pricingType} · {formatPrice(service)}{service.depositType !== 'NONE' ? ` · ${service.paymentProvider === 'VENMO_MANUAL' ? 'Venmo manual' : service.paymentProvider}` : ''}{service.requiresConsultation ? ' · Consultation required' : ''}{service.requiresArtistApproval ? ' · Approval required' : ''}</div>
+                <strong>{service.name}</strong><div style={{ color: '#706b66', fontSize: 13, marginTop: 4 }}>{service.durationMinutes === 0 ? 'Duration pending approval' : `${service.durationMinutes} min`} · {service.pricingType} · {formatPrice(service)}{service.depositType !== 'NONE' ? ` · ${service.paymentProvider === 'VENMO_MANUAL' ? 'Venmo manual' : service.paymentProvider}` : ''}{service.requiresConsultation ? ' · Consultation required' : ''}{service.requiresArtistApproval ? ' · Approval required' : ''}</div>
                 {service.description && <p style={{ margin: '5px 0 0', color: '#706b66', fontSize: 13 }}>{service.description}</p>}
               </div>
               <span style={{ ...statusLabel, background: service.active ? '#e6f2ea' : '#eee', color: service.active ? '#2f7651' : '#68635e' }}>{service.active ? 'Active' : 'Inactive'}</span>

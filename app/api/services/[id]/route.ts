@@ -1,3 +1,4 @@
+import { validServiceDuration } from '@/packages/studio/service-duration-policy';
 import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
@@ -13,7 +14,7 @@ const updateSchema = z.object({
   category: z.string().trim().max(80).nullable().optional().transform(value => value === '' ? null : value),
   name: z.string().trim().min(1).max(120).optional(),
   description: z.string().trim().max(500).nullable().optional().transform(value => value === '' ? null : value),
-  durationMinutes: z.number().int().positive().max(1440).optional(),
+  durationMinutes: z.number().int().nonnegative().max(1440).optional(),
   pricingType: z.enum(['FLAT', 'HOURLY', 'QUOTE']).optional(),
   basePriceCents: z.number().int().nonnegative().nullable().optional(),
   hourlyRateCents: z.number().int().nonnegative().nullable().optional(),
@@ -39,11 +40,12 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
   const parsed = updateSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { organizationId, ...changes } = parsed.data;
-  const [current] = await db.select({ pricingType: services.pricingType, basePriceCents: services.basePriceCents, hourlyRateCents: services.hourlyRateCents, startingAt: services.startingAt, depositType: services.depositType, depositAmountCents: services.depositAmountCents, depositPercent: services.depositPercent })
+  const [current] = await db.select({ durationMinutes: services.durationMinutes, requiresArtistApproval: services.requiresArtistApproval, pricingType: services.pricingType, basePriceCents: services.basePriceCents, hourlyRateCents: services.hourlyRateCents, startingAt: services.startingAt, depositType: services.depositType, depositAmountCents: services.depositAmountCents, depositPercent: services.depositPercent })
     .from(services)
     .where(and(eq(services.id, id), eq(services.organizationId, organizationId)))
     .limit(1);
   if (!current) return NextResponse.json({ error: 'Service not found' }, { status: 404 });
+  if (!validServiceDuration({ ...current, ...changes })) return NextResponse.json({ error: 'A pending duration requires Quote pricing and provider approval.' }, { status: 400 });
   const pricingType = changes.pricingType ?? current.pricingType;
   const pricing = normalizeServicePricing({ ...changes, pricingType }, current);
   const depositKeys = ['depositType', 'depositAmountCents', 'depositPercent'] as const;

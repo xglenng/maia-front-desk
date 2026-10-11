@@ -7,7 +7,8 @@ export type AvailabilityResult =
   | { status: 'NO_AVAILABILITY'; slots: [] }
   | { status: 'NOT_CONFIGURED'; slots: []; message: string }
   | { status: 'SERVICE_NOT_MAPPED'; slots: []; message: string }
-  | { status: 'PROVIDER_ERROR'; slots: []; message: string };
+  | { status: 'PROVIDER_ERROR'; slots: []; message: string }
+  | { status: 'ARTIST_QUOTE_REQUIRED'; slots: []; message: string };
 
 export type AvailabilityRequest = {
   serviceId?: string;
@@ -44,7 +45,8 @@ export type BookingResult =
   | { status: 'NOT_CONFIGURED'; message: string }
   | { status: 'SERVICE_NOT_MAPPED'; message: string }
   | { status: 'CUSTOMER_ERROR'; message: string }
-  | { status: 'PROVIDER_ERROR'; message: string };
+  | { status: 'PROVIDER_ERROR'; message: string }
+  | { status: 'ARTIST_QUOTE_REQUIRED'; message: string };
 
 export type ProviderBookingInput = BookingRequest & {
   organizationId: string;
