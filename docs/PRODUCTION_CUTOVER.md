@@ -1,5 +1,11 @@
 # Production cutover gate — October 9, 2026
 
+## Latest status — October 10, 2026
+
+The schema upgrade and approved Embellished Studios LLC account binding are complete (see embellished-binding-review.md and embellished-binding.sql). Earlier unverified-state entries below are historical checkpoints.
+
+Read-only Railway metadata confirms production app source xglenng/maia-front-desk, deployed main commit 07200a41ab1da8a60c0e4adffba9365c3e4cc4f1, build npm run build and start npm run start. Scheduler remains every five minutes and POSTs to the production /api/automations/run endpoint with bearer authentication. Private comparison confirms both services have matching nonempty cron secrets. The route has no diff against origin/main. Explicit live account creation is not enabled; production staging-isolation flag is unset. No scheduler invocation, configuration change or deployment occurred during these checks. These checks establish configuration compatibility, not execution/delivery success or proof of current auto-deploy settings. Treat a push to main as potentially deploying production.
+
 The user authorized merging to production and temporary testing. Provider purchases, registrations, real messages and payments remain separately gated. Do not submit the pending A2P campaign under this deployment authorization.
 
 ## Blocking facts
@@ -51,3 +57,9 @@ The alternative uses installed libpq psql with the same PGSSLMODE=require as the
 No live provider actions, new account creation, registrations, SMS, payment, resource adoption, app merge or deployment occurred. Exact manifest now records executed scope. No production rollback or data reset was performed. Disposable restored test data was removed.
 
 Next deployment prerequisite: explicitly reviewed legal-business/account mappings for existing studios, preserving approved campaigns and purchased numbers, then verify Railway auto-deploy/cron behavior before the authorized merge. New tables remain empty; deploying new registration/polling now would fail closed for unbound studios. Live campaign submission remains separately unauthorized.
+
+## Embellished existing registration verified — October 10, 2026
+
+With explicit user authorization, a read-only Twilio GET using privately held production credentials returned HTTP 200 for the stored Usa2p resource QE2c6890da8086d771620e9b13fadeba0b. Its account parent account ending e9e7eb, Messaging Service MG65a40388cd262737bfeaf90a86074bdb, brand BNca7cc60adc4ef2975f5bc204fa3df398 and external campaign ID COE0NQW match the supplied console evidence; campaign_status is VERIFIED. The console CM campaign identifier and API QE compliance-resource identifier are different identifiers, not evidence of an incorrect database record. No correction is indicated.
+
+Production query screenshots associate +14353753862 with Embellished Studios / Val, an active number and account, matching phone/service identifiers, and local VERIFIED campaign status. The provider account is the parent account; screenshots also show another number there. The user reports the four similarly named subaccounts are empty. This evidence does not establish that the entire parent account belongs exclusively to this legal customer. Do not bind that account based only on the matching campaign: the current binding grants account-level scope to provisioning and registration. Review ownership of the other parent resources and the appropriate legacy handling before binding or deploying. No provider settings, production records or messages were changed during verification.
