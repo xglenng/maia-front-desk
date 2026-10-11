@@ -1,4 +1,5 @@
 import { availabilityToolParameters } from './availability-tool-schema';
+import { agentFailureDiagnostics } from './failure-diagnostics';
 import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
 import { generateText, tool } from 'ai';
@@ -223,7 +224,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       toolResults: result.steps.flatMap(step => (step.toolResults ?? []).flatMap(toolResult => toolResult?.toolName ? [toolResult.toolName] : [])),
     };
   } catch (error) {
-    await updateRun(runId, { success: false, latencyMs: Date.now() - startedAt, error: 'AgentExecutionError' });
+    const diagnostics = agentFailureDiagnostics(error);
+    console.error(JSON.stringify({ event: 'maia_agent_failed', organizationId: context.organizationId, artistId: context.artistId, conversationId: context.conversationId, runId, automationJobId: input.automationJobId, ...diagnostics }));
+    await updateRun(runId, { success: false, latencyMs: Date.now() - startedAt, error: JSON.stringify(diagnostics) });
     throw error;
   }
 }
