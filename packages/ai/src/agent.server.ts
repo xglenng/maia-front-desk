@@ -1,4 +1,5 @@
 import { availabilityToolParameters } from './availability-tool-schema';
+import { requiresServiceLookup, serviceScopedTools } from './service-lookup-policy';
 import { agentFailureDiagnostics } from './failure-diagnostics';
 import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
@@ -124,15 +125,8 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       return execute(...args);
     });
 
-    const result = await generateText({
-      model: openai(modelName),
-      system,
-      messages: conversationMessages,
-      maxSteps: 6,
-      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && /\b(price|prices|cost|costs|deposit)\b|how much/i.test(input.message)
-        ? { toolChoice: { type: 'tool', toolName: 'search_services' } }
-        : undefined,
-      tools: {
+    let servicesDiscovered = false;
+    const tools = {
         getClient: tool({ description: 'Read the current client name when needed for a natural receptionist response. Returns only first and last name.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
         get_studio_context: tool({
           description: 'Read configured public studio profile, location hours, client-visible policies, relevant FAQs, and aftercare. Use for studio questions; internal instructions are never returned by this client-facing tool. Optionally provide the topic and location the client asked about.',
@@ -150,7 +144,11 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
             category: z.string().trim().min(1).max(80).optional().describe('Optional free-form category filter.'),
             artistPreference: z.string().trim().min(1).max(100).optional().describe('Optional public artist name preference.'),
           }),
-          execute: audit('search_services', async (args: { query?: string; serviceType?: string; category?: string; artistPreference?: string }) => searchServices(context, args)),
+          execute: audit('search_services', async (args: { query?: string; serviceType?: string; category?: string; artistPreference?: string }) => {
+            const result = await searchServices(context, args);
+            servicesDiscovered = true;
+            return result;
+          }),
         }),
         get_service_pricing: tool({
           description: 'Return configured flat, hourly, starting-at, or quote-required pricing for a service already identified by search_services. Call this in the current turn whenever answering service price or deposit questions, even if a previous assistant answer already quoted an amount. Use priceLabel and deposit.amountLabel as dollar amounts. Never guess or substitute studio-wide pricing.',
@@ -204,7 +202,16 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           execute: audit('escalateToArtist', async (args: { reason: string }) => escalate(context, args.reason)),
         }),
         }),
-      },
+      };
+    const result = await generateText({
+      model: openai(modelName),
+      system,
+      messages: conversationMessages,
+      maxSteps: 6,
+      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && requiresServiceLookup(input.message)
+        ? { toolChoice: { type: 'tool', toolName: 'search_services' } }
+        : { experimental_activeTools: serviceScopedTools(Object.keys(tools) as Array<keyof typeof tools>, servicesDiscovered) },
+      tools,
     });
     const reply = result.text || 'I’m going to have the artist take a look at this.';
     if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };

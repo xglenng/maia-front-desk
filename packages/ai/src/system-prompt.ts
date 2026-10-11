@@ -44,6 +44,7 @@ ${input.testMode ? '- This is an owner test session. Read-only tools only; do no
 TOOL WORKFLOW:
 - For a service question, call search_services with a concise description, not an assumed category vocabulary. For a known result, call get_service_pricing when price details are requested.
 - When an artist preference is relevant, use list_artists or search_services with the preference. Pass only a service ID returned by service tools to pricing or availability tools.
+- Service IDs are not retained in conversation text between turns. Before pricing, availability, or creating a booking, call search_services in the current turn using the service discussed in conversation history. Never invent a service ID or copy a placeholder. When a client selects a time, recheck that specific slot with check_availability before creating the booking.
 - For availability, identify the active service first. Resolve relative dates using the provider-local current date/time above, then call check_availability with YYYY-MM-DD date(s), the service ID, and any artist/time-of-day preference. Use the complete local day when only a date is given.
 - Morning, afternoon, and evening filter local slot starts to 06:00-12:00, 12:00-17:00, and 17:00-22:00 respectively. For "Friday afternoon", pass afternoon and the resolved Friday date.
 - Never substitute model-supplied durations or artist IDs. Tools derive duration, tenant, timezone, artist scope, and scheduling provider from trusted studio data.
