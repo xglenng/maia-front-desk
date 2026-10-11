@@ -78,14 +78,14 @@ test('same-named services expose only the trusted organization price', () => {
   const studioBService = findActiveService(orgA, 'nostril-b', services);
   assert.ok(studioAService);
   assert.equal(studioBService, null);
-  assert.equal(servicePricingDto(studioAService).amountCents, 5000);
-  assert.notEqual(servicePricingDto(studioAService).amountCents, 8500);
+  assert.equal(servicePricingDto(studioAService).priceLabel, '$50.00');
+  assert.notEqual(servicePricingDto(studioAService).priceLabel, '$85.00');
 });
 
 test('pricing DTO preserves flat, starting-at, hourly, quote, and configured deposit semantics', () => {
   const flat = servicePricingDto(services[3]!);
   assert.equal(flat.priceLabel, '$50.00');
-  assert.deepEqual(flat.deposit, { type: 'FIXED', amountCents: 1500, amountLabel: '$15.00' });
+  assert.deepEqual(flat.deposit, { type: 'FIXED', amountLabel: '$15.00' });
 
   const starting = servicePricingDto(services[0]!);
   assert.equal(starting.priceLabel, 'Starting at $75.00');
@@ -253,8 +253,10 @@ test('availability never returns past slots from an internal or mocked provider'
   assert.deepEqual(result.slots.map(slot => slot.startsAt), ['2026-09-30T21:00:00.000Z']);
 });
 
-test('one-dollar fixed deposit is labeled in dollars without changing stored cents', () => {
+test('one-dollar fixed deposit exposes formatted dollars without raw cents', () => {
   const pricing = servicePricingDto(service({ id: 'conch', name: 'Conch', organizationId: orgA, artistId: artistA, serviceType: 'PIERCING', basePriceCents: 5000, depositType: 'FIXED', depositAmountCents: 100 }));
   assert.equal(pricing.priceLabel, '$50.00');
-  assert.deepEqual(pricing.deposit, { type: 'FIXED', amountCents: 100, amountLabel: '$1.00' });
+  assert.deepEqual(pricing.deposit, { type: 'FIXED', amountLabel: '$1.00' });
+  assert.equal('amountCents' in pricing, false);
+  assert.equal('amountCents' in pricing.deposit, false);
 });

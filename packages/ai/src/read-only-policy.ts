@@ -142,7 +142,7 @@ export function servicePricingDto(record: ServiceRecord) {
   const amountCents = pricingType === 'FLAT' ? record.basePriceCents : pricingType === 'HOURLY' ? record.hourlyRateCents : null;
   const depositType = record.depositType.toUpperCase();
   const deposit = depositType === 'FIXED'
-    ? { type: 'FIXED' as const, ...(record.depositAmountCents != null && Number.isSafeInteger(record.depositAmountCents) && record.depositAmountCents > 0 ? { amountCents: record.depositAmountCents, amountLabel: `$${(record.depositAmountCents / 100).toFixed(2)}` } : {}) }
+    ? { type: 'FIXED' as const, ...(record.depositAmountCents != null && Number.isSafeInteger(record.depositAmountCents) && record.depositAmountCents > 0 ? { amountLabel: `$${(record.depositAmountCents / 100).toFixed(2)}` } : {}) }
     : depositType === 'PERCENT'
       ? { type: 'PERCENT' as const, ...(record.depositPercent != null && Number.isSafeInteger(record.depositPercent) && record.depositPercent >= 1 && record.depositPercent <= 100 ? { percent: record.depositPercent } : {}) }
       : { type: depositType === 'NONE' ? 'NONE' as const : 'UNKNOWN' as const };
@@ -151,7 +151,6 @@ export function servicePricingDto(record: ServiceRecord) {
     name: record.name,
     artistName: record.artistName,
     pricingType,
-    ...(amountCents != null ? { amountCents } : {}),
     ...(priceLabel(pricingType, amountCents, record.startingAt) ? { priceLabel: priceLabel(pricingType, amountCents, record.startingAt) } : {}),
     startingAt: pricingType === 'QUOTE' ? false : record.startingAt,
     durationMinutes: record.durationMinutes,
