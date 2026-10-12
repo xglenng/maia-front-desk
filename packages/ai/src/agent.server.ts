@@ -1,7 +1,7 @@
 import { plainArtistReply, selectsOfferedTime } from './reply-format';
 import { isNewTattooInquiry } from './tattoo-inquiry-policy';
 import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
-import { approvedAvailabilityInput } from './approved-scheduling-policy';
+import { approvedAvailabilityInput, isRecordedBooking } from './approved-scheduling-policy';
 import { shouldHandoffReference } from '@/packages/inbox/reference-handoff-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { availabilityToolParameters } from './availability-tool-schema';
@@ -250,8 +250,8 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({ serviceId: z.string().uuid(), start: z.string() }),
           execute: audit('createBookingHold', async (args: { serviceId: string; start: string }) => {
             const result = await createBookingHold(context, approvedAvailabilityInput(args, approvedQuote));
+            if (isRecordedBooking(result) && approvedQuote?.action === 'QUOTE_AI_SCHEDULING') { createdQuoteBooking = true; await presentQuoteTerms(); }
             if (!('providerBookingId' in result)) return result;
-            if (approvedQuote?.action === 'QUOTE_AI_SCHEDULING') { createdQuoteBooking = true; await presentQuoteTerms(); }
             const { providerBookingId: _providerBookingId, ...clientResult } = result;
             return clientResult;
           }),

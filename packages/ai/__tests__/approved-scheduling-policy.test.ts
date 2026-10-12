@@ -9,3 +9,11 @@ test('Normal inquiries and manual quotes keep the original selection', () => {
   assert.equal(approvedAvailabilityInput(input, null), input);
   assert.equal(approvedAvailabilityInput(input, { action: 'QUOTE_APPROVED', serviceId: 'tattoo' }), input);
 });
+
+test('Quote booking success does not require a providerBookingId in the public result', async () => {
+  const { isRecordedBooking } = await import('../src/approved-scheduling-policy');
+  assert.equal(isRecordedBooking({ status: 'PAYMENT_PENDING', appointmentId: 'recorded-appointment', depositRequired: true }), true);
+  assert.equal(isRecordedBooking({ status: 'CONFIRMED', appointmentId: 'recorded-appointment' }), true);
+  assert.equal(isRecordedBooking({ status: 'SLOT_UNAVAILABLE' }), false);
+  assert.equal(isRecordedBooking({ status: 'NAME_REQUIRED' }), false);
+});
