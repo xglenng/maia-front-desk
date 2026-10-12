@@ -1,3 +1,4 @@
+import { incomingTwilioAttachments, type TwilioAttachment } from '@/packages/inbox/twilio-media-policy';
 import { finalizeQuoteHandoff } from '@/packages/inbox/quote-handoff.server';
 import { resolveVerifiedChannelMaiaAgentContext } from '@/packages/ai/src/context.server';
 import { runMaiaAgent } from '@/packages/ai/src/agent.server';
@@ -61,8 +62,8 @@ async function recordOutbound(conversationId: string, to: string, from: string, 
   }
 }
 
-async function recordInbound(conversationId: string, text: string, messageSid: string | undefined, studioPhone: string, now: Date) {
-  const [message] = await db.insert(messages).values({ conversationId, senderType: 'CLIENT', role: 'user', content: text, externalMessageId: messageSid, metadata: { provider: 'twilio', studioPhone } }).returning({ id: messages.id });
+async function recordInbound(conversationId: string, text: string, messageSid: string | undefined, studioPhone: string, now: Date, attachments: TwilioAttachment[] = []) {
+  const [message] = await db.insert(messages).values({ conversationId, senderType: 'CLIENT', role: 'user', content: text, externalMessageId: messageSid, metadata: { provider: 'twilio', studioPhone, attachments } }).returning({ id: messages.id });
   const [conversation] = await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, inboundVersion: sql`${conversations.inboundVersion} + 1`, lastInboundAt: now, lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, conversationId)).returning({ inboundVersion: conversations.inboundVersion });
   return { messageId: message.id, inboundVersion: conversation.inboundVersion };
 }
@@ -113,7 +114,8 @@ export async function POST(request: NextRequest) {
   const params = await parseForm(request);
   const from = params.From?.trim();
   const to = params.To?.trim();
-  const text = params.Body?.trim();
+  const attachments = incomingTwilioAttachments(params);
+  const text = params.Body?.trim() || (attachments.length ? '[Reference attachment received]' : '');
   logInbound('webhook_received', { from: maskedPhone(from), to: maskedPhone(to), hasBody: Boolean(text), messageSidPresent: Boolean(params.MessageSid) });
   if (!from || !to || !text || !params.MessageSid) {
     logInbound('webhook_rejected', { reason: 'missing_required_fields', from: maskedPhone(from), to: maskedPhone(to) });
@@ -189,7 +191,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === 'STOP') {
-    await recordInbound(conv.id, text, params.MessageSid, to, now);
+    await recordInbound(conv.id, text, params.MessageSid, to, now, attachments);
     await cancelUndeliveredAiResponses(conv.id, 'SMS_OPT_OUT');
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
     await revokeStudioSmsConsent({ organizationId: number.organizationId, clientId: client.id, phone: from });
@@ -204,7 +206,7 @@ export async function POST(request: NextRequest) {
     return xmlResponse();
   }
   if (action === 'HELP') {
-    await recordInbound(conv.id, text, params.MessageSid, to, now);
+    await recordInbound(conv.id, text, params.MessageSid, to, now, attachments);
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
     const body = helpResponse(surface?.organization.name || artist.displayName, { email: profile?.contactEmail, website: profile?.websiteUrl, phone: profile?.contactPhone || number.phoneNumber });
     // Maia owns HELP so the reply always contains this tenant's real support contact.
@@ -214,7 +216,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === 'START' && startDecision === 'START' && surface?.form) {
-    await recordInbound(conv.id, text, params.MessageSid, to, now);
+    await recordInbound(conv.id, text, params.MessageSid, to, now, attachments);
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
     const pending = await pendingConfirmation(conv.id);
     if (pending.message) {
@@ -229,7 +231,7 @@ export async function POST(request: NextRequest) {
     return xmlResponse();
   }
   if (action === 'START') {
-    await recordInbound(conv.id, text, params.MessageSid, to, now);
+    await recordInbound(conv.id, text, params.MessageSid, to, now, attachments);
     if (twilioHandledKeyword !== 'START') await recordOutbound(conv.id, from, to, `${surface?.organization.name || artist.displayName}: SMS opt-in could not be recorded. Please contact the studio for a verified consent option.`, account ? { accountSid: account.accountSid, authToken } : undefined, 'START_REJECTED', number.twilioMessagingServiceSid);
     return xmlResponse();
   }
@@ -246,7 +248,7 @@ export async function POST(request: NextRequest) {
     const pendingYes = isPendingYesConfirmation(action, validPending);
     const yesDecision = inboundConsentDecision({ action, mode: surface?.form.mode || 'HOSTED', optedIn: scopedOptedIn, optedOut: scopedOptedOut, pendingConfirmation: validPending, consentSurfaceReady });
 
-    await recordInbound(conv.id, text, params.MessageSid, to, now);
+    await recordInbound(conv.id, text, params.MessageSid, to, now, attachments);
     conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
     if (yesDecision === 'CONFIRM_YES' && pendingYes && pending.message && surface?.form) {
       const metadata = pending.message.metadata && typeof pending.message.metadata === 'object' ? pending.message.metadata as Record<string, unknown> : {};
@@ -260,7 +262,7 @@ export async function POST(request: NextRequest) {
     return xmlResponse();
   }
 
-  const latestInbound = await recordInbound(conv.id, text, params.MessageSid, to, now);
+  const latestInbound = await recordInbound(conv.id, text, params.MessageSid, to, now, attachments);
   conv = { ...conv, lastInboundAt: now, lastMessageAt: now };
   const pending = surface?.form.mode === 'INBOUND_SMS_CONFIRMATION' && isConsentFormReady(surface.form)
     ? await pendingConfirmation(conv.id)

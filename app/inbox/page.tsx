@@ -24,7 +24,7 @@ type Detail = {
   conversation: InboxItem & { humanTakeoverAt: string | null; externalParticipantId: string | null };
   artist: { id: string; displayName: string };
   client: { id: string; name: string; phone: string | null; email: string | null; smsOptIn: boolean };
-  messages: Array<{ id: string; senderType: string; content: string; createdAt: string; metadata: { attachments?: Array<{ type: string; url?: string }> } | null }>;
+  messages: Array<{ id: string; senderType: string; content: string; createdAt: string; metadata: { provider?: string; attachments?: Array<{ type: string; url?: string }> } | null }>;
   events: Array<{ id: string; action: string; fromMode: string | null; toMode: string | null; createdAt: string; userName: string | null; details?: unknown }>;
 };
 
@@ -206,7 +206,7 @@ export default function InboxPage() {
               const client = message.senderType === "CLIENT";
               const system = message.senderType === "SYSTEM";
               return <div key={message.id} className={`message-row ${client ? "incoming" : system ? "system" : "outgoing"}`}>
-                <div className="message-bubble"><p>{message.content}</p>{message.metadata?.attachments?.map((attachment, index) => attachment.url ? <a key={index} href={attachment.url} target="_blank" rel="noreferrer">View {attachment.type} attachment</a> : <span key={index}>{attachment.type} attachment</span>)}<small>{client ? detail.client.name : system ? "System" : message.senderType === "AI" ? "AI receptionist" : session?.name ?? "Studio"} · {new Date(message.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div>
+                <div className="message-bubble"><p>{message.content}</p>{message.metadata?.attachments?.map((attachment, index) => attachment.url && message.metadata?.provider === "twilio" && attachment.type === "image" ? <a key={index} href={`/api/inbox/${detail.conversation.id}/media/${message.id}/${index}`} target="_blank" rel="noreferrer"><img src={`/api/inbox/${detail.conversation.id}/media/${message.id}/${index}`} alt="Client reference image" loading="lazy" style={{ display: "block", maxWidth: "100%", maxHeight: 300, borderRadius: 8, marginTop: 8 }} /></a> : attachment.url ? <a key={index} href={attachment.url} target="_blank" rel="noreferrer">View {attachment.type} attachment</a> : <span key={index}>{attachment.type} attachment</span>)}<small>{client ? detail.client.name : system ? "System" : message.senderType === "AI" ? "AI receptionist" : session?.name ?? "Studio"} · {new Date(message.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div>
               </div>;
             })}
           </div>
