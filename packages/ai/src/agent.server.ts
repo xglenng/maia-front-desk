@@ -1,3 +1,4 @@
+import { plainArtistReply, selectsOfferedTime } from './reply-format';
 import { isNewTattooInquiry } from './tattoo-inquiry-policy';
 import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
 import { approvedAvailabilityInput } from './approved-scheduling-policy';
@@ -161,6 +162,8 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     let quoteTermsPrompt: string | undefined;
     let quoteTerms: { bookingId?: string; priceCents: number; startsAt?: string } | undefined;
     let quoteEligible = Boolean(quoteService);
+    let createdQuoteBooking = false;
+    let checkedQuoteSlots = false;
     const presentQuoteTerms = async () => {
       const quoteForTerms = await getConversationQuote(context.organizationId, context.conversationId);
       if (!quoteForTerms?.bookingId || !quoteForTerms.startsAt || !quoteForTerms.appointmentId || new Date(quoteForTerms.startsAt).getTime() <= Date.now()) return { status: 'MANUAL_BOOKING_REQUIRED' };
@@ -209,7 +212,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         check_availability: tool({
           description: 'Read real open slots for a previously identified active service. Pass studio-local ISO calendar date(s), not a duration or provider details. The tool derives service duration, timezone, artist scope, and scheduling provider. This tool never creates a booking, hold, payment, or message.',
           parameters: availabilityToolParameters,
-          execute: audit('check_availability', async (args: { serviceId: string; fromDate: string; toDate?: string; artistPreference?: string; timePeriod?: 'morning' | 'afternoon' | 'evening' }) => checkAvailability(context, approvedAvailabilityInput(args, approvedQuote))),
+          execute: audit('check_availability', async (args: { serviceId: string; fromDate: string; toDate?: string; artistPreference?: string; timePeriod?: 'morning' | 'afternoon' | 'evening' }) => { const result = await checkAvailability(context, approvedAvailabilityInput(args, approvedQuote)); checkedQuoteSlots = result.status === 'AVAILABLE'; return result; }),
         }),
         get_client_appointments: tool({
           description: 'Read this conversation client\'s existing upcoming appointments when they ask about an existing booking, time, deposit status, or waiver. Use the returned appointmentId only with the corresponding existing deposit or waiver tool when the client requests that action.',
@@ -245,9 +248,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           description: 'Create a booking only after the client explicitly selects one specific slot returned by check_availability. Pass its canonical startsAt as start. This existing booking action is distinct from the read-only availability lookup. Inspect depositRequired and do not create a deposit link unless it is true.',
           parameters: z.object({ serviceId: z.string().uuid(), start: z.string() }),
           execute: audit('createBookingHold', async (args: { serviceId: string; start: string }) => {
-            const result = await createBookingHold(context, args);
+            const result = await createBookingHold(context, approvedAvailabilityInput(args, approvedQuote));
             if (!('providerBookingId' in result)) return result;
-            if (approvedQuote?.action === 'QUOTE_AI_SCHEDULING') await presentQuoteTerms();
+            if (approvedQuote?.action === 'QUOTE_AI_SCHEDULING') { createdQuoteBooking = true; await presentQuoteTerms(); }
             const { providerBookingId: _providerBookingId, ...clientResult } = result;
             return clientResult;
           }),
@@ -287,8 +290,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       model: openai(modelName),
       system,
       messages: conversationMessages,
-      maxSteps: 6,
-      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && !input.availabilityOnly && context.channel !== 'WEB_TEST' && approvedQuote?.bookingId && explicitQuoteAgreement(input.message)
+      maxSteps: 10,
+      experimental_prepareStep: async ({ stepNumber }) => !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && checkedQuoteSlots && !createdQuoteBooking && selectsOfferedTime(input.message)
+        ? { toolChoice: { type: 'tool', toolName: 'createBookingHold' } }
+        : stepNumber === 0 && !input.availabilityOnly && context.channel !== 'WEB_TEST' && approvedQuote?.bookingId && explicitQuoteAgreement(input.message)
         ? { toolChoice: { type: 'tool', toolName: 'accept_quote_terms' } }
         : stepNumber === 0 && input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING'
         ? { toolChoice: { type: 'tool', toolName: 'check_availability' } }
@@ -297,7 +302,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         : { experimental_activeTools: serviceScopedTools(Object.keys(tools) as Array<keyof typeof tools>, servicesDiscovered) },
       tools,
     });
-    const reply = quoteTermsPrompt || (quoteSummary ? 'I’ll get back to you with a price.' : result.text || 'I’m going to have the artist take a look at this.');
+    const candidateReply = quoteTermsPrompt || (quoteSummary ? 'I’ll get back to you with a price.' : result.text || 'I’ll get back to you shortly.');
+    const unverifiedBookingClaim = approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && !createdQuoteBooking && /\b(confirmed|booked|scheduled)|have you down/i.test(candidateReply);
+    const reply = plainArtistReply(unverifiedBookingClaim ? 'That appointment isn’t booked yet. I need to finish checking that time before confirming it.' : candidateReply, artist.displayName);
     if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
     const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
     if (quoteSummary || quoteTermsPrompt) await db.update(messages).set({ metadata: { ...(quoteTerms ? { quoteTerms } : {}), source: 'ai-receptionist', quoteSummary, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));
