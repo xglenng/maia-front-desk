@@ -159,16 +159,16 @@ export async function POST(request: NextRequest) {
     }
     if (pendingAppointment.paymentProvider && pendingAppointment.paymentProvider !== 'SQUARE') return NextResponse.json({ received: true });
 
-    // A deposit does not reserve a slot. At payment time we attempt to claim
-    // the slot. External providers enforce their own booking conflict rules;
-    // internal scheduling uses a PostgreSQL advisory lock for this artist/time.
+    // A quote may already have reserved this slot in Square. Preserve that
+    // booking when payment arrives; only unbooked requests need a new claim.
+    // Internal scheduling still verifies conflicts under an advisory lock.
     let providerBookingId = pendingAppointment.providerBookingId;
     let providerCustomerId: string | undefined;
     let providerStart = pendingAppointment.startsAt;
     let providerEnd = pendingAppointment.endsAt;
     let canConfirm = pendingAppointment.status === 'PAYMENT_PENDING';
 
-    if (canConfirm && pendingAppointment.serviceId) {
+    if (canConfirm && pendingAppointment.serviceId && !providerBookingId) {
       const internalScheduling = await usesInternalScheduling(pendingAppointment.organizationId, pendingAppointment.artistId);
       if (!internalScheduling) {
         const idempotencyKey = crypto.createHash('sha256').update(`deposit-booking:${pendingAppointment.id}`).digest('hex');
