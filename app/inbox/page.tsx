@@ -21,6 +21,8 @@ type InboxItem = {
 };
 
 type Detail = {
+  quote?: { action: string; serviceId: string; priceCents: number; durationMinutes: number; bookingId?: string; startsAt?: string };
+  quoteServices: Array<{ id: string; name: string }>;
   conversation: InboxItem & { humanTakeoverAt: string | null; externalParticipantId: string | null };
   artist: { id: string; displayName: string };
   client: { id: string; name: string; phone: string | null; email: string | null; smsOptIn: boolean };
@@ -60,6 +62,10 @@ export default function InboxPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
+  const [quoteService, setQuoteService] = useState("");
+  const [quotePrice, setQuotePrice] = useState("");
+  const [quoteDuration, setQuoteDuration] = useState("");
+  const [squareBookingId, setSquareBookingId] = useState("");
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +116,7 @@ export default function InboxPage() {
 
   const visible = useMemo(() => items.filter(item => {
     if (filter === "unread" && item.unreadCount === 0) return false;
-    if (filter === "quotes" && item.status !== "AWAITING_QUOTE") return false;
+    if (filter === "quotes" && !["AWAITING_QUOTE", "QUOTE_APPROVED"].includes(item.status)) return false;
     if (filter === "human" && item.mode !== "HUMAN") return false;
     if (filter === "ai" && item.mode !== "AI") return false;
     if (filter === "closed" && item.mode !== "CLOSED") return false;
@@ -130,6 +136,20 @@ export default function InboxPage() {
     } finally {
       setWorking(false);
     }
+  }
+
+  useEffect(() => { setQuoteService(""); setQuotePrice(""); setQuoteDuration(""); setSquareBookingId(""); }, [selectedId]);
+
+  async function saveQuote(event: FormEvent, link = false) {
+    event.preventDefault();
+    if (!selectedId) return;
+    setWorking(true);
+    try {
+      await json(await fetch(`/api/inbox/${selectedId}/quote`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(link ? { action: "LINK_BOOKING", bookingId: squareBookingId.trim() } : { action: "APPROVE", serviceId: quoteService || detail?.quoteServices[0]?.id, priceCents: Math.round(Number(quotePrice) * 100), durationMinutes: Number(quoteDuration) }) }));
+      await Promise.all([loadDetail(selectedId, false), loadList()]);
+      setError(null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save quote"); }
+    finally { setWorking(false); }
   }
 
   async function send(event: FormEvent) {
@@ -182,7 +202,7 @@ export default function InboxPage() {
                 <span className="thread-artist">{item.channel} · {item.artistName}</span>
                 <span className="thread-preview">{item.latestMessage?.content ?? "No messages yet"}</span>
               </span>
-              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
+              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "BOOKING_LINKED" ? "Booked" : item.status === "QUOTE_APPROVED" ? "Estimate approved" : item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
             </button>)}
         </div>
       </section>
@@ -193,7 +213,7 @@ export default function InboxPage() {
           <header className="chat-header">
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
-              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "Human takeover" : "Closed"}</span>
+              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "Human takeover" : "Closed"}</span>
               {detail.conversation.mode === "AI" && <button disabled={working} onClick={() => action("TAKE_OVER")} className="takeover-btn">Take over</button>}
               {detail.conversation.mode === "HUMAN" && <button disabled={working} onClick={() => action("RETURN_TO_AI")} className="ai-btn">Return to AI</button>}
               {detail.conversation.mode === "CLOSED" ? <button disabled={working} onClick={() => action("REOPEN")} className="plain-btn">Reopen</button> : <button disabled={working} onClick={() => action("CLOSE")} className="plain-btn">Close</button>}
@@ -212,6 +232,18 @@ export default function InboxPage() {
           </div>
 
           <div className="composer-area">
+            {detail.quoteServices.length > 0 && detail.conversation.mode === "HUMAN" && <div className="composer-lock quote-controls">
+              <strong>{detail.quote?.action === 'QUOTE_BOOKING_LINKED' ? 'Appointment linked' : detail.quote ? 'Estimate approved — arrange booking manually' : 'Record artist estimate'}</strong>
+              {detail.quote && <p>${(detail.quote.priceCents / 100).toFixed(2)} · {detail.quote.durationMinutes} minutes{detail.quote.startsAt ? ` · ${new Date(detail.quote.startsAt).toLocaleString()}` : ''}</p>}
+              {detail.quote?.action !== 'QUOTE_BOOKING_LINKED' && <form onSubmit={event => saveQuote(event)}>
+                <label>Service <select required value={quoteService} onChange={event => setQuoteService(event.target.value)}><option value="">Select service</option>{detail.quoteServices.map(service => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
+                <label>Estimate (USD) <input required type="number" min="0" max="100000" step="0.01" value={quotePrice} onChange={event => setQuotePrice(event.target.value)} /></label>
+                <label>Duration (minutes) <input required type="number" min="1" max="1440" step="1" value={quoteDuration} onChange={event => setQuoteDuration(event.target.value)} /></label>
+                <button disabled={working}>Save approved estimate</button><span>This records the quote and pauses Maia. Send the estimate using the reply box.</span>
+              </form>}
+              {detail.quote?.action === 'QUOTE_APPROVED' && <form onSubmit={event => saveQuote(event, true)}><label>Square booking ID <input required value={squareBookingId} onChange={event => setSquareBookingId(event.target.value)} /></label><button disabled={working}>Link existing appointment</button><span>Verifies the client, artist, location, and duration. Does not create an appointment.</span></form>}
+            </div>}
+
             {detail.conversation.mode === "AI" ? <div className="composer-lock"><strong>AI is responding</strong><span>Take over to send a manual reply. New client messages remain visible in this inbox.</span></div> : detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : <form onSubmit={send} className="composer">
               <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Reply as the studio…" maxLength={1600} disabled={working || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)} />
               <div><span>{detail.conversation.channel !== "SMS" || detail.client.smsOptIn ? `${draft.length}/1600` : "Client opted out of SMS"}</span><button disabled={working || !draft.trim() || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)}>{working ? "Sending…" : `Send ${detail.conversation.channel === "SMS" ? "SMS" : "reply"}`}</button></div>

@@ -102,6 +102,16 @@ export class SquareApiClient {
     });
   }
 
+  async retrieveBooking(id: string) {
+    const body = await this.request<{ booking?: SquareAvailability & { id: string; status?: string; customer_id?: string } }>(`/v2/bookings/${encodeURIComponent(id)}`);
+    return body.booking;
+  }
+
+  async retrieveCustomer(id: string) {
+    const body = await this.request<{ customer?: { id: string; phone_number?: string } }>(`/v2/customers/${encodeURIComponent(id)}`);
+    return body.customer;
+  }
+
   async listLocations() {
     const body = await this.request<{ locations?: SquareLocation[] }>('/v2/locations');
     return (body.locations || []).filter(location => location.id && location.status !== 'INACTIVE').map(location => ({ id: location.id, name: location.name || location.id, timezone: location.timezone || 'UTC' }));

@@ -1,3 +1,6 @@
+import { getConversationQuote } from '@/packages/inbox/quote-state.server';
+import { services } from '@db/schema';
+import { and } from 'drizzle-orm';
 import { protectedRoute } from "@/packages/auth/server";
 import { accessibleConversation } from "@/packages/inbox/server";
 import { applyInboxAction, conversationMode, type InboxAction } from "@/packages/inbox/state";
@@ -31,6 +34,8 @@ async function handleGET(request: NextRequest, { params }: Context) {
   const { conversation, artist, client } = access.row;
   return NextResponse.json({
     conversation: { ...conversation, mode: conversationMode(conversation) },
+    quote: await getConversationQuote(access.user.organization_id, id),
+    quoteServices: await db.select({ id: services.id, name: services.name }).from(services).where(and(eq(services.organizationId, access.user.organization_id), eq(services.artistId, artist.id), eq(services.pricingType, 'QUOTE'), eq(services.active, true))),
     artist: { id: artist.id, displayName: artist.displayName },
     client: { id: client.id, name: `${client.firstName}${client.lastName ? ` ${client.lastName}` : ""}`, phone: client.phone, email: client.email, smsOptIn: client.smsOptIn },
     messages: messageRows,

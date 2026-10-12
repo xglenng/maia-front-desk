@@ -1,3 +1,4 @@
+import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import 'server-only';
 import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
 import { hasBookingName } from './client-name-policy';
@@ -128,6 +129,8 @@ export async function getSlots(ctx: AgentContext, input: { serviceId?: string; d
 }
 
 export async function createBookingHold(ctx: AgentContext, input: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) {
+  const quote = await getConversationQuote(ctx.organizationId, ctx.conversationId);
+  if (quote?.serviceId === input.serviceId) return { status: quote.action === 'QUOTE_BOOKING_LINKED' ? 'ALREADY_BOOKED' as const : 'MANUAL_SCHEDULING_REQUIRED' as const, message: quote.action === 'QUOTE_BOOKING_LINKED' ? 'This request already has a linked appointment. Do not create another booking.' : 'The quote is approved; arrange scheduling manually without requesting another estimate.' };
   const client = await getClient(ctx);
   if (client.nameRequired) return { status: 'NAME_REQUIRED' as const, message: 'Ask the client for their name before booking. Save only the name they explicitly provide.' };
   const internalScheduling = await usesInternalScheduling(ctx.organizationId, ctx.artistId);

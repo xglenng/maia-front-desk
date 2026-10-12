@@ -1,3 +1,4 @@
+import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
 import 'server-only';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
@@ -106,7 +107,9 @@ export async function searchServices(context: MaiaAgentContext, options: Service
 export async function getServicePricing(context: MaiaAgentContext, serviceId: string) {
   const [record] = await loadActiveServiceRecords(context.organizationId, serviceId);
   if (!record) throw new Error('Active service not found in this studio.');
-  return servicePricingDto(record);
+  const quote = await getConversationQuote(context.organizationId, context.conversationId);
+  const pricing = servicePricingDto(record);
+  return quote?.serviceId === serviceId ? { ...pricing, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quote.priceCents / 100), durationMinutes: quote.durationMinutes, quoteApproved: true, requestStatus: quote.action, manualScheduling: true } : pricing;
 }
 
 export async function listArtists(context: MaiaAgentContext, serviceId?: string) {

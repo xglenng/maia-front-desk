@@ -1,3 +1,4 @@
+import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { availabilityToolParameters } from './availability-tool-schema';
 import { requiresServiceLookup, serviceScopedTools } from './service-lookup-policy';
 import { agentFailureDiagnostics } from './failure-diagnostics';
@@ -105,6 +106,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       getStudioPromptConfiguration(context, input.message),
     ]);
     const currentDateTime = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'long' }).format(new Date());
+    const approvedQuote = await getConversationQuote(context.organizationId, context.conversationId);
     const system = buildSystemPrompt({
       artistName: artist.displayName,
       currentDateTime,
@@ -115,7 +117,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       internalInstructions: studioConfiguration.internalInstructions,
       receptionistGuidance: studioConfiguration.receptionistGuidance,
       testMode: context.channel === 'WEB_TEST',
-    });
+    }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed.` : '');
 
     const history = await db.select({ role: messages.role, content: messages.content })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
@@ -177,7 +179,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         request_artist_quote: tool({
           description: 'After collecting the tattoo idea, placement, approximate size and relevant style/reference details, request an artist estimate. Provide a concise factual summary using only client-provided details. The client will receive a short acknowledgment and AI will pause after delivery.',
           parameters: z.object({ summary: z.string().trim().min(1).max(1200) }),
-          execute: audit('request_artist_quote', async (args: { summary: string }) => { if (!quoteEligible) return { status: 'SERVICE_LOOKUP_REQUIRED' }; quoteSummary = args.summary; return { status: 'HANDOFF_PENDING', reply: 'Thanks! Let me get back to you with an estimate.' }; }),
+          execute: audit('request_artist_quote', async (args: { summary: string }) => { if (approvedQuote) return { status: 'QUOTE_ALREADY_APPROVED' }; if (!quoteEligible) return { status: 'SERVICE_LOOKUP_REQUIRED' }; quoteSummary = args.summary; return { status: 'HANDOFF_PENDING', reply: 'Thanks! Let me get back to you with an estimate.' }; }),
         }),
         save_client_name: tool({
           description: 'Save the name this conversation client explicitly provides for their appointment. Never infer it from a phone number or invent a name. This does not change SMS consent.',

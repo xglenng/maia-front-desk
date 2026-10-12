@@ -24,3 +24,16 @@ replying does not clear the flag; Return to AI explicitly resumes the conversati
 Artist replies use the existing manual composer and delivery/consent checks.
 This is an in-app alert; no external artist notification is sent. WEB_TEST remains
 read-only and cannot hand off a real conversation. No database migration is needed.
+
+In human mode, the inbox now supports recording a client-specific approved price
+and duration. This does not send a message, alter the shared service, or create a
+booking. Send the estimate manually and arrange the appointment in Square.
+Link existing appointment verifies an ACCEPTED Square booking's configured
+location/team member, matching customer ID or phone, and approved duration.
+The linked state is supplied to Maia and blocks another booking of that service
+in the same request. Return to AI is explicit; approval/linking keep it paused.
+
+Linking is explicit, not continuous Square synchronization. Later Square
+cancellations or changes are not automatically reflected. No deposit request or
+reminder is created for the linked appointment by this feature. A message such as
+"I would do that for $150" alone is not a structured approval.

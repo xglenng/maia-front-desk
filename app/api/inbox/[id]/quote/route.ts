@@ -1,0 +1,63 @@
+import { protectedRoute } from '@/packages/auth/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { db } from '@db/index';
+import { clients, conversationEvents, conversations, schedulingConnections, services } from '@db/schema';
+import { accessibleConversation } from '@/packages/inbox/server';
+import { getConversationQuote } from '@/packages/inbox/quote-state.server';
+import { matchesQuoteBooking, quoteActionSchema } from '@/packages/inbox/quote-policy';
+import { squareClientForConnection } from '@/packages/scheduling/square/resources';
+import { squareSafeNumber } from '@/packages/scheduling/square/client';
+import { cancelUndeliveredAiResponses } from '@/packages/automations/queue.server';
+
+type Context = { params: Promise<{ id: string }> };
+async function handlePOST(request: NextRequest, { params }: Context) {
+  const { id } = await params;
+  const access = await accessibleConversation(request, id);
+  if (!access.ok) return access.error;
+  const parsed = quoteActionSchema.safeParse(await request.json());
+  if (!parsed.success) return NextResponse.json({ error: 'Enter a valid service, quote, duration, or booking ID.' }, { status: 400 });
+  const org = access.user.organization_id;
+  const artistId = access.row.conversation.artistId;
+  const action = parsed.data;
+  let details: Record<string, unknown>;
+  let eventAction: string;
+  if (action.action === 'APPROVE') {
+    const [service] = await db.select().from(services).where(and(eq(services.id, action.serviceId), eq(services.organizationId, org), eq(services.artistId, artistId), eq(services.active, true))).limit(1);
+    if (!service || service.pricingType !== 'QUOTE') return NextResponse.json({ error: 'Choose an active quote-based service for this artist.' }, { status: 400 });
+    const current = await getConversationQuote(org, id);
+    if (current?.action === 'QUOTE_BOOKING_LINKED') return NextResponse.json({ error: 'This request is already booked.' }, { status: 409 });
+    details = { serviceId: service.id, serviceName: service.name, priceCents: action.priceCents, durationMinutes: action.durationMinutes };
+    eventAction = 'QUOTE_APPROVED';
+  } else {
+    const quote = await getConversationQuote(org, id);
+    if (!quote) return NextResponse.json({ error: 'Record the approved quote and duration first.' }, { status: 409 });
+    if (quote.action === 'QUOTE_BOOKING_LINKED') return quote.bookingId === action.bookingId ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'This request already has a linked booking.' }, { status: 409 });
+    const [connection] = await db.select().from(schedulingConnections).where(and(eq(schedulingConnections.organizationId, org), eq(schedulingConnections.artistId, artistId), eq(schedulingConnections.provider, 'SQUARE'), eq(schedulingConnections.status, 'CONNECTED'))).limit(1);
+    if (!connection?.locationId || !connection.teamMemberId) return NextResponse.json({ error: 'Configure the artist’s Square location and team member before linking.' }, { status: 409 });
+    try {
+      const square = await squareClientForConnection(connection);
+      const booking = await square.retrieveBooking(action.bookingId);
+      if (!booking || booking.status !== 'ACCEPTED' || booking.location_id !== connection.locationId || !booking.customer_id || !booking.appointment_segments?.length || booking.appointment_segments.some(segment => segment.team_member_id !== connection.teamMemberId)) return NextResponse.json({ error: 'Booking must be accepted at this artist’s configured Square location and team member.' }, { status: 400 });
+      const customer = await square.retrieveCustomer(booking.customer_id);
+      const duration = booking.appointment_segments.reduce((sum, segment) => sum + (squareSafeNumber(segment.duration_minutes) || 0), 0);
+      if (!matchesQuoteBooking({ status: booking.status, locationId: booking.location_id, expectedLocation: connection.locationId, teamMembers: booking.appointment_segments.map(segment => segment.team_member_id), expectedTeam: connection.teamMemberId, customerId: booking.customer_id, expectedCustomerId: access.row.client.providerCustomerId, customerPhone: customer?.phone_number, clientPhone: access.row.client.phone, duration, expectedDuration: quote.durationMinutes })) return NextResponse.json({ error: 'Square booking must match this client, artist, location and approved duration.' }, { status: 400 });
+      const start = new Date(booking.start_at || '');
+      if (!Number.isFinite(start.getTime()) || duration !== quote.durationMinutes) return NextResponse.json({ error: 'Square booking duration must match the approved quote.' }, { status: 400 });
+      details = { ...quote, bookingId: booking.id, startsAt: start.toISOString(), endsAt: new Date(start.getTime() + duration * 60000).toISOString() };
+      eventAction = 'QUOTE_BOOKING_LINKED';
+    } catch { return NextResponse.json({ error: 'Could not verify the Square booking. Check its ID and Square connection permissions.' }, { status: 502 }); }
+  }
+  try { await db.transaction(async tx => {
+    await tx.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, id), eq(conversations.organizationId, org))).for('update');
+    const [latest] = await tx.select().from(conversationEvents).where(and(eq(conversationEvents.organizationId, org), eq(conversationEvents.conversationId, id), inArray(conversationEvents.action, ['QUOTE_REQUESTED', 'QUOTE_APPROVED', 'QUOTE_BOOKING_LINKED']))).orderBy(desc(conversationEvents.createdAt)).limit(1);
+    if (latest?.action === 'QUOTE_BOOKING_LINKED') throw new Error('QUOTE_CHANGED');
+    if (action.action === 'LINK_BOOKING' && (latest?.action !== 'QUOTE_APPROVED' || (latest.details as { serviceId?: string; durationMinutes?: number; priceCents?: number })?.serviceId !== details.serviceId || (latest.details as { durationMinutes?: number })?.durationMinutes !== details.durationMinutes || (latest.details as { priceCents?: number })?.priceCents !== details.priceCents)) throw new Error('QUOTE_CHANGED');
+    await tx.update(conversations).set({ aiEnabled: false, status: eventAction === 'QUOTE_BOOKING_LINKED' ? 'BOOKING_LINKED' : 'QUOTE_APPROVED', humanTakeoverAt: new Date(), humanTakeoverByUserId: access.user.id, updatedAt: new Date() }).where(and(eq(conversations.id, id), eq(conversations.organizationId, org)));
+    await tx.insert(conversationEvents).values({ organizationId: org, conversationId: id, userId: access.user.id, action: eventAction, fromMode: access.row.conversation.aiEnabled ? 'AI' : 'HUMAN', toMode: 'HUMAN', details });
+  }); } catch { return NextResponse.json({ error: 'The quote changed while saving. Refresh and try again.' }, { status: 409 }); }
+  await cancelUndeliveredAiResponses(id, 'HUMAN_TAKEOVER');
+  return NextResponse.json({ ok: true });
+}
+
+export const POST = protectedRoute(handlePOST, false);
