@@ -24,7 +24,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
   let eventAction: string;
   if (action.action === 'APPROVE') {
     const [service] = await db.select().from(services).where(and(eq(services.id, action.serviceId), eq(services.organizationId, org), eq(services.artistId, artistId), eq(services.active, true))).limit(1);
-    if (!service || service.pricingType !== 'QUOTE') return NextResponse.json({ error: 'Choose an active quote-based service for this artist.' }, { status: 400 });
+    if (!service || (service.pricingType !== 'QUOTE' && service.serviceType !== 'TATTOO')) return NextResponse.json({ error: 'Choose an active tattoo or quote-based service for this artist.' }, { status: 400 });
     const current = await getConversationQuote(org, id);
     if (current && !['QUOTE_APPROVED', 'QUOTE_AI_SCHEDULING'].includes(current.action)) return NextResponse.json({ error: 'This request is already booked.' }, { status: 409 });
     details = { serviceId: service.id, serviceName: service.name, priceCents: action.priceCents, durationMinutes: action.durationMinutes };

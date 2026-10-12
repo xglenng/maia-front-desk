@@ -63,3 +63,11 @@ test('pricing answers revalidate current configuration instead of repeating prio
   assert.match(system, /Correct any earlier conflicting quote using the current tool result/);
   assert.match(system, /If the lookup fails, say the price cannot be verified/);
 });
+
+test('Tattoo intake keeps service selection internal and requires a provider estimate', () => {
+  const prompt = buildSystemPrompt({ artistName: 'Val', currentDateTime: 'October 12, 2026', providerTimezone: 'America/Denver' });
+  assert.match(prompt, /Never ask a tattoo client to select a service/);
+  assert.match(prompt, /owner chooses the service, duration and price/);
+  assert.match(prompt, /Once style, size and placement are known, call request_artist_quote/);
+  assert.match(prompt, /I’ll get back to you with a price/);
+});

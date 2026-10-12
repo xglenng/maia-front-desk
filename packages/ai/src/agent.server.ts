@@ -130,10 +130,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
 
     const history = await db.select({ role: messages.role, content: messages.content, metadata: messages.metadata })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
-    const [quoteService] = await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, context.organizationId), eq(services.artistId, context.artistId), eq(services.active, true), eq(services.pricingType, 'QUOTE'), eq(services.serviceType, 'TATTOO'), eq(services.requiresArtistApproval, true))).limit(1);
+    const [quoteService] = await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, context.organizationId), eq(services.artistId, context.artistId), eq(services.active, true), eq(services.serviceType, 'TATTOO'))).limit(1);
     const latestAttachments = (history[0]?.metadata as { attachments?: Array<{ type?: string }> } | null)?.attachments || [];
     if (context.channel !== 'WEB_TEST' && shouldHandoffReference({ quoteConfigured: Boolean(quoteService), quoteApproved: Boolean(approvedQuote), tattooContext: history.some(message => message.role === 'user' && /tattoo/i.test(message.content)), latestAttachments })) {
-      const reply = 'Thanks! Let me get back to you with an estimate.';
+      const reply = 'I’ll get back to you with a price.';
       if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
       const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
       const summary = history.filter(message => message.role === 'user').slice(0, 6).reverse().map(message => message.content).join('\n').slice(0, 1200);
@@ -152,7 +152,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     let quoteSummary: string | undefined;
     let quoteTermsPrompt: string | undefined;
     let quoteTerms: { bookingId?: string; priceCents: number; startsAt?: string } | undefined;
-    let quoteEligible = false;
+    let quoteEligible = Boolean(quoteService);
     const presentQuoteTerms = async () => {
       const quoteForTerms = await getConversationQuote(context.organizationId, context.conversationId);
       if (!quoteForTerms?.bookingId || !quoteForTerms.startsAt || !quoteForTerms.appointmentId || new Date(quoteForTerms.startsAt).getTime() <= Date.now()) return { status: 'MANUAL_BOOKING_REQUIRED' };
@@ -184,7 +184,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           execute: audit('search_services', async (args: { query?: string; serviceType?: string; category?: string; artistPreference?: string }) => {
             const result = await searchServices(context, args);
             servicesDiscovered = true;
-            quoteEligible = result.some(service => service.requiresArtistApproval);
+            quoteEligible = Boolean(quoteService) || result.some(service => service.requiresArtistApproval);
             return result;
           }),
         }),
@@ -226,7 +226,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         request_artist_quote: tool({
           description: 'After collecting the tattoo idea, placement, approximate size and relevant style/reference details, request an artist estimate. Provide a concise factual summary using only client-provided details. The client will receive a short acknowledgment and AI will pause after delivery.',
           parameters: z.object({ summary: z.string().trim().min(1).max(1200) }),
-          execute: audit('request_artist_quote', async (args: { summary: string }) => { if (approvedQuote) return { status: 'QUOTE_ALREADY_APPROVED' }; if (!quoteEligible) return { status: 'SERVICE_LOOKUP_REQUIRED' }; quoteSummary = args.summary; return { status: 'HANDOFF_PENDING', reply: 'Thanks! Let me get back to you with an estimate.' }; }),
+          execute: audit('request_artist_quote', async (args: { summary: string }) => { if (approvedQuote) return { status: 'QUOTE_ALREADY_APPROVED' }; if (!quoteEligible) return { status: 'SERVICE_LOOKUP_REQUIRED' }; quoteSummary = args.summary; return { status: 'HANDOFF_PENDING', reply: 'I’ll get back to you with a price.' }; }),
         }),
         save_client_name: tool({
           description: 'Save the name this conversation client explicitly provides for their appointment. Never infer it from a phone number or invent a name. This does not change SMS consent.',
@@ -289,7 +289,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         : { experimental_activeTools: serviceScopedTools(Object.keys(tools) as Array<keyof typeof tools>, servicesDiscovered) },
       tools,
     });
-    const reply = quoteTermsPrompt || (quoteSummary ? 'Thanks! Let me get back to you with an estimate.' : result.text || 'I’m going to have the artist take a look at this.');
+    const reply = quoteTermsPrompt || (quoteSummary ? 'I’ll get back to you with a price.' : result.text || 'I’m going to have the artist take a look at this.');
     if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
     const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
     if (quoteSummary || quoteTermsPrompt) await db.update(messages).set({ metadata: { ...(quoteTerms ? { quoteTerms } : {}), source: 'ai-receptionist', quoteSummary, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));

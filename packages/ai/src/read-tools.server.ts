@@ -141,7 +141,7 @@ export async function checkAvailability(context: MaiaAgentContext, input: {
   const selected = resolveServiceForArtist(context.organizationId, input.serviceId, input.artistPreference, serviceRecords, artistRecords);
   if (!selected) throw new Error('An active matching service and artist could not be found in this studio.');
   const approvedQuote = await schedulingQuote(context.organizationId, selected.artist.id, input.serviceId, context.conversationId, context.clientId);
-  if (needsServiceQuote(selected.service) && !approvedQuote) return { status: 'ARTIST_QUOTE_REQUIRED' as const, slots: [], message: 'The artist must confirm the duration and quote before availability can be checked. Collect the design details for review.' };
+  if ((selected.service.serviceType === 'TATTOO' || needsServiceQuote(selected.service)) && !approvedQuote) return { status: 'ARTIST_QUOTE_REQUIRED' as const, slots: [], message: 'The artist must confirm the duration and quote before availability can be checked. Collect the design details for review.' };
   const timezone = await getContextTimezone(context.organizationId, selected.artist.id);
   const request = buildAvailabilityRequest({
     organizationId: context.organizationId,
