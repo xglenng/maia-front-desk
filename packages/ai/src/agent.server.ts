@@ -164,6 +164,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     let quoteEligible = Boolean(quoteService);
     let createdQuoteBooking = false;
     let checkedQuoteSlots = false;
+    const selectedTimeMessage = selectsOfferedTime(input.message) ? input.message : explicitQuoteAgreement(input.message) ? history.slice().reverse().find(message => message.role === 'user' && selectsOfferedTime(message.content))?.content : undefined;
     const presentQuoteTerms = async () => {
       const quoteForTerms = await getConversationQuote(context.organizationId, context.conversationId);
       if (!quoteForTerms?.bookingId || !quoteForTerms.startsAt || !quoteForTerms.appointmentId || new Date(quoteForTerms.startsAt).getTime() <= Date.now()) return { status: 'MANUAL_BOOKING_REQUIRED' };
@@ -260,6 +261,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({ appointmentId: z.string().uuid() }),
           execute: audit('create_deposit_request', async (args: { appointmentId: string }) => {
             const quote = await getConversationQuote(context.organizationId, context.conversationId);
+            if (quote && (!quote.appointmentId || quote.appointmentId !== args.appointmentId)) {
+              return { status: 'BOOKING_REQUIRED', message: 'This approved request has no matching linked appointment. Complete the booking for the client-selected time before requesting a deposit. Never use an older appointment.' };
+            }
             if (quote?.appointmentId === args.appointmentId) {
               const agreement = await acceptApprovedQuote(context);
               if (agreement.status !== 'ACCEPTED' || !('depositRequired' in agreement)) return presentQuoteTerms();
@@ -291,8 +295,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       system,
       messages: conversationMessages,
       maxSteps: 10,
-      experimental_prepareStep: async ({ stepNumber }) => !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && checkedQuoteSlots && !createdQuoteBooking && selectsOfferedTime(input.message)
+      experimental_prepareStep: async ({ stepNumber }) => !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && checkedQuoteSlots && !createdQuoteBooking && Boolean(selectedTimeMessage)
         ? { toolChoice: { type: 'tool', toolName: 'createBookingHold' } }
+        : stepNumber === 0 && !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && selectedTimeMessage
+        ? { toolChoice: { type: 'tool', toolName: 'check_availability' } }
         : stepNumber === 0 && !input.availabilityOnly && context.channel !== 'WEB_TEST' && approvedQuote?.bookingId && explicitQuoteAgreement(input.message)
         ? { toolChoice: { type: 'tool', toolName: 'accept_quote_terms' } }
         : stepNumber === 0 && input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING'
