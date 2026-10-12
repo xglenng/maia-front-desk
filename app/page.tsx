@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import "./dashboard.css";
+import { calendarBlock, calendarMinute } from "@/packages/studio/calendar-layout";
 
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
@@ -192,6 +193,10 @@ function CalendarView({
   onNextWeek: () => void;
   dateLabel: string;
 }) {
+  const timeZone = data.organization?.timezone || 'America/Denver';
+  const firstHour = Math.min(9, ...data.appointments.map(a => Math.floor(calendarMinute(a.startsAt, timeZone) / 60)));
+  const lastHour = Math.max(18, ...data.appointments.map(a => Math.ceil((calendarMinute(a.startsAt, timeZone) + (new Date(a.endsAt).getTime() - new Date(a.startsAt).getTime()) / 60000) / 60)));
+  const hours = Array.from({ length: lastHour - firstHour }, (_, index) => firstHour + index);
   return <div className="content">
     <div className="calendar-toolbar">
       <div>
@@ -222,15 +227,15 @@ function CalendarView({
     <div className="calendar-panel">
       <div className="calendar-grid">
         <div className="time-column">
-          {["9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM"].map(t =>
-            <span key={t}>{t}</span>
+          {hours.map(hour =>
+            <span key={hour}>{hour % 12 || 12} {hour < 12 ? 'AM' : 'PM'}</span>
           )}
         </div>
-        <div className="day-column">
+        <div className="day-column" style={{ minHeight: hours.length * 60 }}>
           {data.appointments.length
-            ? data.appointments.map((a, i) =>
-                <a key={a.id} href={`/appointments/${a.id}`} className={`calendar-card card-${i % 3}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <strong>{formatTime(a.startsAt)} · {a.client}</strong>
+            ? data.appointments.map(a =>
+                <a key={a.id} href={`/appointments/${a.id}`} className="calendar-card" style={{ textDecoration: 'none', color: 'inherit', ...calendarBlock(a.startsAt, a.endsAt, timeZone, firstHour), overflow: 'hidden' }}>
+                  <strong>{new Date(a.startsAt).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })}–{new Date(a.endsAt).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })} · {a.client}</strong>
                   <span>{a.service}</span>
                   <small>{a.status}</small>
                 </a>
