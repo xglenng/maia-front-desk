@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useSession } from '@/components/session-gate';
 
 type Artist = { id: string; displayName: string };
@@ -115,6 +115,9 @@ export default function ServicesSettingsPage() {
   const [artistId, setArtistId] = useState('');
   const [services, setServices] = useState<Service[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
+  const editorRef = useRef<HTMLFormElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ ...blankDraft });
   const [loadingArtists, setLoadingArtists] = useState(true);
@@ -123,6 +126,15 @@ export default function ServicesSettingsPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    if (!editorOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      nameRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editorOpen, editingId]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -287,7 +299,7 @@ export default function ServicesSettingsPage() {
     {error && <p role="alert" style={alert}>{error}</p>}
     {notice && <p role="status" style={noticeStyle}>{notice}</p>}
 
-    {editorOpen && <form onSubmit={save} style={{ ...panel, marginTop: 16 }}>
+    {editorOpen && <form ref={editorRef} onSubmit={save} style={{ ...panel, marginTop: 16, scrollMarginTop: 20 }}>
       <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>{editingId ? 'Edit service' : 'New service'}</h2>
       <div style={formGrid}>
         <label style={labelStyle}>Service type
@@ -298,7 +310,7 @@ export default function ServicesSettingsPage() {
           <input maxLength={80} value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value })} placeholder="Optional" style={field} />
         </label>
         <label style={labelStyle}>Service name
-          <input required maxLength={120} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} style={field} />
+          <input ref={nameRef} required maxLength={120} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} style={field} />
         </label>
         <label style={labelStyle}>Duration (minutes)
           <input required={draft.pricingType !== 'QUOTE' || !draft.requiresArtistApproval} placeholder="Pending artist approval" type="number" min={1} max={1440} step={1} value={draft.durationMinutes} onChange={event => setDraft({ ...draft, durationMinutes: event.target.value })} style={field} />
