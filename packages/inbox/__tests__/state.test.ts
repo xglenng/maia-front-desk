@@ -50,10 +50,16 @@ test("inbound webhook honors takeover and deduplicates Twilio retries", () => {
   assert.ok(source.indexOf("if (!shouldRunAi(conv))") < source.indexOf("const aiData = await runMaiaAgent"));
 });
 
-test("manual replies require a human-controlled conversation", () => {
+test("human replies remain available with AI on and invalidate stale automation", () => {
   const source = readFileSync("app/api/inbox/[id]/messages/route.ts", "utf8");
-  assert.match(source, /if \(conversation\.aiEnabled\)/);
-  assert.match(source, /Take over this conversation before sending a manual reply/);
+  assert.doesNotMatch(source, /Take over this conversation before sending a manual reply/);
+  assert.match(source, /conversation.status === "CLOSED"/);
+  assert.match(source, /ARTIST_REPLIED/);
+  assert.match(source, /inboundVersion: sql/);
+  assert.doesNotMatch(source, /aiEnabled: false/);
+  const page = readFileSync("app/inbox/page.tsx", "utf8");
+  assert.match(page, /role="switch" aria-checked/);
+  assert.doesNotMatch(page, /Take over to send a manual reply/);
 });
 
 test("manual social replies use their connected account instead of Twilio", () => {

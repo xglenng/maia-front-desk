@@ -1,7 +1,8 @@
+import { cancelUndeliveredAiResponses } from '@/packages/automations/queue.server';
 import { protectedRoute } from "@/packages/auth/server";
 import { accessibleConversation } from "@/packages/inbox/server";
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
 import { channelConnections, conversationEvents, conversations, messages, phoneNumbers, twilioAccounts } from "@db/schema";
@@ -22,7 +23,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
   if (!access.ok) return access.error;
   const { conversation, client } = access.row;
   if (conversation.status === "CLOSED") return NextResponse.json({ error: "Reopen this conversation before replying." }, { status: 409 });
-  if (conversation.aiEnabled) return NextResponse.json({ error: "Take over this conversation before sending a manual reply." }, { status: 409 });
+
 
   let providerMessageId: string | null = null;
   let providerStatus = "sent";
@@ -59,8 +60,9 @@ async function handlePOST(request: NextRequest, { params }: Context) {
 
   const now = new Date();
   const [message] = await db.insert(messages).values({ conversationId: id, senderType: access.user.role, role: "assistant", content: parsed.data.body, externalMessageId: providerMessageId, metadata: { ...providerMetadata, status: providerStatus, sentByUserId: access.user.id } }).returning();
-  await db.update(conversations).set({ lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, id));
-  await db.insert(conversationEvents).values({ organizationId: access.user.organization_id, conversationId: id, userId: access.user.id, action: "MANUAL_REPLY_SENT", fromMode: "HUMAN", toMode: "HUMAN", details: { messageId: message.id, providerMessageId, channel: conversation.channel } });
+  await db.update(conversations).set({ lastMessageAt: now, updatedAt: now, inboundVersion: sql`${conversations.inboundVersion} + 1` }).where(eq(conversations.id, id));
+  await cancelUndeliveredAiResponses(id, 'ARTIST_REPLIED');
+  await db.insert(conversationEvents).values({ organizationId: access.user.organization_id, conversationId: id, userId: access.user.id, action: "MANUAL_REPLY_SENT", fromMode: conversation.aiEnabled ? "AI" : "HUMAN", toMode: conversation.aiEnabled ? "AI" : "HUMAN", details: { messageId: message.id, providerMessageId, channel: conversation.channel } });
   return NextResponse.json({ message, provider: { id: providerMessageId, status: providerStatus, channel: conversation.channel } });
 }
 

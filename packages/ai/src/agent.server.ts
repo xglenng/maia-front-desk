@@ -81,6 +81,14 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
   if (!artist || !conversation) throw new Error('Agent context is no longer valid.');
   if (!shouldRunAi(conversation)) return { error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' };
   if (!artist.receptionistEnabled) return { error: 'The studio receptionist is disabled for this artist.', conversationId: conversation.id, mode: 'HUMAN' };
+  if (context.channel !== 'WEB_TEST') {
+    const priorGuard = input.automationGuard;
+    input.automationGuard = async () => {
+      if (priorGuard && !await priorGuard()) return false;
+      const [current] = await db.select({ inboundVersion: conversations.inboundVersion, aiEnabled: conversations.aiEnabled, status: conversations.status }).from(conversations).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, context.organizationId))).limit(1);
+      return Boolean(current && current.inboundVersion === conversation.inboundVersion && shouldRunAi(current));
+    };
+  }
   if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
 
   if (!input.messageAlreadyStored) await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
@@ -128,7 +136,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       testMode: context.channel === 'WEB_TEST',
     }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_AI_SCHEDULING, the artist authorized you to schedule this approved quote: ask for timing if needed, call check_availability with the approved service ID, and createBookingHold only after the client selects an offered slot. Use the approved duration and price. The booking tool records and presents price/date confirmation automatically; do not ask a second time. On client agreement, call accept_quote_terms. If ACCEPTED and depositRequired is true, call create_deposit_request using its appointmentId and send the link. If ACCEPTED and no deposit is required, send a short final acknowledgment rather than asking again. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed. For a linked appointment, call accept_quote_terms if the client agrees; if confirmation is missing, call confirm_quote_terms and wait. After ACCEPTED, check the appointment deposit requirement and call create_deposit_request only if required. Never book it again.` : '');
 
-    const history = await db.select({ role: messages.role, content: messages.content, metadata: messages.metadata })
+    const history = await db.select({ role: messages.role, senderType: messages.senderType, content: messages.content, metadata: messages.metadata })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
     const [quoteService] = await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, context.organizationId), eq(services.artistId, context.artistId), eq(services.active, true), eq(services.serviceType, 'TATTOO'))).limit(1);
     const latestAttachments = (history[0]?.metadata as { attachments?: Array<{ type?: string }> } | null)?.attachments || [];
@@ -141,7 +149,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       await updateRun(runId, { success: true, latencyMs: Date.now() - startedAt });
       return { reply, conversationId: conversation.id, messageId: message.id, mode: 'live', toolCalls: [], toolResults: [] };
     }
-    const conversationMessages = history.reverse().map(message => ({ role: message.role === 'assistant' ? 'assistant' as const : 'user' as const, content: message.content }));
+    const conversationMessages = history.reverse().map(message => ({ role: message.role === 'assistant' ? 'assistant' as const : 'user' as const, content: ['OWNER', 'ARTIST'].includes(message.senderType) ? `[Human artist reply] ${message.content}` : message.content }));
     if (input.availabilityOnly) conversationMessages.push({ role: 'user', content: 'The studio authorized you to offer the next few available dates for the approved quote. Check the next 14 days using the provider-local date. Ask which time works; do not book, collect a deposit, or restart the intake. If no approved quote exists, do not offer dates.' });
     const audit = <TArgs extends unknown[], TResult>(name: string, execute: (...args: TArgs) => Promise<TResult>) => withAudit(runId, name, async (...args: TArgs) => {
       if (input.automationGuard && !await input.automationGuard()) throw new Error('AUTOMATION_SUPPRESSED');

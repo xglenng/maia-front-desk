@@ -234,15 +234,14 @@ export default function InboxPage() {
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
               {detail.quote?.action === "QUOTE_AI_SCHEDULING" && <button disabled={working} className="plain-btn" onClick={() => quoteScheduling("MANUAL_SCHEDULE")}>Book manually</button>}
-              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "Human takeover" : "Closed"}</span>
-              {detail.conversation.mode === "AI" && <button disabled={working} onClick={() => action("TAKE_OVER")} className="takeover-btn">Take over</button>}
-              {detail.conversation.mode === "HUMAN" && <button disabled={working} onClick={() => action("RETURN_TO_AI")} className="ai-btn">Return to AI</button>}
+              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "AI off" : "Closed"}</span>
+              {detail.conversation.mode !== "CLOSED" && <button role="switch" aria-checked={detail.conversation.aiEnabled} aria-label="AI replies" disabled={working} onClick={() => action(detail.conversation.aiEnabled ? "TAKE_OVER" : "RETURN_TO_AI")} className="ai-btn">AI {detail.conversation.aiEnabled ? 'on' : 'off'}</button>}
               {detail.conversation.mode === "CLOSED" ? <button disabled={working} onClick={() => action("REOPEN")} className="plain-btn">Reopen</button> : <button disabled={working} onClick={() => action("CLOSE")} className="plain-btn">Close</button>}
             </div>
           </header>
 
           <div className="message-stream" ref={messageStreamRef}>
-            {detail.conversation.status === "AWAITING_QUOTE" && <div className="composer-lock"><strong>Awaiting your estimate</strong><span>Requested {time(detail.conversation.humanTakeoverAt)}. Maia is paused. Review the request, reply with your estimate or questions, then return to AI when ready.</span><p>{(detail.events.find(event => event.action === "QUOTE_REQUESTED")?.details as { summary?: string } | undefined)?.summary}</p></div>}
+            {detail.conversation.status === "AWAITING_QUOTE" && <div className="composer-lock"><strong>Awaiting your estimate</strong><span>Requested {time(detail.conversation.humanTakeoverAt)}. Maia is paused. Review the request, reply with your estimate or questions, then enable AI scheduling when ready.</span><p>{(detail.events.find(event => event.action === "QUOTE_REQUESTED")?.details as { summary?: string } | undefined)?.summary}</p></div>}
             {detail.messages.length === 0 ? <div className="inbox-empty">No messages yet.</div> : detail.messages.map(message => {
               const client = message.senderType === "CLIENT";
               const system = message.senderType === "SYSTEM";
@@ -266,7 +265,7 @@ export default function InboxPage() {
               {detail.quote?.action === 'QUOTE_APPROVED' && <form onSubmit={event => saveQuote(event, true)}><label>Square booking ID <input required value={squareBookingId} onChange={event => setSquareBookingId(event.target.value)} /></label><button disabled={working}>Link existing appointment</button><span>Verifies the client, artist, location, and duration. Does not create an appointment.</span></form>}
             </div>}
 
-            {detail.conversation.mode === "AI" ? <div className="composer-lock"><strong>AI is responding</strong><span>Take over to send a manual reply. New client messages remain visible in this inbox.</span></div> : detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : <form onSubmit={send} className="composer">
+            {detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : <form onSubmit={send} className="composer">
               <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Reply as the studio…" maxLength={1600} disabled={working || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)} />
               <div><span>{detail.conversation.channel !== "SMS" || detail.client.smsOptIn ? `${draft.length}/1600` : "Client opted out of SMS"}</span><button disabled={working || !draft.trim() || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)}>{working ? "Sending…" : `Send ${detail.conversation.channel === "SMS" ? "SMS" : "reply"}`}</button></div>
             </form>}
