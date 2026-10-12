@@ -39,7 +39,7 @@ export async function confirmAppointmentDeposit(input: {
   let providerStart = initial.startsAt;
   let providerEnd = initial.endsAt;
   let canConfirm = true;
-  if (initial.serviceId && !(await usesInternalScheduling(input.organizationId, initial.artistId))) {
+  if (!initial.providerBookingId && initial.serviceId && !(await usesInternalScheduling(input.organizationId, initial.artistId))) {
     const idempotencyKey = crypto.createHash('sha256').update(`deposit-booking:${initial.id}`).digest('hex');
     const booking = await createSchedulingBooking(input.organizationId, initial.artistId, {
       serviceId: initial.serviceId, clientId: initial.clientId, start: initial.startsAt.toISOString(), idempotencyKey,

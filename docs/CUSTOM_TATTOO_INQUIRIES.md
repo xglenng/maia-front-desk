@@ -34,6 +34,19 @@ The linked state is supplied to Maia and blocks another booking of that service
 in the same request. Return to AI is explicit; approval/linking keep it paused.
 
 Linking is explicit, not continuous Square synchronization. Later Square
-cancellations or changes are not automatically reflected. No deposit request or
-reminder is created for the linked appointment by this feature. A message such as
+cancellations or changes are not automatically reflected. A message such as
 "I would do that for $150" alone is not a structured approval.
+
+A reference image in a tattoo inquiry with a configured quote-based tattoo service
+automatically produces the short handoff acknowledgment; it does not ask the client
+to describe the image again. The image is left for human review, not AI visual inference.
+
+Linking now records the existing appointment in Maia with the approved price and
+actual duration. The configured service deposit policy is applied to the approved
+price. Once resumed, Maia presents that exact price and linked date/time for client
+agreement. The acceptance tool requires an explicit affirmative reply after that
+marked terms message; accepting a different question does not qualify. Only then
+can an unpaid required deposit be requested through the existing payment flow.
+Payment confirmation reuses the linked Square booking, never creates another one.
+Already linked records created before this change have no imported appointment;
+those remain manual and cannot automatically request a deposit through this path.

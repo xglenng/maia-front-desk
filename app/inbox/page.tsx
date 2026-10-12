@@ -233,9 +233,9 @@ export default function InboxPage() {
 
           <div className="composer-area">
             {detail.quoteServices.length > 0 && detail.conversation.mode === "HUMAN" && <div className="composer-lock quote-controls">
-              <strong>{detail.quote?.action === 'QUOTE_BOOKING_LINKED' ? 'Appointment linked' : detail.quote ? 'Estimate approved — arrange booking manually' : 'Record artist estimate'}</strong>
+              <strong>{detail.quote && detail.quote.action !== 'QUOTE_APPROVED' ? 'Appointment linked' : detail.quote ? 'Estimate approved — arrange booking manually' : 'Record artist estimate'}</strong>
               {detail.quote && <p>${(detail.quote.priceCents / 100).toFixed(2)} · {detail.quote.durationMinutes} minutes{detail.quote.startsAt ? ` · ${new Date(detail.quote.startsAt).toLocaleString()}` : ''}</p>}
-              {detail.quote?.action !== 'QUOTE_BOOKING_LINKED' && <form onSubmit={event => saveQuote(event)}>
+              {(!detail.quote || detail.quote.action === 'QUOTE_APPROVED') && <form onSubmit={event => saveQuote(event)}>
                 <label>Service <select required value={quoteService} onChange={event => setQuoteService(event.target.value)}><option value="">Select service</option>{detail.quoteServices.map(service => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
                 <label>Estimate (USD) <input required type="number" min="0" max="100000" step="0.01" value={quotePrice} onChange={event => setQuotePrice(event.target.value)} /></label>
                 <label>Duration (minutes) <input required type="number" min="1" max="1440" step="1" value={quoteDuration} onChange={event => setQuoteDuration(event.target.value)} /></label>

@@ -1,3 +1,4 @@
+import { matchesConfirmedQuoteTerms } from '@/packages/inbox/quote-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import 'server-only';
 import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
@@ -5,7 +6,7 @@ import { hasBookingName } from './client-name-policy';
 import { and, desc, eq, gte, lt, or, isNull, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import crypto from 'node:crypto';
-import { appointments, artists, clients, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
+import { appointments, artists, clients, conversationEvents, conversations, externalWaiverAssignments, externalWaiverForms, messages, organizations, payments, schedulingConnections, services, waiverTemplates } from '@db/schema';
 import { createSchedulingBooking, getSchedulingAvailability, usesInternalScheduling } from '@/packages/scheduling/service';
 import { SquareApiClient } from '@/packages/scheduling/square/client';
 import { squareAccessToken } from '@/packages/scheduling/square/credentials';
@@ -130,7 +131,7 @@ export async function getSlots(ctx: AgentContext, input: { serviceId?: string; d
 
 export async function createBookingHold(ctx: AgentContext, input: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) {
   const quote = await getConversationQuote(ctx.organizationId, ctx.conversationId);
-  if (quote?.serviceId === input.serviceId) return { status: quote.action === 'QUOTE_BOOKING_LINKED' ? 'ALREADY_BOOKED' as const : 'MANUAL_SCHEDULING_REQUIRED' as const, message: quote.action === 'QUOTE_BOOKING_LINKED' ? 'This request already has a linked appointment. Do not create another booking.' : 'The quote is approved; arrange scheduling manually without requesting another estimate.' };
+  if (quote?.serviceId === input.serviceId) return { status: quote.action !== 'QUOTE_APPROVED' ? 'ALREADY_BOOKED' as const : 'MANUAL_SCHEDULING_REQUIRED' as const, message: quote.action !== 'QUOTE_APPROVED' ? 'This request already has a linked appointment. Do not create another booking.' : 'The quote is approved; arrange scheduling manually without requesting another estimate.' };
   const client = await getClient(ctx);
   if (client.nameRequired) return { status: 'NAME_REQUIRED' as const, message: 'Ask the client for their name before booking. Save only the name they explicitly provide.' };
   const internalScheduling = await usesInternalScheduling(ctx.organizationId, ctx.artistId);
@@ -256,6 +257,21 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
   return { appointmentId: appointment.id, start: startsAt.toISOString(), end: endsAt.toISOString(), status: appointment.status, depositRequired: false, depositCents: 0 };
 }
 
+export async function acceptApprovedQuote(ctx: AgentContext) {
+  const quote = await getConversationQuote(ctx.organizationId, ctx.conversationId);
+  if (!quote || !quote.appointmentId || !quote.bookingId || !quote.startsAt) return { status: 'BOOKING_REQUIRED' };
+  const [appointment] = await db.select().from(appointments).where(and(eq(appointments.id, quote.appointmentId), eq(appointments.organizationId, ctx.organizationId), eq(appointments.artistId, ctx.artistId), eq(appointments.clientId, ctx.clientId), eq(appointments.conversationId, ctx.conversationId))).limit(1);
+  if (!appointment || appointment.startsAt.getTime() <= Date.now()) return { status: 'HUMAN_REVIEW_REQUIRED' };
+  const accepted = { status: 'ACCEPTED', appointmentId: quote.appointmentId, depositRequired: Boolean(appointment.depositCents && appointment.depositCents > 0 && appointment.depositStatus === 'PENDING') };
+  if (quote.action === 'QUOTE_ACCEPTED') return accepted;
+  const [latestReply] = await db.select().from(messages).where(and(eq(messages.conversationId, ctx.conversationId), eq(messages.role, 'assistant'))).orderBy(desc(messages.createdAt)).limit(1);
+  const [latestClient] = await db.select().from(messages).where(and(eq(messages.conversationId, ctx.conversationId), eq(messages.senderType, 'CLIENT'))).orderBy(desc(messages.createdAt)).limit(1);
+  const terms = (latestReply?.metadata as { quoteTerms?: { bookingId?: string; priceCents?: number; startsAt?: string } } | null)?.quoteTerms;
+  if (!latestClient || !latestReply || !matchesConfirmedQuoteTerms({ text: latestClient.content, replyAt: latestClient.createdAt, termsAt: latestReply.createdAt, presented: terms, approved: quote })) return { status: 'CONFIRM_PRICE_AND_DATE' };
+  await db.insert(conversationEvents).values({ organizationId: ctx.organizationId, conversationId: ctx.conversationId, action: 'QUOTE_ACCEPTED', details: { ...quote, clientMessageId: latestClient.id }, fromMode: 'AI', toMode: 'AI' });
+  return accepted;
+}
+
 export async function createDepositRequest(ctx: AgentContext, appointmentId: string) {
   const [appointment] = await db.select()
     .from(appointments)
@@ -270,7 +286,10 @@ export async function createDepositRequest(ctx: AgentContext, appointmentId: str
   if (!appointment) throw new Error('Appointment not found.');
   if (appointment.serviceId) {
     const [service] = await db.select().from(services).where(and(eq(services.id, appointment.serviceId), eq(services.organizationId, ctx.organizationId), eq(services.artistId, ctx.artistId))).limit(1);
-    if (service && needsServiceQuote(service)) throw new Error('Artist approval of duration and quote is required before requesting a deposit.');
+    const quote = await getConversationQuote(ctx.organizationId, ctx.conversationId);
+    if ((service && needsServiceQuote(service)) || quote?.appointmentId === appointment.id) {
+      if (quote?.action !== 'QUOTE_ACCEPTED' || quote.appointmentId !== appointment.id) throw new Error('Client agreement to the approved price and booked date is required before requesting a deposit.');
+    }
   }
 
   if (appointment.status !== 'PAYMENT_PENDING') {
