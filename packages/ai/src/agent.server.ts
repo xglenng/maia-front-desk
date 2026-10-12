@@ -1,3 +1,4 @@
+import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
 import { approvedAvailabilityInput } from './approved-scheduling-policy';
 import { shouldHandoffReference } from '@/packages/inbox/reference-handoff-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
@@ -119,7 +120,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       internalInstructions: studioConfiguration.internalInstructions,
       receptionistGuidance: studioConfiguration.receptionistGuidance,
       testMode: context.channel === 'WEB_TEST',
-    }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_AI_SCHEDULING, the artist authorized you to schedule this approved quote: ask for timing if needed, call check_availability with the approved service ID, and createBookingHold only after the client selects an offered slot. Use the approved duration and price. After booking, confirm_quote_terms and wait for agreement before collecting a deposit. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed. For a linked appointment, call accept_quote_terms if the client agrees; if confirmation is missing, call confirm_quote_terms and wait. After ACCEPTED, check the appointment deposit requirement and call create_deposit_request only if required. Never book it again.` : '');
+    }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_AI_SCHEDULING, the artist authorized you to schedule this approved quote: ask for timing if needed, call check_availability with the approved service ID, and createBookingHold only after the client selects an offered slot. Use the approved duration and price. The booking tool records and presents price/date confirmation automatically; do not ask a second time. On client agreement, call accept_quote_terms. If ACCEPTED and depositRequired is true, call create_deposit_request using its appointmentId and send the link. If ACCEPTED and no deposit is required, send a short final acknowledgment rather than asking again. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed. For a linked appointment, call accept_quote_terms if the client agrees; if confirmation is missing, call confirm_quote_terms and wait. After ACCEPTED, check the appointment deposit requirement and call create_deposit_request only if required. Never book it again.` : '');
 
     const history = await db.select({ role: messages.role, content: messages.content, metadata: messages.metadata })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
@@ -146,6 +147,16 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     let quoteTermsPrompt: string | undefined;
     let quoteTerms: { bookingId?: string; priceCents: number; startsAt?: string } | undefined;
     let quoteEligible = false;
+    const presentQuoteTerms = async () => {
+      const quoteForTerms = await getConversationQuote(context.organizationId, context.conversationId);
+      if (!quoteForTerms?.bookingId || !quoteForTerms.startsAt || !quoteForTerms.appointmentId || new Date(quoteForTerms.startsAt).getTime() <= Date.now()) return { status: 'MANUAL_BOOKING_REQUIRED' };
+      if (quoteForTerms.action === 'QUOTE_ACCEPTED') return { status: 'ALREADY_ACCEPTED' };
+      const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quoteForTerms.priceCents / 100);
+      const date = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'short' }).format(new Date(quoteForTerms.startsAt));
+      quoteTerms = { bookingId: quoteForTerms.bookingId, priceCents: quoteForTerms.priceCents, startsAt: quoteForTerms.startsAt };
+      quoteTermsPrompt = `The estimate is ${price}, and I have you down for ${date}. Does that price and time work for you?`;
+      return { status: 'CONFIRMATION_REQUIRED', reply: quoteTermsPrompt };
+    };
     const tools = {
         getClient: tool({ description: 'Read the current client name when needed for a natural receptionist response. Returns only first and last name.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
         get_studio_context: tool({
@@ -195,20 +206,16 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         confirm_quote_terms: tool({
           description: 'Present the recorded approved price and linked appointment time together and ask the client to confirm. Use before collecting a deposit for a custom quote. Do not create another booking.',
           parameters: z.object({}),
-          execute: audit('confirm_quote_terms', async () => {
-            const quoteForTerms = await getConversationQuote(context.organizationId, context.conversationId);
-            if (!quoteForTerms?.bookingId || !quoteForTerms.startsAt || !quoteForTerms.appointmentId || new Date(quoteForTerms.startsAt).getTime() <= Date.now()) return { status: 'MANUAL_BOOKING_REQUIRED' };
-            const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quoteForTerms.priceCents / 100);
-            const date = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'short' }).format(new Date(quoteForTerms.startsAt));
-            quoteTerms = { bookingId: quoteForTerms.bookingId, priceCents: quoteForTerms.priceCents, startsAt: quoteForTerms.startsAt };
-            quoteTermsPrompt = `The estimate is ${price}, and I have you down for ${date}. Does that price and time work for you?`;
-            return { status: 'CONFIRMATION_REQUIRED', reply: quoteTermsPrompt };
-          }),
+          execute: audit('confirm_quote_terms', async () => presentQuoteTerms()),
         }),
         accept_quote_terms: tool({
           description: 'Verify the client explicitly agreed to the previously presented approved price and appointment date. Only an ACCEPTED result permits a deposit request. If confirmation is missing, call confirm_quote_terms and wait for a new client reply.',
           parameters: z.object({}),
-          execute: audit('accept_quote_terms', async () => acceptApprovedQuote(context)),
+          execute: audit('accept_quote_terms', async () => {
+            const accepted = await acceptApprovedQuote(context);
+            if (accepted.status === 'ACCEPTED') quoteTermsPrompt = undefined;
+            return accepted;
+          }),
         }),
         request_artist_quote: tool({
           description: 'After collecting the tattoo idea, placement, approximate size and relevant style/reference details, request an artist estimate. Provide a concise factual summary using only client-provided details. The client will receive a short acknowledgment and AI will pause after delivery.',
@@ -226,6 +233,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           execute: audit('createBookingHold', async (args: { serviceId: string; start: string }) => {
             const result = await createBookingHold(context, args);
             if (!('providerBookingId' in result)) return result;
+            if (approvedQuote?.action === 'QUOTE_AI_SCHEDULING') await presentQuoteTerms();
             const { providerBookingId: _providerBookingId, ...clientResult } = result;
             return clientResult;
           }),
@@ -258,7 +266,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       system,
       messages: conversationMessages,
       maxSteps: 6,
-      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING'
+      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && !input.availabilityOnly && context.channel !== 'WEB_TEST' && approvedQuote?.bookingId && explicitQuoteAgreement(input.message)
+        ? { toolChoice: { type: 'tool', toolName: 'accept_quote_terms' } }
+        : stepNumber === 0 && input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING'
         ? { toolChoice: { type: 'tool', toolName: 'check_availability' } }
         : stepNumber === 0 && requiresServiceLookup(input.message)
         ? { toolChoice: { type: 'tool', toolName: 'search_services' } }
