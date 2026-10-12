@@ -1,3 +1,4 @@
+import { approvedAvailabilityInput } from './approved-scheduling-policy';
 import { shouldHandoffReference } from '@/packages/inbox/reference-handoff-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { availabilityToolParameters } from './availability-tool-schema';
@@ -140,7 +141,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       return execute(...args);
     });
 
-    let servicesDiscovered = false;
+    let servicesDiscovered = approvedQuote?.action === 'QUOTE_AI_SCHEDULING';
     let quoteSummary: string | undefined;
     let quoteTermsPrompt: string | undefined;
     let quoteTerms: { bookingId?: string; priceCents: number; startsAt?: string } | undefined;
@@ -183,7 +184,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         check_availability: tool({
           description: 'Read real open slots for a previously identified active service. Pass studio-local ISO calendar date(s), not a duration or provider details. The tool derives service duration, timezone, artist scope, and scheduling provider. This tool never creates a booking, hold, payment, or message.',
           parameters: availabilityToolParameters,
-          execute: audit('check_availability', async (args: { serviceId: string; fromDate: string; toDate?: string; artistPreference?: string; timePeriod?: 'morning' | 'afternoon' | 'evening' }) => checkAvailability(context, args)),
+          execute: audit('check_availability', async (args: { serviceId: string; fromDate: string; toDate?: string; artistPreference?: string; timePeriod?: 'morning' | 'afternoon' | 'evening' }) => checkAvailability(context, approvedAvailabilityInput(args, approvedQuote))),
         }),
         get_client_appointments: tool({
           description: 'Read this conversation client\'s existing upcoming appointments when they ask about an existing booking, time, deposit status, or waiver. Use the returned appointmentId only with the corresponding existing deposit or waiver tool when the client requests that action.',
@@ -257,7 +258,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       system,
       messages: conversationMessages,
       maxSteps: 6,
-      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && requiresServiceLookup(input.message)
+      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING'
+        ? { toolChoice: { type: 'tool', toolName: 'check_availability' } }
+        : stepNumber === 0 && requiresServiceLookup(input.message)
         ? { toolChoice: { type: 'tool', toolName: 'search_services' } }
         : { experimental_activeTools: serviceScopedTools(Object.keys(tools) as Array<keyof typeof tools>, servicesDiscovered) },
       tools,
