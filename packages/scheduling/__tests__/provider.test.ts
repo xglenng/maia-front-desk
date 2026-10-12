@@ -7,6 +7,17 @@ import { translateSquareAvailability } from '../square/provider';
 import { presentAvailabilitySlot } from '../presentation';
 import type { ProviderAvailabilityInput, SchedulingProvider } from '../types';
 
+test('custom quote slots must match the complete artist-approved duration', () => {
+  const from = new Date('2026-10-12T15:00:00Z');
+  const to = new Date('2026-10-12T20:00:00Z');
+  const availability = { location_id: 'location', start_at: from.toISOString(), appointment_segments: [{ service_variation_id: 'tattoo', team_member_id: 'artist', duration_minutes: 60 }] };
+  const selection = { locationId: 'location', serviceVariationId: 'tattoo', teamMemberId: 'artist', durationMinutes: 90, exactDuration: true };
+  assert.deepEqual(translateSquareAvailability([availability], selection, from, to), []);
+  const slots = translateSquareAvailability([{ ...availability, appointment_segments: [{ ...availability.appointment_segments[0], duration_minutes: 90 }] }], selection, from, to);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].end, '2026-10-12T16:30:00.000Z');
+});
+
 test('provider resolution uses Maia when no external provider is connected', () => {
   assert.equal(resolveSchedulingProvider(null, null).kind, 'INTERNAL');
   assert.equal(resolveSchedulingProvider('SQUARE', 'DISCONNECTED').kind, 'INTERNAL');

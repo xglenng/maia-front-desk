@@ -1,8 +1,8 @@
 import { finalizeQuoteHandoff } from '@/packages/inbox/quote-handoff.server';
 import 'server-only';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, artists, channelConnections, clients, conversations, externalWaiverAssignments, messages } from '@db/schema';
+import { appointments, artists, channelConnections, clients, conversationEvents, conversations, externalWaiverAssignments, messages } from '@db/schema';
 import { resolveVerifiedChannelMaiaAgentContext } from '@ai/context.server';
 import { runMaiaAgent } from '@ai/agent.server';
 import { decryptComplianceSecret } from '@/packages/compliance/secrets';
@@ -130,6 +130,13 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
     await completeJob(job, 'CANCELLED', 'META_REPLY_WINDOW_EXPIRED');
     return { id: job.id, status: 'CANCELLED' };
   }
+  let quoteAvailabilityOnly = false;
+  if (typeof payload.quoteEventId === 'string') {
+    const [quoteEvent] = await db.select().from(conversationEvents).where(and(eq(conversationEvents.id, payload.quoteEventId), eq(conversationEvents.organizationId, job.organizationId), eq(conversationEvents.conversationId, conversation.id), eq(conversationEvents.action, 'QUOTE_AI_SCHEDULING'))).limit(1);
+    const [latestQuoteEvent] = await db.select({ id: conversationEvents.id }).from(conversationEvents).where(and(eq(conversationEvents.organizationId, job.organizationId), eq(conversationEvents.conversationId, conversation.id), inArray(conversationEvents.action, ['QUOTE_REQUESTED', 'QUOTE_APPROVED', 'QUOTE_AI_SCHEDULING', 'QUOTE_BOOKING_LINKED', 'QUOTE_ACCEPTED']))).orderBy(desc(conversationEvents.createdAt)).limit(1);
+    if (!quoteEvent || latestQuoteEvent?.id !== quoteEvent.id) { await completeJob(job, 'CANCELLED', 'INVALID_QUOTE_REFERENCE'); return { id: job.id, status: 'CANCELLED' }; }
+    quoteAvailabilityOnly = true;
+  }
   const generated = await findGeneratedMessage(job);
   let resultMessage = generated;
   if (!resultMessage) {
@@ -137,7 +144,8 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
     let ai: Awaited<ReturnType<typeof runMaiaAgent>>;
     try {
       ai = await runMaiaAgent(context, {
-        message: inboundMessage.content,
+        message: quoteAvailabilityOnly ? 'Offer the next available dates for this artist-approved quote.' : inboundMessage.content,
+        availabilityOnly: quoteAvailabilityOnly,
         messageAlreadyStored: true,
         automationGuard: () => currentAiEligibility(job, latestInboundVersion, true),
         automationJobId: job.id,

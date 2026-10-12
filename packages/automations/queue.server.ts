@@ -18,6 +18,7 @@ export async function enqueueAiResponse(input: {
   latestInboundMessageId: string;
   latestInboundVersion: number;
   delaySeconds: number;
+  quoteEventId?: string;
   now?: Date;
 }) {
   const now = input.now ?? new Date();
@@ -27,14 +28,14 @@ export async function enqueueAiResponse(input: {
     artistId: input.artistId,
     clientId: input.clientId,
     conversationId: input.conversationId,
-    dedupeKey: aiResponseDedupeKey(input.conversationId),
+    dedupeKey: input.quoteEventId ? `quote-dates:${input.conversationId}:${input.quoteEventId}` : aiResponseDedupeKey(input.conversationId),
     type: 'AI_RESPONSE',
     channel: input.channel,
     runAt,
     status: 'PENDING',
     attemptCount: 0,
     maxAttempts: 5,
-    payload: { latestInboundMessageId: input.latestInboundMessageId, latestInboundVersion: input.latestInboundVersion },
+    payload: { latestInboundMessageId: input.latestInboundMessageId, latestInboundVersion: input.latestInboundVersion, ...(input.quoteEventId ? { quoteEventId: input.quoteEventId } : {}) },
   }).onConflictDoUpdate({
     target: [automationJobs.organizationId, automationJobs.dedupeKey],
     set: {
@@ -43,7 +44,7 @@ export async function enqueueAiResponse(input: {
       conversationId: input.conversationId,
       channel: input.channel,
       runAt,
-      payload: { latestInboundMessageId: input.latestInboundMessageId, latestInboundVersion: input.latestInboundVersion },
+      payload: { latestInboundMessageId: input.latestInboundMessageId, latestInboundVersion: input.latestInboundVersion, ...(input.quoteEventId ? { quoteEventId: input.quoteEventId } : {}) },
       status: sql`CASE WHEN ${automationJobs.status} = 'SENDING' THEN 'SENDING' ELSE 'PENDING' END`,
       attemptCount: sql`CASE WHEN ${automationJobs.status} = 'SENDING' THEN ${automationJobs.attemptCount} ELSE 0 END`,
       lockedAt: sql`CASE WHEN ${automationJobs.status} = 'SENDING' THEN ${automationJobs.lockedAt} ELSE NULL END`,

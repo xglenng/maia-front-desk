@@ -11,6 +11,7 @@ export type AvailabilityResult =
   | { status: 'ARTIST_QUOTE_REQUIRED'; slots: []; message: string };
 
 export type AvailabilityRequest = {
+  conversationId?: string;
   serviceId?: string;
   durationMinutes: number;
   from: string;
@@ -33,6 +34,7 @@ export interface SchedulingProvider {
   createBooking?(input: ProviderBookingInput): Promise<BookingResult>;
 }
 export type BookingRequest = {
+  conversationId?: string;
   serviceId: string;
   clientId: string;
   start: string;

@@ -140,6 +140,16 @@ export default function InboxPage() {
 
   useEffect(() => { setQuoteService(""); setQuotePrice(""); setQuoteDuration(""); setSquareBookingId(""); }, [selectedId]);
 
+  async function quoteScheduling(action: 'AI_SCHEDULE' | 'MANUAL_SCHEDULE') {
+    if (!selectedId || working) return;
+    setWorking(true);
+    try {
+      await json(await fetch(`/api/inbox/${selectedId}/quote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }));
+      await Promise.all([loadDetail(selectedId, false), loadList()]); setError(null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to change scheduling mode'); }
+    finally { setWorking(false); }
+  }
+
   async function saveQuote(event: FormEvent, link = false) {
     event.preventDefault();
     if (!selectedId) return;
@@ -213,6 +223,7 @@ export default function InboxPage() {
           <header className="chat-header">
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
+              {detail.quote?.action === "QUOTE_AI_SCHEDULING" && <button disabled={working} className="plain-btn" onClick={() => quoteScheduling("MANUAL_SCHEDULE")}>Book manually</button>}
               <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "Human takeover" : "Closed"}</span>
               {detail.conversation.mode === "AI" && <button disabled={working} onClick={() => action("TAKE_OVER")} className="takeover-btn">Take over</button>}
               {detail.conversation.mode === "HUMAN" && <button disabled={working} onClick={() => action("RETURN_TO_AI")} className="ai-btn">Return to AI</button>}
@@ -241,6 +252,7 @@ export default function InboxPage() {
                 <label>Duration (minutes) <input required type="number" min="1" max="1440" step="1" value={quoteDuration} onChange={event => setQuoteDuration(event.target.value)} /></label>
                 <button disabled={working}>Save approved estimate</button><span>This records the quote and pauses Maia. Send the estimate using the reply box.</span>
               </form>}
+              {detail.quote?.action === 'QUOTE_APPROVED' && <><button disabled={working} onClick={() => quoteScheduling('AI_SCHEDULE')}>Let Maia schedule</button><span>Maia will send the next available dates using this approved duration. Manual booking remains available below.</span></>}
               {detail.quote?.action === 'QUOTE_APPROVED' && <form onSubmit={event => saveQuote(event, true)}><label>Square booking ID <input required value={squareBookingId} onChange={event => setSquareBookingId(event.target.value)} /></label><button disabled={working}>Link existing appointment</button><span>Verifies the client, artist, location, and duration. Does not create an appointment.</span></form>}
             </div>}
 

@@ -66,7 +66,7 @@ function withAudit<TArgs extends unknown[], TResult>(runId: string | undefined, 
   };
 }
 
-export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; messageAlreadyStored?: boolean; automationGuard?: () => Promise<boolean>; automationJobId?: string; automationInboundVersion?: number }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
+export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; availabilityOnly?: boolean; messageAlreadyStored?: boolean; automationGuard?: () => Promise<boolean>; automationJobId?: string; automationInboundVersion?: number }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
   const [artist] = await db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, responseLength: artists.responseLength, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
     .from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1);
   const [conversation] = await db.select().from(conversations).where(and(
@@ -118,7 +118,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       internalInstructions: studioConfiguration.internalInstructions,
       receptionistGuidance: studioConfiguration.receptionistGuidance,
       testMode: context.channel === 'WEB_TEST',
-    }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed. For a linked appointment, call accept_quote_terms if the client agrees; if confirmation is missing, call confirm_quote_terms and wait. After ACCEPTED, check the appointment deposit requirement and call create_deposit_request only if required. Never book it again.` : '');
+    }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_AI_SCHEDULING, the artist authorized you to schedule this approved quote: ask for timing if needed, call check_availability with the approved service ID, and createBookingHold only after the client selects an offered slot. Use the approved duration and price. After booking, confirm_quote_terms and wait for agreement before collecting a deposit. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed. For a linked appointment, call accept_quote_terms if the client agrees; if confirmation is missing, call confirm_quote_terms and wait. After ACCEPTED, check the appointment deposit requirement and call create_deposit_request only if required. Never book it again.` : '');
 
     const history = await db.select({ role: messages.role, content: messages.content, metadata: messages.metadata })
       .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
@@ -134,6 +134,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       return { reply, conversationId: conversation.id, messageId: message.id, mode: 'live', toolCalls: [], toolResults: [] };
     }
     const conversationMessages = history.reverse().map(message => ({ role: message.role === 'assistant' ? 'assistant' as const : 'user' as const, content: message.content }));
+    if (input.availabilityOnly) conversationMessages.push({ role: 'user', content: 'The studio authorized you to offer the next few available dates for the approved quote. Check the next 14 days using the provider-local date. Ask which time works; do not book, collect a deposit, or restart the intake. If no approved quote exists, do not offer dates.' });
     const audit = <TArgs extends unknown[], TResult>(name: string, execute: (...args: TArgs) => Promise<TResult>) => withAudit(runId, name, async (...args: TArgs) => {
       if (input.automationGuard && !await input.automationGuard()) throw new Error('AUTOMATION_SUPPRESSED');
       return execute(...args);
@@ -142,6 +143,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     let servicesDiscovered = false;
     let quoteSummary: string | undefined;
     let quoteTermsPrompt: string | undefined;
+    let quoteTerms: { bookingId?: string; priceCents: number; startsAt?: string } | undefined;
     let quoteEligible = false;
     const tools = {
         getClient: tool({ description: 'Read the current client name when needed for a natural receptionist response. Returns only first and last name.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
@@ -188,14 +190,16 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({}),
           execute: audit('get_client_appointments', async () => getClientAppointmentsForReceptionist(context)),
         }),
-        ...(context.channel === 'WEB_TEST' ? {} : {
+        ...(context.channel === 'WEB_TEST' || input.availabilityOnly ? {} : {
         confirm_quote_terms: tool({
           description: 'Present the recorded approved price and linked appointment time together and ask the client to confirm. Use before collecting a deposit for a custom quote. Do not create another booking.',
           parameters: z.object({}),
           execute: audit('confirm_quote_terms', async () => {
-            if (!approvedQuote?.bookingId || !approvedQuote.startsAt || !approvedQuote.appointmentId || new Date(approvedQuote.startsAt).getTime() <= Date.now()) return { status: 'MANUAL_BOOKING_REQUIRED' };
-            const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100);
-            const date = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'short' }).format(new Date(approvedQuote.startsAt));
+            const quoteForTerms = await getConversationQuote(context.organizationId, context.conversationId);
+            if (!quoteForTerms?.bookingId || !quoteForTerms.startsAt || !quoteForTerms.appointmentId || new Date(quoteForTerms.startsAt).getTime() <= Date.now()) return { status: 'MANUAL_BOOKING_REQUIRED' };
+            const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quoteForTerms.priceCents / 100);
+            const date = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'short' }).format(new Date(quoteForTerms.startsAt));
+            quoteTerms = { bookingId: quoteForTerms.bookingId, priceCents: quoteForTerms.priceCents, startsAt: quoteForTerms.startsAt };
             quoteTermsPrompt = `The estimate is ${price}, and I have you down for ${date}. Does that price and time work for you?`;
             return { status: 'CONFIRMATION_REQUIRED', reply: quoteTermsPrompt };
           }),
@@ -220,6 +224,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({ serviceId: z.string().uuid(), start: z.string() }),
           execute: audit('createBookingHold', async (args: { serviceId: string; start: string }) => {
             const result = await createBookingHold(context, args);
+            if (!('providerBookingId' in result)) return result;
             const { providerBookingId: _providerBookingId, ...clientResult } = result;
             return clientResult;
           }),
@@ -260,7 +265,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     const reply = quoteTermsPrompt || (quoteSummary ? 'Thanks! Let me get back to you with an estimate.' : result.text || 'I’m going to have the artist take a look at this.');
     if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
     const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
-    if (quoteSummary || quoteTermsPrompt) await db.update(messages).set({ metadata: { ...(quoteTermsPrompt && approvedQuote ? { quoteTerms: { bookingId: approvedQuote.bookingId, priceCents: approvedQuote.priceCents, startsAt: approvedQuote.startsAt } } : {}), source: 'ai-receptionist', quoteSummary, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));
+    if (quoteSummary || quoteTermsPrompt) await db.update(messages).set({ metadata: { ...(quoteTerms ? { quoteTerms } : {}), source: 'ai-receptionist', quoteSummary, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));
     await updateRun(runId, {
       success: true,
       latencyMs: Date.now() - startedAt,

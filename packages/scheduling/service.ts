@@ -68,7 +68,7 @@ export async function getSchedulingAvailability(
   try {
     if (input.serviceId) {
       const [service] = await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.organizationId, organizationId), eq(services.artistId, artistId), eq(services.active, true))).limit(1);
-      if (service && needsServiceQuote(service)) return { status: 'ARTIST_QUOTE_REQUIRED', slots: [], message: 'The artist must approve the duration and quote before scheduling.' };
+      if (service && needsServiceQuote(service) && !await schedulingQuote(organizationId, artistId, input.serviceId, input.conversationId)) return { status: 'ARTIST_QUOTE_REQUIRED', slots: [], message: 'The artist must approve the duration and quote before scheduling.' };
     }
     return await resolveSchedulingAvailability(organizationId, artistId, input);
   } catch {
@@ -127,13 +127,15 @@ async function resolveSchedulingAvailability(
     return result;
   }
 
+  const approvedQuote = await schedulingQuote(organizationId, artistId, input.serviceId, input.conversationId);
+  const effectiveService = approvedQuote ? { ...service, durationMinutes: approvedQuote.durationMinutes } : service;
   const execution = await invokeSchedulingProvider(resolution.implementation, {
       ...input,
       organizationId,
       artistId,
       connection,
       mapping,
-      service,
+      service: effectiveService,
       locationTimezone: connection.locationTimezone || organization?.timezone || 'UTC',
   });
   if (execution.error) {
@@ -186,10 +188,11 @@ export async function createSchedulingBooking(
     db.select().from(clients).where(and(eq(clients.id, input.clientId), eq(clients.organizationId, organizationId))).limit(1),
   ]);
   if (!service || !mapping) return { status: 'SERVICE_NOT_MAPPED', message: 'This service is not configured for online booking.' };
-  if (needsServiceQuote(service)) return { status: 'ARTIST_QUOTE_REQUIRED', message: 'The artist must approve the duration and quote before booking.' };
+  const approvedQuote = await schedulingQuote(organizationId, artistId, input.serviceId, input.conversationId, input.clientId);
+  if (needsServiceQuote(service) && !approvedQuote) return { status: 'ARTIST_QUOTE_REQUIRED', message: 'The artist must approve the duration and quote before booking.' };
   if (!client) return { status: 'CUSTOMER_ERROR', message: 'The client profile could not be loaded.' };
   try {
-    return await resolution.implementation.createBooking({ ...input, organizationId, artistId, connection, mapping, service, client });
+    return await resolution.implementation.createBooking({ ...input, organizationId, artistId, connection, mapping, service: approvedQuote ? { ...service, durationMinutes: approvedQuote.durationMinutes } : service, client });
   } catch (error) {
     const providerCode = error instanceof Error && 'codes' in error ? String((error as Error & { codes: string[] }).codes.join(',')) : 'UNKNOWN';
     console.error(JSON.stringify({ event: 'scheduling_booking_provider_failure', provider: connection.provider, organizationId, artistId, serviceId: input.serviceId, providerCode,
@@ -199,4 +202,9 @@ export async function createSchedulingBooking(
     }
     return { status: 'PROVIDER_ERROR', message: 'The scheduling provider could not create the appointment.' };
   }
+}
+
+async function schedulingQuote(organizationId: string, artistId: string, serviceId?: string, conversationId?: string, clientId?: string) {
+  if (!conversationId) return null;
+  return (await import('./approved-quote.server')).schedulingQuote(organizationId, artistId, serviceId, conversationId, clientId);
 }

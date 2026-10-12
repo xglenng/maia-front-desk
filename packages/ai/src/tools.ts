@@ -1,4 +1,4 @@
-import { matchesConfirmedQuoteTerms } from '@/packages/inbox/quote-policy';
+import { approvedQuoteDeposit, matchesConfirmedQuoteTerms, parseQuoteState } from '@/packages/inbox/quote-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import 'server-only';
 import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
@@ -124,13 +124,39 @@ export async function getSlots(ctx: AgentContext, input: { serviceId?: string; d
   const artistId = input.artistId ?? ctx.artistId;
   const { artistId: _selectedArtistId, ...availabilityInput } = input;
   const timeZone = await getContextTimezone(ctx.organizationId, artistId);
-  const result = await getSchedulingAvailability(ctx.organizationId, artistId, { ...availabilityInput, now: input.now ?? new Date() });
+  const result = await getSchedulingAvailability(ctx.organizationId, artistId, { ...availabilityInput, conversationId: ctx.conversationId, now: input.now ?? new Date() });
   if (result.status !== 'AVAILABLE') return result;
   return { ...result, slots: result.slots.map(slot => presentAvailabilitySlot(slot, timeZone)) };
 }
 
+async function createApprovedQuoteBooking(ctx: AgentContext, input: { serviceId: string; start: string }) {
+  const client = await getClient(ctx);
+  if (client.nameRequired) return { status: 'NAME_REQUIRED' as const, message: 'Ask for the client name before booking.' };
+  return db.transaction(async tx => {
+    const [conversation] = await tx.select().from(conversations).where(and(eq(conversations.id, ctx.conversationId), eq(conversations.organizationId, ctx.organizationId), eq(conversations.artistId, ctx.artistId), eq(conversations.clientId, ctx.clientId))).for('update');
+    if (!conversation?.aiEnabled || conversation.status !== 'OPEN') throw new Error('AI is paused.');
+    const [event] = await tx.select().from(conversationEvents).where(and(eq(conversationEvents.organizationId, ctx.organizationId), eq(conversationEvents.conversationId, ctx.conversationId), or(eq(conversationEvents.action, 'QUOTE_APPROVED'), eq(conversationEvents.action, 'QUOTE_AI_SCHEDULING'), eq(conversationEvents.action, 'QUOTE_BOOKING_LINKED'), eq(conversationEvents.action, 'QUOTE_ACCEPTED'), eq(conversationEvents.action, 'QUOTE_REQUESTED')))).orderBy(desc(conversationEvents.createdAt)).limit(1);
+    const quote = event ? parseQuoteState(event.action, event.details) : null;
+    if (quote?.action !== 'QUOTE_AI_SCHEDULING' || quote.serviceId !== input.serviceId) return { status: 'ALREADY_BOOKED' as const, message: 'This quote is no longer eligible for another booking.' };
+    const [service] = await tx.select().from(services).where(and(eq(services.id, quote.serviceId), eq(services.organizationId, ctx.organizationId), eq(services.artistId, ctx.artistId), eq(services.active, true))).limit(1);
+    if (!service) throw new Error('Active service not found.');
+    const selectedStart = new Date(input.start);
+    if (!Number.isFinite(selectedStart.getTime()) || selectedStart.getTime() <= Date.now()) return { status: 'SLOT_UNAVAILABLE' as const, message: 'Choose a future available time.' };
+    const canonicalStart = selectedStart.toISOString();
+    const idempotencyKey = crypto.createHash('sha256').update([ctx.organizationId, ctx.conversationId, event.id, canonicalStart].join(':')).digest('hex');
+    const result = await createSchedulingBooking(ctx.organizationId, ctx.artistId, { serviceId: service.id, clientId: ctx.clientId, conversationId: ctx.conversationId, start: canonicalStart, idempotencyKey });
+    if (result.status !== 'BOOKED') return result;
+    const depositCents = approvedQuoteDeposit(quote.priceCents, service);
+    const [appointment] = await tx.insert(appointments).values({ organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id, startsAt: new Date(result.start), endsAt: new Date(result.end), status: depositCents ? 'PAYMENT_PENDING' : 'CONFIRMED', priceCents: quote.priceCents, depositCents: depositCents || null, depositStatus: depositCents ? 'PENDING' : 'WAIVED', paymentProvider: service.paymentProvider, schedulingProvider: 'SQUARE', providerBookingId: result.providerBookingId, notes: 'AI scheduled an artist-approved custom quote.' }).returning();
+    await tx.update(clients).set({ providerCustomerId: result.providerCustomerId, updatedAt: new Date() }).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));
+    await tx.insert(conversationEvents).values({ organizationId: ctx.organizationId, conversationId: ctx.conversationId, action: 'QUOTE_BOOKING_LINKED', details: { ...quote, bookingId: result.providerBookingId, appointmentId: appointment.id, startsAt: result.start, endsAt: result.end }, fromMode: 'AI', toMode: 'AI' });
+    return { status: appointment.status, appointmentId: appointment.id, start: result.start, end: result.end, depositRequired: Boolean(depositCents), message: 'The selected slot is recorded. Confirm the price and date with the client before requesting a deposit.' };
+  });
+}
+
 export async function createBookingHold(ctx: AgentContext, input: { serviceId: string; start: string; depositCents?: number; priceCents?: number }) {
   const quote = await getConversationQuote(ctx.organizationId, ctx.conversationId);
+  if (quote?.serviceId === input.serviceId && quote.action === 'QUOTE_AI_SCHEDULING') return createApprovedQuoteBooking(ctx, input);
   if (quote?.serviceId === input.serviceId) return { status: quote.action !== 'QUOTE_APPROVED' ? 'ALREADY_BOOKED' as const : 'MANUAL_SCHEDULING_REQUIRED' as const, message: quote.action !== 'QUOTE_APPROVED' ? 'This request already has a linked appointment. Do not create another booking.' : 'The quote is approved; arrange scheduling manually without requesting another estimate.' };
   const client = await getClient(ctx);
   if (client.nameRequired) return { status: 'NAME_REQUIRED' as const, message: 'Ask the client for their name before booking. Save only the name they explicitly provide.' };

@@ -5,7 +5,7 @@ import type { AvailabilityResult, AvailabilitySlot, BookingResult, ProviderAvail
 
 export function translateSquareAvailability(
   availabilities: SquareAvailability[],
-  selection: { locationId: string; serviceVariationId: string; teamMemberId?: string | null; durationMinutes: number },
+  selection: { locationId: string; serviceVariationId: string; teamMemberId?: string | null; durationMinutes: number; exactDuration?: boolean },
   from: Date,
   to: Date,
 ): AvailabilitySlot[] {
@@ -17,6 +17,7 @@ export function translateSquareAvailability(
     const start = new Date(availability.start_at);
     if (!Number.isFinite(start.getTime()) || !inRequestedWindow(start, from, to)) continue;
     const durationMinutes = squareSafeNumber(segment.duration_minutes) || selection.durationMinutes;
+    if (selection.exactDuration && durationMinutes !== selection.durationMinutes) continue;
     if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue;
     const end = new Date(start.getTime() + durationMinutes * 60_000);
     slots.set(start.toISOString(), { start: start.toISOString(), end: end.toISOString() });
@@ -41,11 +42,11 @@ const appointmentEnd = new Date(
   start.getTime() + input.service.durationMinutes * 60_000,
 );
 
-// Square requires availability searches to span at least one hour.
+// Square requires availability searches to span at least 24 hours.
 // This only widens the verification query; it does not change the
 // requested appointment duration.
 const availabilitySearchEnd = new Date(
-  start.getTime() + Math.max(60, input.service.durationMinutes + 1) * 60_000,
+  start.getTime() + Math.max(1440, input.service.durationMinutes + 1) * 60_000,
 );
 
 const availability = await client.searchAvailability({
@@ -63,6 +64,7 @@ const exact = translateSquareAvailability(
     serviceVariationId: input.mapping.externalServiceVariationId,
     teamMemberId,
     durationMinutes: input.service.durationMinutes,
+    exactDuration: input.service.pricingType === 'QUOTE',
   },
   start,
   availabilitySearchEnd,
@@ -120,6 +122,7 @@ const exact = translateSquareAvailability(
       serviceVariationId: input.mapping.externalServiceVariationId,
       teamMemberId: input.mapping.externalTeamMemberId || input.connection.teamMemberId,
       durationMinutes: input.service.durationMinutes,
+    exactDuration: input.service.pricingType === 'QUOTE',
     }, from, to);
     return slots.length ? { status: 'AVAILABLE', slots } : { status: 'NO_AVAILABILITY', slots: [] };
   }

@@ -7,6 +7,9 @@ test('quote actions accept organization scope injected by protectedRoute', () =>
   const organizationId = '22222222-2222-4222-8222-222222222222';
   assert.equal(quoteActionSchema.safeParse({ ...base, organizationId }).success, true);
   assert.equal(quoteActionSchema.safeParse({ action: 'LINK_BOOKING', bookingId: 'booking-id', organizationId }).success, true);
+  assert.equal(quoteActionSchema.safeParse({ action: 'AI_SCHEDULE', organizationId }).success, true);
+  assert.equal(quoteActionSchema.safeParse({ action: 'AI_SCHEDULE', organizationId, durationMinutes: 30 }).success, false);
+  assert.equal(quoteActionSchema.safeParse({ action: 'MANUAL_SCHEDULE', organizationId }).success, true);
   assert.equal(quoteActionSchema.safeParse({ ...base, arbitraryField: true }).success, false);
 });
 test('agreement must follow the exact presented price and booked time', () => {
@@ -41,6 +44,7 @@ test('only explicit approved and linked events become trusted quote state', () =
   assert.equal(parseQuoteState('QUOTE_REQUESTED', base), null);
   assert.equal(parseQuoteState('QUOTE_APPROVED', { priceCents: 15000 }), null);
   assert.equal(parseQuoteState('QUOTE_APPROVED', base)?.durationMinutes, 90);
+  assert.equal(parseQuoteState('QUOTE_AI_SCHEDULING', base)?.durationMinutes, 90);
   assert.equal(parseQuoteState('QUOTE_BOOKING_LINKED', base), null);
   assert.equal(quoteActionSchema.safeParse({ action: 'LINK_BOOKING', bookingId: '../../other' }).success, false);
 });

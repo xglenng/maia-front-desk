@@ -1,3 +1,4 @@
+import { schedulingQuote } from '@/packages/scheduling/approved-quote.server';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
 import 'server-only';
@@ -109,7 +110,7 @@ export async function getServicePricing(context: MaiaAgentContext, serviceId: st
   if (!record) throw new Error('Active service not found in this studio.');
   const quote = await getConversationQuote(context.organizationId, context.conversationId);
   const pricing = servicePricingDto(record);
-  return quote?.serviceId === serviceId ? { ...pricing, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quote.priceCents / 100), durationMinutes: quote.durationMinutes, quoteApproved: true, requestStatus: quote.action, manualScheduling: true } : pricing;
+  return quote?.serviceId === serviceId ? { ...pricing, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quote.priceCents / 100), durationMinutes: quote.durationMinutes, quoteApproved: true, requestStatus: quote.action, manualScheduling: quote.action === 'QUOTE_APPROVED' } : pricing;
 }
 
 export async function listArtists(context: MaiaAgentContext, serviceId?: string) {
@@ -133,7 +134,8 @@ export async function checkAvailability(context: MaiaAgentContext, input: {
   ]);
   const selected = resolveServiceForArtist(context.organizationId, input.serviceId, input.artistPreference, serviceRecords, artistRecords);
   if (!selected) throw new Error('An active matching service and artist could not be found in this studio.');
-  if (needsServiceQuote(selected.service)) return { status: 'ARTIST_QUOTE_REQUIRED' as const, slots: [], message: 'The artist must confirm the duration and quote before availability can be checked. Collect the design details for review.' };
+  const approvedQuote = await schedulingQuote(context.organizationId, selected.artist.id, input.serviceId, context.conversationId, context.clientId);
+  if (needsServiceQuote(selected.service) && !approvedQuote) return { status: 'ARTIST_QUOTE_REQUIRED' as const, slots: [], message: 'The artist must confirm the duration and quote before availability can be checked. Collect the design details for review.' };
   const timezone = await getContextTimezone(context.organizationId, selected.artist.id);
   const request = buildAvailabilityRequest({
     organizationId: context.organizationId,
@@ -143,7 +145,7 @@ export async function checkAvailability(context: MaiaAgentContext, input: {
     artistPreference: input.artistPreference,
     timeZone: timezone,
     now: new Date(),
-    serviceRecords,
+    serviceRecords: approvedQuote ? serviceRecords.map(service => service.id === input.serviceId ? { ...service, durationMinutes: approvedQuote.durationMinutes } : service) : serviceRecords,
     artistRecords,
   });
   if (!request) throw new Error('An active matching service, artist, and date range could not be found in this studio.');
