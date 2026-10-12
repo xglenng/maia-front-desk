@@ -1,3 +1,4 @@
+import { isNewTattooInquiry } from './tattoo-inquiry-policy';
 import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
 import { approvedAvailabilityInput } from './approved-scheduling-policy';
 import { shouldHandoffReference } from '@/packages/inbox/reference-handoff-policy';
@@ -11,7 +12,7 @@ import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { db } from '@db/index';
-import { agentActions, agentRuns, artists, conversations, messages, services } from '@db/schema';
+import { agentActions, agentRuns, artists, conversationEvents, conversations, messages, services } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
 import { shouldRunAi } from '@/packages/inbox/state';
 import { acceptApprovedQuote, createBookingHold, createDepositRequest, escalate, getClient, getContextTimezone, getWaiverLink, saveClientName, sendMessage } from './tools';
@@ -109,7 +110,12 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       getStudioPromptConfiguration(context, input.message),
     ]);
     const currentDateTime = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'long' }).format(new Date());
-    const approvedQuote = await getConversationQuote(context.organizationId, context.conversationId);
+    let approvedQuote = await getConversationQuote(context.organizationId, context.conversationId);
+    if (!input.availabilityOnly && approvedQuote?.bookingId && isNewTattooInquiry(input.message)) {
+      if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
+      await db.insert(conversationEvents).values({ organizationId: context.organizationId, conversationId: context.conversationId, action: 'QUOTE_REQUESTED', fromMode: 'AI', toMode: 'AI', details: { reason: 'NEW_TATTOO_INQUIRY', previousAppointmentId: approvedQuote.appointmentId } });
+      approvedQuote = null;
+    }
     const system = buildSystemPrompt({
       artistName: artist.displayName,
       currentDateTime,

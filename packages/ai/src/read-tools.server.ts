@@ -1,3 +1,4 @@
+import { tattooQuoteSearch } from './tattoo-inquiry-policy';
 import { schedulingQuote } from '@/packages/scheduling/approved-quote.server';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { needsServiceQuote } from '@/packages/studio/service-duration-policy';
@@ -102,6 +103,11 @@ export async function getStudioContext(context: MaiaAgentContext, options: { que
 
 export async function searchServices(context: MaiaAgentContext, options: ServiceSearchOptions = {}) {
   const records = await loadActiveServiceRecords(context.organizationId);
+  const tattoo = tattooQuoteSearch(options.query || options.serviceType || '');
+  if (tattoo) {
+    const quoteRecords = records.filter(record => record.artistId === context.artistId && record.serviceType === 'TATTOO' && record.requiresArtistApproval && record.pricingType === 'QUOTE');
+    if (quoteRecords.length) return searchServiceRecords(context.organizationId, quoteRecords, { ...options, ...tattoo });
+  }
   return searchServiceRecords(context.organizationId, records, options);
 }
 
