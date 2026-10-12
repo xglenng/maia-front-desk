@@ -1,3 +1,4 @@
+import { finalizeQuoteHandoff } from '@/packages/inbox/quote-handoff.server';
 import { resolveVerifiedChannelMaiaAgentContext } from '@/packages/ai/src/context.server';
 import { runMaiaAgent } from '@/packages/ai/src/agent.server';
 import { NextRequest, NextResponse } from 'next/server';
@@ -313,6 +314,7 @@ export async function POST(request: NextRequest) {
       externalMessageId: sent.sid,
       metadata: sql`COALESCE(${messages.metadata}, '{}'::jsonb) || jsonb_build_object('provider'::text, 'twilio'::text, 'studioPhone'::text, ${to}::text, 'apiStatus'::text, ${sent.status}::text)`,
     }).where(eq(messages.id, aiData.messageId));
+    await finalizeQuoteHandoff(number.organizationId, conv.id, aiData.messageId);
   }
   return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
 }

@@ -126,6 +126,8 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     });
 
     let servicesDiscovered = false;
+    let quoteSummary: string | undefined;
+    let quoteEligible = false;
     const tools = {
         getClient: tool({ description: 'Read the current client name when needed for a natural receptionist response. Returns only first and last name.', parameters: z.object({}), execute: audit('getClient', async () => getClient(context)) }),
         get_studio_context: tool({
@@ -147,6 +149,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           execute: audit('search_services', async (args: { query?: string; serviceType?: string; category?: string; artistPreference?: string }) => {
             const result = await searchServices(context, args);
             servicesDiscovered = true;
+            quoteEligible = result.some(service => service.requiresArtistApproval);
             return result;
           }),
         }),
@@ -171,6 +174,11 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           execute: audit('get_client_appointments', async () => getClientAppointmentsForReceptionist(context)),
         }),
         ...(context.channel === 'WEB_TEST' ? {} : {
+        request_artist_quote: tool({
+          description: 'After collecting the tattoo idea, placement, approximate size and relevant style/reference details, request an artist estimate. Provide a concise factual summary using only client-provided details. The client will receive a short acknowledgment and AI will pause after delivery.',
+          parameters: z.object({ summary: z.string().trim().min(1).max(1200) }),
+          execute: audit('request_artist_quote', async (args: { summary: string }) => { if (!quoteEligible) return { status: 'SERVICE_LOOKUP_REQUIRED' }; quoteSummary = args.summary; return { status: 'HANDOFF_PENDING', reply: 'Thanks! Let me get back to you with an estimate.' }; }),
+        }),
         save_client_name: tool({
           description: 'Save the name this conversation client explicitly provides for their appointment. Never infer it from a phone number or invent a name. This does not change SMS consent.',
           parameters: z.object({ firstName: z.string().trim().min(1).max(100), lastName: z.string().trim().min(1).max(100).optional() }),
@@ -218,9 +226,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         : { experimental_activeTools: serviceScopedTools(Object.keys(tools) as Array<keyof typeof tools>, servicesDiscovered) },
       tools,
     });
-    const reply = result.text || 'I’m going to have the artist take a look at this.';
+    const reply = quoteSummary ? 'Thanks! Let me get back to you with an estimate.' : result.text || 'I’m going to have the artist take a look at this.';
     if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
     const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
+    if (quoteSummary) await db.update(messages).set({ metadata: { source: 'ai-receptionist', quoteSummary, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));
     await updateRun(runId, {
       success: true,
       latencyMs: Date.now() - startedAt,

@@ -1,3 +1,4 @@
+import { finalizeQuoteHandoff } from '@/packages/inbox/quote-handoff.server';
 import 'server-only';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@db/index';
@@ -153,7 +154,8 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
       await completeJob(job, 'CANCELLED', 'AI_RESPONSE_SUPPRESSED');
       return { id: job.id, status: 'CANCELLED' };
     }
-    const [saved] = await db.update(messages).set({ metadata: { automationJobId: job.id, automationInboundVersion: latestInboundVersion, channel: job.channel.toLowerCase(), source: 'ai-receptionist', status: 'generated' } })
+    const [generatedMetadata] = await db.select({ metadata: messages.metadata }).from(messages).where(and(eq(messages.id, ai.messageId), eq(messages.conversationId, conversation.id))).limit(1);
+    const [saved] = await db.update(messages).set({ metadata: { ...(generatedMetadata?.metadata as Record<string, unknown> ?? {}), automationJobId: job.id, automationInboundVersion: latestInboundVersion, channel: job.channel.toLowerCase(), source: 'ai-receptionist', status: 'generated' } })
       .where(and(eq(messages.id, ai.messageId), eq(messages.conversationId, conversation.id))).returning();
     resultMessage = saved;
     if (!resultMessage || !await updateClaimedJob(job, { resultMessageId: resultMessage.id })) {
@@ -173,7 +175,7 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
     await completeJob(job, 'CANCELLED', 'AI_RESPONSE_SUPPRESSED');
     return { id: job.id, status: 'CANCELLED' };
   }
-  await db.update(messages).set({ metadata: { automationJobId: job.id, automationInboundVersion: latestInboundVersion, channel: job.channel.toLowerCase(), source: 'ai-receptionist', status: 'provider_send_started' } }).where(eq(messages.id, resultMessage.id));
+  await db.update(messages).set({ metadata: { ...(resultMessage?.metadata as Record<string, unknown> ?? {}), automationJobId: job.id, automationInboundVersion: latestInboundVersion, channel: job.channel.toLowerCase(), source: 'ai-receptionist', status: 'provider_send_started' } }).where(eq(messages.id, resultMessage.id));
   if (!await currentAiEligibility(job, latestInboundVersion, true)) {
     await db.delete(messages).where(eq(messages.id, resultMessage.id));
     await completeJob(job, 'CANCELLED', 'AI_RESPONSE_SUPPRESSED');
@@ -182,7 +184,7 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
   if (job.channel === 'SMS') {
     if (!client.phone) throw new Error('Client is not opted in to SMS for this artist.');
     const sent = await sendStudioSms({ organizationId: job.organizationId, artistId: job.artistId, to: client.phone, body: resultMessage.content });
-    await db.update(messages).set({ externalMessageId: sent.sid, metadata: { automationJobId: job.id, channel: 'sms', source: 'ai-receptionist', provider: 'twilio', studioPhone: sent.studioPhone, status: sent.status } }).where(eq(messages.id, resultMessage.id));
+    await db.update(messages).set({ externalMessageId: sent.sid, metadata: { ...(resultMessage?.metadata as Record<string, unknown> ?? {}), automationJobId: job.id, channel: 'sms', source: 'ai-receptionist', provider: 'twilio', studioPhone: sent.studioPhone, status: sent.status } }).where(eq(messages.id, resultMessage.id));
   } else if (job.channel === 'FACEBOOK' || job.channel === 'INSTAGRAM') {
     if (!conversation.channelConnectionId || !conversation.externalParticipantId || !withinSocialReplyWindow(conversation.lastInboundAt)) throw new Error('Meta reply window or conversation mapping is no longer valid.');
     const [connection] = await db.select().from(channelConnections).where(and(eq(channelConnections.id, conversation.channelConnectionId), eq(channelConnections.organizationId, job.organizationId), eq(channelConnections.artistId, job.artistId), eq(channelConnections.status, 'ACTIVE'))).limit(1);
@@ -190,7 +192,7 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
     const accessToken = decryptComplianceSecret(connection.accessTokenEncrypted);
     try {
       const sent = await sendMetaMessage({ externalAccountId: connection.externalAccountId, recipientId: conversation.externalParticipantId, accessToken, text: resultMessage.content });
-      await db.update(messages).set({ externalMessageId: sent.message_id ?? sent.id ?? null, metadata: { automationJobId: job.id, channel: job.channel.toLowerCase(), source: 'ai-receptionist', provider: job.channel.toLowerCase(), status: 'sent' } }).where(eq(messages.id, resultMessage.id));
+      await db.update(messages).set({ externalMessageId: sent.message_id ?? sent.id ?? null, metadata: { ...(resultMessage?.metadata as Record<string, unknown> ?? {}), automationJobId: job.id, channel: job.channel.toLowerCase(), source: 'ai-receptionist', provider: job.channel.toLowerCase(), status: 'sent' } }).where(eq(messages.id, resultMessage.id));
     } catch (error) {
       await db.update(channelConnections).set({ ...(isMetaAuthError(error) ? { status: 'ACTION_REQUIRED' } : {}), lastError: 'AUTOMATED_REPLY_FAILED', lastCheckedAt: new Date(), updatedAt: new Date() }).where(eq(channelConnections.id, connection.id));
       throw error;
@@ -199,6 +201,7 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
     throw new Error('Unsupported automated response channel.');
   }
   const status = await finishAiResponse(job, latestInboundVersion);
+  await finalizeQuoteHandoff(job.organizationId, conversation.id, resultMessage.id);
   return { id: job.id, status: status ?? 'DELIVERY_UNKNOWN' };
 }
 

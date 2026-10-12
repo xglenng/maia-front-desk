@@ -25,10 +25,10 @@ type Detail = {
   artist: { id: string; displayName: string };
   client: { id: string; name: string; phone: string | null; email: string | null; smsOptIn: boolean };
   messages: Array<{ id: string; senderType: string; content: string; createdAt: string; metadata: { attachments?: Array<{ type: string; url?: string }> } | null }>;
-  events: Array<{ id: string; action: string; fromMode: string | null; toMode: string | null; createdAt: string; userName: string | null }>;
+  events: Array<{ id: string; action: string; fromMode: string | null; toMode: string | null; createdAt: string; userName: string | null; details?: unknown }>;
 };
 
-type Filter = "all" | "unread" | "human" | "ai" | "closed";
+type Filter = "all" | "unread" | "quotes" | "human" | "ai" | "closed";
 
 async function json<T>(response: Response): Promise<T> {
   const data = await response.json();
@@ -53,7 +53,7 @@ function initials(name: string) {
 export default function InboxPage() {
   const session = useSession();
   const [items, setItems] = useState<InboxItem[]>([]);
-  const [counts, setCounts] = useState({ total: 0, unread: 0, human: 0 });
+  const [counts, setCounts] = useState({ total: 0, unread: 0, human: 0, quotes: 0 });
   const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -110,6 +110,7 @@ export default function InboxPage() {
 
   const visible = useMemo(() => items.filter(item => {
     if (filter === "unread" && item.unreadCount === 0) return false;
+    if (filter === "quotes" && item.status !== "AWAITING_QUOTE") return false;
     if (filter === "human" && item.mode !== "HUMAN") return false;
     if (filter === "ai" && item.mode !== "AI") return false;
     if (filter === "closed" && item.mode !== "CLOSED") return false;
@@ -155,6 +156,7 @@ export default function InboxPage() {
         <p>One inbox for SMS, Instagram, and Facebook conversations.</p>
       </div>
       <div className="inbox-stats">
+        <span><strong>{counts.quotes}</strong> awaiting quote</span>
         <span><strong>{counts.unread}</strong> unread</span>
         <span><strong>{counts.human}</strong> human</span>
         <span><strong>{counts.total}</strong> total</span>
@@ -168,7 +170,7 @@ export default function InboxPage() {
         <div className="thread-tools">
           <label className="search-box"><span>⌕</span><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search clients or artists" /></label>
           <div className="filter-row">
-            {(["all", "unread", "human", "ai", "closed"] as Filter[]).map(value => <button key={value} onClick={() => setFilter(value)} className={filter === value ? "selected" : ""}>{value}</button>)}
+            {(["all", "unread", "quotes", "human", "ai", "closed"] as Filter[]).map(value => <button key={value} onClick={() => setFilter(value)} className={filter === value ? "selected" : ""}>{value}</button>)}
           </div>
         </div>
         <div className="thread-list">
@@ -180,7 +182,7 @@ export default function InboxPage() {
                 <span className="thread-artist">{item.channel} · {item.artistName}</span>
                 <span className="thread-preview">{item.latestMessage?.content ?? "No messages yet"}</span>
               </span>
-              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.mode === "AI" ? "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
+              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
             </button>)}
         </div>
       </section>
@@ -191,7 +193,7 @@ export default function InboxPage() {
           <header className="chat-header">
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
-              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "Human takeover" : "Closed"}</span>
+              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "Human takeover" : "Closed"}</span>
               {detail.conversation.mode === "AI" && <button disabled={working} onClick={() => action("TAKE_OVER")} className="takeover-btn">Take over</button>}
               {detail.conversation.mode === "HUMAN" && <button disabled={working} onClick={() => action("RETURN_TO_AI")} className="ai-btn">Return to AI</button>}
               {detail.conversation.mode === "CLOSED" ? <button disabled={working} onClick={() => action("REOPEN")} className="plain-btn">Reopen</button> : <button disabled={working} onClick={() => action("CLOSE")} className="plain-btn">Close</button>}
@@ -199,6 +201,7 @@ export default function InboxPage() {
           </header>
 
           <div className="message-stream" ref={messageStreamRef}>
+            {detail.conversation.status === "AWAITING_QUOTE" && <div className="composer-lock"><strong>Awaiting your estimate</strong><span>Requested {time(detail.conversation.humanTakeoverAt)}. Maia is paused. Review the request, reply with your estimate or questions, then return to AI when ready.</span><p>{(detail.events.find(event => event.action === "QUOTE_REQUESTED")?.details as { summary?: string } | undefined)?.summary}</p></div>}
             {detail.messages.length === 0 ? <div className="inbox-empty">No messages yet.</div> : detail.messages.map(message => {
               const client = message.senderType === "CLIENT";
               const system = message.senderType === "SYSTEM";

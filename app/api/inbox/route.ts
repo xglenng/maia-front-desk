@@ -56,6 +56,7 @@ async function handleGET(request: NextRequest) {
   return NextResponse.json({
     conversations: data,
     counts: {
+      quotes: rows.filter(row => row.status === "AWAITING_QUOTE").length,
       total: rows.length,
       unread: rows.reduce((sum, row) => sum + row.unreadCount, 0),
       human: rows.filter(row => !row.aiEnabled && row.status !== "CLOSED").length,

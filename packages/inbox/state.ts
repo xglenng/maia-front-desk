@@ -31,5 +31,5 @@ export function canAccessArtist(role: string, userId: string, artistUserId: stri
 }
 
 export function shouldRunAi(state: Pick<ConversationControlState, "aiEnabled" | "status">) {
-  return state.aiEnabled && state.status !== "CLOSED";
+  return state.aiEnabled && state.status !== "CLOSED" && state.status !== "AWAITING_QUOTE";
 }

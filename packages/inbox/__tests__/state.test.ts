@@ -3,6 +3,17 @@ import assert from "node:assert/strict";
 import { applyInboxAction, canAccessArtist, conversationMode, shouldRunAi } from "../state";
 import { readFileSync } from "node:fs";
 
+test("quote requests stay paused through reading and takeover until explicitly resumed", () => {
+  const waiting = { aiEnabled: false, status: 'AWAITING_QUOTE', unreadCount: 1 };
+  assert.equal(shouldRunAi(waiting), false);
+  assert.equal(shouldRunAi({ ...waiting, aiEnabled: true }), false);
+  assert.equal(applyInboxAction(waiting, 'MARK_READ').status, 'AWAITING_QUOTE');
+  assert.equal(applyInboxAction(waiting, 'TAKE_OVER').status, 'AWAITING_QUOTE');
+  const resumed = applyInboxAction(waiting, 'RETURN_TO_AI');
+  assert.equal(resumed.status, 'OPEN');
+  assert.equal(shouldRunAi(resumed), true);
+});
+
 test("human takeover disables AI without losing unread state", () => {
   const next = applyInboxAction({ aiEnabled: true, status: "OPEN", unreadCount: 2 }, "TAKE_OVER");
   assert.deepEqual(next, { aiEnabled: false, status: "OPEN", unreadCount: 2 });

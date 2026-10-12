@@ -5,7 +5,7 @@ const errorNames = new Set([
 ]);
 const toolNames = new Set([
   'get_studio_context', 'search_services', 'get_service_pricing', 'list_artists',
-  'check_availability', 'get_client_appointments', 'save_client_name', 'getClient', 'createBookingHold',
+  'check_availability', 'get_client_appointments', 'save_client_name', 'request_artist_quote', 'getClient', 'createBookingHold',
   'create_deposit_request', 'getWaiverLink', 'sendMessage', 'escalateToArtist',
 ]);
 const fields = new Set(['serviceId', 'fromDate', 'toDate', 'artistPreference', 'timePeriod']);
