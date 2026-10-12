@@ -242,8 +242,16 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           description: 'Provide the configured deposit request only when createBookingHold returned depositRequired=true. Square and Stripe return a hosted checkout link; manual Venmo returns the artist-configured handle and instructions with paymentStatus=AWAITING_MANUAL_CONFIRMATION. Never say a Venmo payment was received or confirmed.',
           parameters: z.object({ appointmentId: z.string().uuid() }),
           execute: audit('create_deposit_request', async (args: { appointmentId: string }) => {
-            const result = await createDepositRequest(context, args.appointmentId);
-            return result;
+            const quote = await getConversationQuote(context.organizationId, context.conversationId);
+            if (quote?.appointmentId === args.appointmentId) {
+              const agreement = await acceptApprovedQuote(context);
+              if (agreement.status !== 'ACCEPTED' || !('depositRequired' in agreement)) return presentQuoteTerms();
+              if (!agreement.depositRequired) {
+                quoteTermsPrompt = 'You’re all set! No deposit is needed. See you then.';
+                return { status: 'NO_DEPOSIT_REQUIRED', reply: quoteTermsPrompt };
+              }
+            }
+            return createDepositRequest(context, args.appointmentId);
           }),
         }),
         getWaiverLink: tool({

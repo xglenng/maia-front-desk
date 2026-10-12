@@ -236,7 +236,8 @@ export async function POST(request: NextRequest) {
     return xmlResponse();
   }
 
-  if (action === 'YES') {
+  // Existing consent means YES can be an appointment agreement, not an opt-in flow.
+  if (action === 'YES' && !scopedOptedIn) {
     const pending = surface?.form.mode === 'INBOUND_SMS_CONFIRMATION' && isConsentFormReady(surface.form)
       ? await pendingConfirmation(conv.id)
       : { message: undefined, confirmation: undefined };
