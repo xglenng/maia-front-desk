@@ -101,8 +101,9 @@ export async function getStudioContext(context: MaiaAgentContext, options: { que
   return configuration.clientFacing;
 }
 
-export async function searchServices(context: MaiaAgentContext, options: ServiceSearchOptions = {}) {
+export async function searchServices(context: MaiaAgentContext, options: ServiceSearchOptions = {}, approvedServiceId?: string) {
   const records = await loadActiveServiceRecords(context.organizationId);
+  if (approvedServiceId) return searchServiceRecords(context.organizationId, records.filter(record => record.id === approvedServiceId && record.artistId === context.artistId), {});
   const tattoo = tattooQuoteSearch(options.query || options.serviceType || '');
   if (tattoo) {
     const quoteRecords = records.filter(record => record.artistId === context.artistId && record.serviceType === 'TATTOO' && record.requiresArtistApproval && record.pricingType === 'QUOTE');

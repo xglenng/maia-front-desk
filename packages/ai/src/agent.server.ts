@@ -157,7 +157,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       return execute(...args);
     });
 
-    let servicesDiscovered = approvedQuote?.action === 'QUOTE_AI_SCHEDULING';
+    let servicesDiscovered = Boolean(approvedQuote);
     let quoteSummary: string | undefined;
     let quoteTermsPrompt: string | undefined;
     let quoteTerms: { bookingId?: string; priceCents: number; startsAt?: string } | undefined;
@@ -194,7 +194,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
             artistPreference: z.string().trim().min(1).max(100).optional().describe('Optional public artist name preference.'),
           }),
           execute: audit('search_services', async (args: { query?: string; serviceType?: string; category?: string; artistPreference?: string }) => {
-            const result = await searchServices(context, args);
+            const result = await searchServices(context, args, approvedQuote?.serviceId);
             servicesDiscovered = true;
             quoteEligible = Boolean(quoteService) || result.some(service => service.requiresArtistApproval);
             return result;
@@ -203,7 +203,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         get_service_pricing: tool({
           description: 'Return configured flat, hourly, starting-at, or quote-required pricing for a service already identified by search_services. Call this in the current turn whenever answering service price or deposit questions, even if a previous assistant answer already quoted an amount. Use priceLabel and deposit.amountLabel as dollar amounts. Never guess or substitute studio-wide pricing.',
           parameters: z.object({ serviceId: z.string().uuid().describe('The serviceId returned by search_services.') }),
-          execute: audit('get_service_pricing', async (args: { serviceId: string }) => getServicePricing(context, args.serviceId)),
+          execute: audit('get_service_pricing', async (args: { serviceId: string }) => getServicePricing(context, approvedQuote?.serviceId || args.serviceId)),
         }),
         list_artists: tool({
           description: 'List public studio artists for a client asking who can perform a service or asking about another artist. Optionally filter using a serviceId returned by search_services. Does not reveal contact, login, or provider account details.',
@@ -249,7 +249,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           description: 'Create a booking only after the client explicitly selects one specific slot returned by check_availability. Pass its canonical startsAt as start. This existing booking action is distinct from the read-only availability lookup. Inspect depositRequired and do not create a deposit link unless it is true.',
           parameters: z.object({ serviceId: z.string().uuid(), start: z.string() }),
           execute: audit('createBookingHold', async (args: { serviceId: string; start: string }) => {
-            const result = await createBookingHold(context, approvedAvailabilityInput(args, approvedQuote));
+            const result = await createBookingHold(context, approvedQuote ? { ...args, serviceId: approvedQuote.serviceId } : args);
             if (isRecordedBooking(result) && approvedQuote?.action === 'QUOTE_AI_SCHEDULING') { createdQuoteBooking = true; await presentQuoteTerms(); }
             if (!('providerBookingId' in result)) return result;
             const { providerBookingId: _providerBookingId, ...clientResult } = result;
@@ -261,10 +261,10 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({ appointmentId: z.string().uuid() }),
           execute: audit('create_deposit_request', async (args: { appointmentId: string }) => {
             const quote = await getConversationQuote(context.organizationId, context.conversationId);
-            if (quote && (!quote.appointmentId || quote.appointmentId !== args.appointmentId)) {
+            if (quote && !quote.appointmentId) {
               return { status: 'BOOKING_REQUIRED', message: 'This approved request has no matching linked appointment. Complete the booking for the client-selected time before requesting a deposit. Never use an older appointment.' };
             }
-            if (quote?.appointmentId === args.appointmentId) {
+            if (quote?.appointmentId) {
               const agreement = await acceptApprovedQuote(context);
               if (agreement.status !== 'ACCEPTED' || !('depositRequired' in agreement)) return presentQuoteTerms();
               if (!agreement.depositRequired) {
@@ -272,7 +272,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
                 return { status: 'NO_DEPOSIT_REQUIRED', reply: quoteTermsPrompt };
               }
             }
-            return createDepositRequest(context, args.appointmentId);
+            return createDepositRequest(context, quote?.appointmentId || args.appointmentId);
           }),
         }),
         getWaiverLink: tool({
@@ -295,7 +295,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       system,
       messages: conversationMessages,
       maxSteps: 10,
-      experimental_prepareStep: async ({ stepNumber }) => !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && checkedQuoteSlots && !createdQuoteBooking && Boolean(selectedTimeMessage)
+      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && !input.availabilityOnly && context.channel !== 'WEB_TEST' && approvedQuote?.appointmentId && /deposit|payment|pay\b/i.test(input.message)
+        ? { toolChoice: { type: 'tool', toolName: approvedQuote.action === 'QUOTE_ACCEPTED' ? 'create_deposit_request' : 'confirm_quote_terms' } }
+        : !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && checkedQuoteSlots && !createdQuoteBooking && Boolean(selectedTimeMessage)
         ? { toolChoice: { type: 'tool', toolName: 'createBookingHold' } }
         : stepNumber === 0 && !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && selectedTimeMessage
         ? { toolChoice: { type: 'tool', toolName: 'check_availability' } }
