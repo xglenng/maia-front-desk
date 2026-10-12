@@ -217,7 +217,7 @@ test('Square service discovery includes appointment variations and excludes reta
   };
   const fetcher: typeof fetch = async () => new Response(JSON.stringify(catalog), { status: 200 });
   const client = new SquareApiClient('test-token-never-used-on-network', fetcher, 'https://square.invalid');
-  assert.deepEqual(await client.listServiceVariations(), [{ id: 'appointment-variation', version: '11', name: 'Lobes · Standard', durationMinutes: 30 }]);
+  assert.deepEqual(await client.listServiceVariations(), [{ id: 'appointment-variation', version: '11', name: 'Lobes · Standard', durationMinutes: 30, priceCents: null, currency: null }]);
 });
 
 test('Square service discovery associates directly returned variations by item_id', async () => {

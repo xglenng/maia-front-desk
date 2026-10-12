@@ -23,9 +23,9 @@ type SquareCatalogObject = {
   type: string;
   version?: SquareJsonInt64;
   item_data?: { name?: string; product_type?: string; variations?: Array<{ id: string }> };
-  item_variation_data?: { name?: string; item_id?: string; service_duration?: SquareJsonInt64 };
+  item_variation_data?: { name?: string; item_id?: string; service_duration?: SquareJsonInt64; pricing_type?: string; price_money?: { amount?: SquareJsonInt64; currency?: string } };
 };
-export type SquareServiceVariation = { id: string; version: string | null; name: string; durationMinutes: number | null };
+export type SquareServiceVariation = { id: string; version: string | null; name: string; durationMinutes: number | null; priceCents?: number | null; currency?: string | null };
 export type SquareAvailability = {
   start_at?: string;
   location_id?: string;
@@ -163,6 +163,8 @@ export class SquareApiClient {
           version: squareInt64String(variation.version),
           name: [item.item_data.name, variation.item_variation_data.name].filter(Boolean).join(' · ') || variation.id,
           durationMinutes: durationMs == null ? null : Math.ceil(durationMs / 60_000),
+          priceCents: variation.item_variation_data.pricing_type === "FIXED_PRICING" ? squareSafeNumber(variation.item_variation_data.price_money?.amount) : null,
+          currency: variation.item_variation_data.price_money?.currency ?? null,
         });
       }
     }

@@ -7,7 +7,7 @@ type Artist = { id: string; displayName: string };
 type MaiaService = { id: string; serviceType: string; category: string | null; name: string; durationMinutes: number; active: boolean };
 type SquareLocation = { id: string; name: string; timezone: string };
 type SquareTeamMember = { id: string; name: string };
-type SquareVariation = { id: string; version: string | null; name: string; durationMinutes: number | null };
+type SquareVariation = { id: string; version: string | null; name: string; durationMinutes: number | null; priceCents?: number | null; currency?: string | null };
 type Mapping = { id: string; serviceId: string; locationId: string; serviceVariationId: string; serviceVariationVersion: string | null; teamMemberId: string | null };
 type Connection = { id: string; provider: string; externalAccountId: string; accountName: string | null; locationId: string | null; locationTimezone: string | null; teamMemberId: string | null; status: string; lastError: string | null };
 type BookingPermissions = {
@@ -43,6 +43,8 @@ export default function SchedulingSettingsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [importIds, setImportIds] = useState<string[]>([]);
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -64,6 +66,7 @@ export default function SchedulingSettingsPage() {
     }
     let current = true;
     setLoading(true);
+    setImportIds([]);
     setError('');
     const query = `organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`;
     fetch(`/api/scheduling?${query}`, { cache: 'no-store' })
@@ -92,7 +95,7 @@ export default function SchedulingSettingsPage() {
       .catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Unable to load scheduling settings.'); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [organizationId, artistId]);
+  }, [organizationId, artistId, refresh]);
 
   useEffect(() => {
     const result = new URLSearchParams(window.location.search).get('square');
@@ -154,6 +157,19 @@ export default function SchedulingSettingsPage() {
       setMappingDrafts(current => ({ ...current, [service.id]: { serviceVariationId: '', teamMemberId: '' } }));
       setNotice(`${service.name} mapping removed.`);
     }
+  }
+
+  async function importServices() {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await readJson(await fetch('/api/scheduling/square/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId, artistId, variationIds: importIds }),
+      }));
+      setNotice(`${result.imported} services imported and mapped. ${result.skipped} already mapped services skipped.`);
+      setRefresh(value => value + 1);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to import services.'); }
+    finally { setBusy(false); }
   }
 
   async function disconnectSquare() {
@@ -243,6 +259,24 @@ export default function SchedulingSettingsPage() {
           <button type="button" onClick={() => void disconnectSquare()} disabled={busy} style={secondaryButton}>Use Maia scheduling</button>
         </div>
         {data.connection.lastError && <p style={alert}>{data.connection.lastError}</p>}
+      </section>
+      <section style={panel}>
+        <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Import Square services</h2>
+        <p style={muted}>Select services for this provider. Names, prices and durations are copied into Maia and linked to Square. Variable prices require a quote. Deposits are not imported; configure them in Services &amp; Pricing.</p>
+        <p style={muted}>Already mapped services are skipped. Review existing Maia services before importing similar names.</p>
+        {!locationSaved ? <p>Save a Square location first.</p> : <>
+          <div style={{ maxHeight: 320, overflowY: 'auto', margin: '12px 0' }}>
+            {catalog?.services.map(item => {
+              const mapped = data.mappings.some(mapping => mapping.serviceVariationId === item.id);
+              const valid = Boolean(item.durationMinutes && item.durationMinutes <= 1440 && (item.priceCents == null || item.currency === 'USD'));
+              return <label key={item.id} style={{ display: 'flex', gap: 10, padding: '8px 0' }}>
+                <input type="checkbox" checked={importIds.includes(item.id)} disabled={busy || mapped || !valid} onChange={event => setImportIds(current => event.target.checked ? [...current, item.id] : current.filter(id => id !== item.id))} />
+                <span>{item.name} · {item.durationMinutes ?? 'Unknown'} min · {item.priceCents == null ? 'Variable price' : `${item.currency} ${(item.priceCents / 100).toFixed(2)}`}{mapped ? ' · Already mapped' : !valid ? ' · Cannot import' : ''}</span>
+              </label>;
+            })}
+          </div>
+          <button type="button" disabled={busy || !importIds.length} onClick={() => void importServices()} style={button}>Import selected services ({importIds.length})</button>
+        </>}
       </section>
       <section style={panel}>
         <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Service mappings</h2>
