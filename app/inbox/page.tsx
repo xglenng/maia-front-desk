@@ -22,7 +22,7 @@ type InboxItem = {
 
 type Detail = {
   quote?: { action: string; serviceId: string; priceCents: number; durationMinutes: number; bookingId?: string; startsAt?: string };
-  quoteServices: Array<{ id: string; name: string }>;
+  quoteServices: Array<{ id: string; name: string; durationMinutes: number; basePriceCents: number | null }>;
   conversation: InboxItem & { humanTakeoverAt: string | null; externalParticipantId: string | null };
   artist: { id: string; displayName: string };
   client: { id: string; name: string; phone: string | null; email: string | null; smsOptIn: boolean };
@@ -69,6 +69,7 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [schedulingNotice, setSchedulingNotice] = useState<string | null>(null);
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
 
   const loadList = useCallback(async () => {
@@ -77,7 +78,6 @@ export default function InboxPage() {
       setItems(data.conversations);
       setCounts(data.counts);
       setSelectedId(current => current ?? (window.matchMedia("(max-width: 900px)").matches ? null : data.conversations[0]?.id ?? null));
-      setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load inbox");
     } finally {
@@ -138,7 +138,7 @@ export default function InboxPage() {
     }
   }
 
-  useEffect(() => { setQuoteService(""); setQuotePrice(""); setQuoteDuration(""); setSquareBookingId(""); }, [selectedId]);
+  useEffect(() => { setQuoteService(""); setQuotePrice(""); setQuoteDuration(""); setSquareBookingId(""); setSchedulingNotice(null); setError(null); }, [selectedId]);
 
   async function quoteScheduling(action: 'AI_SCHEDULE' | 'MANUAL_SCHEDULE') {
     if (!selectedId || working) return;
@@ -146,8 +146,17 @@ export default function InboxPage() {
     try {
       await json(await fetch(`/api/inbox/${selectedId}/quote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }));
       await Promise.all([loadDetail(selectedId, false), loadList()]); setError(null);
+      setSchedulingNotice(action === 'AI_SCHEDULE' ? 'Maia’s availability check is queued. Dates will be sent when the automation runs, usually within five minutes.' : null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to change scheduling mode'); }
     finally { setWorking(false); }
+  }
+
+  function chooseQuoteService(id: string) {
+    const service = detail?.quoteServices.find(item => item.id === id);
+    setQuoteService(id);
+    const saved = detail?.quote?.serviceId === id ? detail.quote : null;
+    setQuotePrice(saved ? String(saved.priceCents / 100) : service?.basePriceCents == null ? "" : String(service.basePriceCents / 100));
+    setQuoteDuration(saved ? String(saved.durationMinutes) : service?.durationMinutes ? String(service.durationMinutes) : "");
   }
 
   async function saveQuote(event: FormEvent, link = false) {
@@ -193,6 +202,7 @@ export default function InboxPage() {
       </div>
     </header>
 
+    {schedulingNotice && <div className="inbox-alert" role="status">{schedulingNotice}</div>}
     {error && <div className="inbox-alert" role="alert">{error}<button onClick={() => setError(null)}>×</button></div>}
 
     <div className="inbox-grid">
@@ -247,7 +257,7 @@ export default function InboxPage() {
               <strong>{detail.quote && detail.quote.action !== 'QUOTE_APPROVED' ? 'Appointment linked' : detail.quote ? 'Estimate approved — arrange booking manually' : 'Record artist estimate'}</strong>
               {detail.quote && <p>${(detail.quote.priceCents / 100).toFixed(2)} · {detail.quote.durationMinutes} minutes{detail.quote.startsAt ? ` · ${new Date(detail.quote.startsAt).toLocaleString()}` : ''}</p>}
               {(!detail.quote || detail.quote.action === 'QUOTE_APPROVED') && <form onSubmit={event => saveQuote(event)}>
-                <label>Service <select required value={quoteService} onChange={event => setQuoteService(event.target.value)}><option value="">Select service</option>{detail.quoteServices.map(service => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
+                <label>Service <select required value={quoteService} onChange={event => chooseQuoteService(event.target.value)}><option value="">Select service</option>{detail.quoteServices.map(service => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
                 <label>Estimate (USD) <input required type="number" min="0" max="100000" step="0.01" value={quotePrice} onChange={event => setQuotePrice(event.target.value)} /></label>
                 <label>Duration (minutes) <input required type="number" min="1" max="1440" step="1" value={quoteDuration} onChange={event => setQuoteDuration(event.target.value)} /></label>
                 <button disabled={working}>Save approved estimate</button><span>This records the quote and pauses Maia. Send the estimate using the reply box.</span>
