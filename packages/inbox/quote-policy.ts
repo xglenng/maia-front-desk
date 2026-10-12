@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 export const quoteActionSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('APPROVE'), serviceId: z.string().uuid(), priceCents: z.number().int().nonnegative().max(10000000), durationMinutes: z.number().int().min(1).max(1440) }).strict(),
-  z.object({ action: z.literal('LINK_BOOKING'), bookingId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/) }).strict(),
+  z.object({ organizationId: z.string().uuid().optional(), action: z.literal('APPROVE'), serviceId: z.string().uuid(), priceCents: z.number().int().nonnegative().max(10000000), durationMinutes: z.number().int().min(1).max(1440) }).strict(),
+  z.object({ organizationId: z.string().uuid().optional(), action: z.literal('LINK_BOOKING'), bookingId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/) }).strict(),
 ]);
 
 export type QuoteState = { action: 'QUOTE_APPROVED' | 'QUOTE_BOOKING_LINKED' | 'QUOTE_ACCEPTED'; serviceId: string; priceCents: number; durationMinutes: number; appointmentId?: string; bookingId?: string; startsAt?: string; endsAt?: string };
