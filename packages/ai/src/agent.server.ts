@@ -10,7 +10,7 @@ import { agentFailureDiagnostics } from './failure-diagnostics';
 import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
 import { generateText, tool } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { configuredLanguageModel, modelConfiguration } from './model-config';
 import { z } from 'zod';
 import { db } from '@db/index';
 import { agentActions, agentRuns, artists, conversationEvents, conversations, messages, services } from '@db/schema';
@@ -95,7 +95,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
   if (!input.messageAlreadyStored) await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
   await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversation.id));
 
-  const modelName = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const modelName = modelConfiguration().model;
   const mockMode = process.env.AI_PROVIDER === 'mock' || !process.env.OPENAI_API_KEY;
   const startedAt = Date.now();
   const runId = await auditRun(context, mockMode ? 'mock' : modelName);
@@ -291,7 +291,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         }),
       };
     const result = await generateText({
-      model: openai(modelName),
+      model: configuredLanguageModel(),
       system,
       messages: conversationMessages,
       maxSteps: 10,

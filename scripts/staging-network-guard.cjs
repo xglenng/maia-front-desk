@@ -5,6 +5,7 @@ const {syncBuiltinESMExports} = require('node:module');
 const {HOST, PORT} = require('./staging-config.cjs');
 function allowedSocket(host, port) {
   return (host === HOST && String(port) === PORT) ||
+    (process.env.MAIA_STAGING_SQUARE_SANDBOX === '1' && host === 'connect.squareupsandbox.com' && String(port) === '443') ||
     ['127.0.0.1', '::1', 'localhost'].includes(host);
 }
 const originalConnect = net.Socket.prototype.connect;
@@ -19,10 +20,11 @@ net.Socket.prototype.connect = function (...args) {
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async function (input, ...args) {
   const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
-  if (!['http:', 'https:'].includes(url.protocol) || !['127.0.0.1','localhost','[::1]'].includes(url.hostname)) {
+  const sandbox = process.env.MAIA_STAGING_SQUARE_SANDBOX === '1' && url.protocol === 'https:' && url.hostname === 'connect.squareupsandbox.com' && (!url.port || url.port === '443') && !url.username && !url.password;
+  if (!sandbox && (!['http:', 'https:'].includes(url.protocol) || !['127.0.0.1','localhost','[::1]'].includes(url.hostname))) {
     throw new Error('Staging blocked outbound provider HTTP request.');
   }
-  return originalFetch.call(this,input,...args);
+  return originalFetch.call(this,input,...(sandbox ? [{...args[0],redirect:'error'}] : args));
 };
 syncBuiltinESMExports();
 module.exports = {allowedSocket};

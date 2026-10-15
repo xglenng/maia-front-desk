@@ -4,6 +4,19 @@ const {spawnSync}=require('node:child_process');
 const path=require('node:path');
 const {stagingConfig,HOST,PORT}=require('./staging-config.cjs');
 const valid=`postgresql://synthetic:fake-password@${HOST}:${PORT}/railway`;
+test('sandbox mode accepts only dedicated Square credentials',()=>{
+  const {squareSandboxConfig}=require('./staging-config.cjs');
+  const contents=`SQUARE_APPLICATION_ID=sandbox-test\nSQUARE_APPLICATION_SECRET=fake\nCOMPLIANCE_ENCRYPTION_KEY=${Buffer.alloc(32).toString('base64')}`;
+  assert.equal(squareSandboxConfig(contents).SQUARE_ENVIRONMENT,'sandbox');
+  for(const extra of ['STRIPE_SECRET_KEY=fake','SQUARE_ENVIRONMENT=production','OPENAI_API_KEY=fake']) assert.throws(()=>squareSandboxConfig(contents+'\n'+extra));
+  assert.throws(()=>squareSandboxConfig(contents.replace('sandbox-test','production-test')));
+});
+test('sandbox mode permits only the Square sandbox TLS endpoint',()=>{
+  const script=`const assert=require('node:assert/strict');const {allowedSocket}=require('./scripts/staging-network-guard.cjs');assert.equal(allowedSocket('connect.squareupsandbox.com',443),true);assert.equal(allowedSocket('connect.squareup.com',443),false);assert.equal(allowedSocket('api.twilio.com',443),false);assert.equal(allowedSocket('connect.squareupsandbox.com',80),false);Promise.all(['https://connect.squareup.com','https://api.stripe.com','https://connect.squareupsandbox.com.evil.test'].map(url=>assert.rejects(fetch(url),/Staging blocked/))).then(()=>console.log('blocked'));`;
+  const result=spawnSync(process.execPath,['-e',script],{env:{PATH:process.env.PATH,MAIA_STAGING_SQUARE_SANDBOX:'1'},encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr);
+  assert.match(result.stdout,/blocked/);
+});
 test('staging configuration accepts only the clean endpoint and excludes provider credentials',()=>{
   const result=stagingConfig(`DATABASE_URL=${valid}`);
   assert.equal(result.DATABASE_URL,valid);

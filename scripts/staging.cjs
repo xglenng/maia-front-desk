@@ -2,11 +2,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const {spawn} = require('node:child_process');
-const {stagingConfig} = require('./staging-config.cjs');
+const {stagingConfig, squareSandboxConfig} = require('./staging-config.cjs');
 const root = path.resolve(__dirname,'..');
 try {
   const config = stagingConfig(fs.readFileSync(path.join(root,'.env.staging.local'),'utf8'));
-  if (process.argv[2] === 'check') {
+  if (['sandbox-check','sandbox-dev'].includes(process.argv[2])) Object.assign(config, squareSandboxConfig(fs.readFileSync(path.join(root,'.env.staging-square.local'),'utf8')));
+  if (['check','sandbox-check'].includes(process.argv[2])) {
     console.log('PASS: clean staging endpoint validated. No network connection made.');
     process.exit(0);
   }
@@ -16,7 +17,7 @@ try {
     child.on('error',()=>{console.error('Unable to run staging authorization checks.');process.exitCode=1;});
     return;
   }
-  if (process.argv[2] !== 'dev') throw new Error('Use staging:check or staging:dev.');
+  if (!['dev','sandbox-dev'].includes(process.argv[2])) throw new Error('Use a staging check or dev mode.');
   // Next receives a separate project directory with no production env files or
   // old .next cache. Next route discovery requires real source directories;
   // copying also prevents development-generated files from touching the checkout.

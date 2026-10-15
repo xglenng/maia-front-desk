@@ -60,7 +60,7 @@ The MVP intentionally uses a simple Stripe Checkout flow and Google Calendar ada
 
 ## Sprint 4 — AI receptionist
 
-The AI chat endpoint now supports real tool calling against PostgreSQL. Set `AI_PROVIDER=mock` to use the deterministic local demo. To use the live agent, set `OPENAI_API_KEY` and optionally `OPENAI_MODEL`.
+The AI chat endpoint supports real tool calling against PostgreSQL. Set `AI_PROVIDER=mock` to use the deterministic local demo. To use the live agent, set `OPENAI_API_KEY` and `OPENAI_MODEL=gpt-6-luna` (the default), with `OPENAI_REASONING_EFFORT=low`. GPT-6 models use Responses through a compatibility adapter for the installed AI SDK 4. Explicit legacy model configuration retains Chat Completions for rollback. See [migration validation](docs/openai-migration.md) before changing production.
 
 The live agent can read client/service context, check real availability, create a temporary booking hold, create a Stripe deposit link, provide a waiver URL, and escalate a conversation. The backend remains the source of truth for booking/payment state.
 

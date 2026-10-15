@@ -8,3 +8,4 @@ node_modules
 
 # Private synthetic staging database configuration
 .env.staging.local
+.env.staging-square.local

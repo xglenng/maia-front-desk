@@ -17,6 +17,10 @@ async function handleGET(request: NextRequest) {
   if (!applicationId || !process.env.SQUARE_APPLICATION_SECRET) {
     return NextResponse.json({ error: 'Square OAuth is not configured on the server.' }, { status: 503 });
   }
+  const redirectUri = squareRedirectUri(request.nextUrl.origin);
+  if (process.env.MAIA_STAGING_SQUARE_SANDBOX === '1' && new URL(redirectUri).protocol !== 'https:') {
+    return NextResponse.json({ error: 'Square sandbox connection needs an HTTPS staging callback registered in the Square Developer Console. This local HTTP staging app cannot complete Square authorization yet.' }, { status: 503 });
+  }
   const [artist] = await db.select({ id: artists.id }).from(artists).where(and(
     eq(artists.id, parsed.data.artistId),
     eq(artists.organizationId, parsed.data.organizationId),
@@ -38,7 +42,7 @@ async function handleGET(request: NextRequest) {
   const session = squareOAuthSession();
   if (session) authorization.searchParams.set('session', session);
   authorization.searchParams.set('state', state);
-  authorization.searchParams.set('redirect_uri', squareRedirectUri(request.nextUrl.origin));
+  authorization.searchParams.set('redirect_uri', redirectUri);
   return NextResponse.redirect(authorization);
 }
 

@@ -19,3 +19,16 @@ function stagingConfig(contents) {
     NEXT_TELEMETRY_DISABLED: '1', __NEXT_PROCESSED_ENV: 'true'};
 }
 module.exports = {stagingConfig, HOST, PORT};
+function squareSandboxConfig(contents) {
+  const allowed = new Set(['SQUARE_APPLICATION_ID','SQUARE_APPLICATION_SECRET','COMPLIANCE_ENCRYPTION_KEY']);
+  const values = {};
+  for (const line of contents.split(/\r?\n/)) {
+    if (!line.trim() || line.trim().startsWith('#')) continue;
+    const match = line.match(/^([A-Z_]+)\s*=\s*(.*?)\s*$/);
+    if (!match || !allowed.has(match[1]) || values[match[1]] !== undefined) throw new Error('Invalid sandbox configuration.');
+    values[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2');
+  }
+  if (!values.SQUARE_APPLICATION_ID?.startsWith('sandbox-') || !values.SQUARE_APPLICATION_SECRET || Buffer.from(values.COMPLIANCE_ENCRYPTION_KEY || '', 'base64').length !== 32) throw new Error('Sandbox credentials and a dedicated encryption key are required.');
+  return {...values, SQUARE_ENVIRONMENT:'sandbox', MAIA_STAGING_SQUARE_SANDBOX:'1'};
+}
+module.exports.squareSandboxConfig = squareSandboxConfig;

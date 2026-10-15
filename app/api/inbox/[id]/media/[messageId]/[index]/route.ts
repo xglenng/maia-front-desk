@@ -3,11 +3,12 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
 import { messages, phoneNumbers, twilioAccounts } from '@db/schema';
 import { accessibleConversation } from '@/packages/inbox/server';
+import { protectedRoute } from '@/packages/auth/server';
 import { twilioMediaIdentity } from '@/packages/inbox/twilio-media-policy';
 import { decryptSecret } from '@integrations/twilio';
 
 type Context = { params: Promise<{ id: string; messageId: string; index: string }> };
-export async function GET(request: NextRequest, { params }: Context) {
+async function handleGET(request: NextRequest, { params }: Context) {
   const { id, messageId, index } = await params;
   const access = await accessibleConversation(request, id);
   if (!access.ok) return access.error;
@@ -45,3 +46,4 @@ export async function GET(request: NextRequest, { params }: Context) {
     return new NextResponse(Buffer.concat(chunks), { headers: { 'Content-Type': contentType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" } });
   } catch { return new NextResponse('Media unavailable', { status: 502 }); }
 }
+export const GET = protectedRoute(handleGET);

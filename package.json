@@ -14,6 +14,8 @@
     "auth:setup": "tsx scripts/auth-setup.ts",
     "staging:check": "node scripts/staging.cjs check",
     "staging:dev": "node scripts/staging.cjs dev",
+    "staging:square:check": "node scripts/staging.cjs sandbox-check",
+    "staging:square:dev": "node scripts/staging.cjs sandbox-dev",
     "test:staging-safety": "node --test scripts/staging-safety.test.cjs scripts/staging-bootstrap.test.cjs",
     "staging:db:init": "node scripts/staging-bootstrap.cjs",
     "staging:db:generate": "node scripts/staging-schema-generate.cjs",
