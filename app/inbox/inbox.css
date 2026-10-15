@@ -22,3 +22,17 @@
 }
 
 .quote-controls form{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.quote-controls label{display:flex;flex-direction:column;gap:4px;flex:1 1 140px;font-size:12px}.quote-controls input,.quote-controls select{padding:9px;border:1px solid var(--line);border-radius:8px;width:100%;min-width:0}.quote-controls button{padding:9px 12px;border:0;border-radius:8px;background:var(--accent);color:white}.quote-controls form>span{flex-basis:100%}
+.reply-mode-label {display:grid;gap:4px;font-size:11px;color:#706b66;font-weight:600}
+.reply-mode-label select {border:1px solid #ddd6d0;border-radius:8px;padding:8px;background:#fff;color:#292522;font:inherit;font-size:13px}
+.maia-draft {background:#f4f0ff;border:1px solid #d6c9ef;border-radius:14px;padding:16px;margin-bottom:14px}
+.maia-draft-heading {display:flex;justify-content:space-between;gap:12px;color:#57418d;font-size:15px}
+.maia-draft-heading span {font-size:12px;font-weight:500}
+.draft-mode-note {color:#756a83;font-size:12px;line-height:1.5;margin:8px 0}
+.draft-proposal {background:#fff;border:1px solid #e5ddee;border-radius:10px;padding:14px;white-space:pre-wrap;line-height:1.55;color:#292522}
+.draft-actions {display:flex;gap:8px;flex-wrap:wrap}
+.maia-draft button {background:#604697;color:#fff;border:1px solid #604697;border-radius:9px;padding:9px 13px;font-size:13px;font-weight:600;cursor:pointer}
+.maia-draft button.plain-btn {background:transparent;color:#604697;border-color:#cbbde4}
+.maia-draft button:disabled {opacity:.45;cursor:default}
+.draft-composer {max-height:65%;overflow-y:auto;flex-shrink:0}
+.draft-composer>details {font-size:13px;color:var(--muted);margin-bottom:10px}
+@media(max-width:900px){.draft-composer{max-height:65vh}}

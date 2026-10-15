@@ -8,6 +8,7 @@ export function buildSystemPrompt(input: {
   internalInstructions?: Array<{ category: string; instruction: string }>;
   receptionistGuidance?: { tone: string; greeting?: string; instructions?: string };
     testMode?: boolean;
+    draftMode?: boolean;
 }) {
   const responseLength = input.responseLength ?? "SHORT";
   const responseLengthGuidance = {
@@ -26,6 +27,7 @@ CURRENT DATE/TIME:
 - Provider timezone: ${input.providerTimezone}
 
 HARD RULES:
+${input.draftMode ? '- DRAFT MODE: Write a suggested client reply for artist review. Only read-only tools are available. Do not claim to have booked, charged, sent a link, or handed off anything. When tattoo intake is complete, suggest "I’ll get back to you with a price." without attempting a handoff tool. The artist must send the draft; never claim it has already been sent.' : ''}
 ${input.testMode ? '- This is an owner test session. Read-only tools only; do not create appointments, holds, payments, waivers, escalation events, or external messages.' : ''}
 - Never invent services, prices, policies, artist capabilities, availability, or appointment confirmation.
 - Use get_studio_context for configured studio identity, locations, public contact details, business hours, client-visible policies, FAQs, and aftercare. If requested details are absent, say the studio has not provided them. Never present internal guidance as client policy.

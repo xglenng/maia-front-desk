@@ -4,6 +4,7 @@ import { artists, channelConnections, clientChannelIdentities, clients, conversa
 import { decryptComplianceSecret } from "@/packages/compliance/secrets";
 import { resolveVerifiedChannelMaiaAgentContext } from "@/packages/ai/src/context.server";
 import { runMaiaAgent } from "@/packages/ai/src/agent.server";
+import { autoReplyStillAllowed } from '@/packages/inbox/drafts.server';
 import { shouldRunAi } from "@/packages/inbox/state";
 import { aiResponseDelaySeconds } from "@/packages/automations/policy";
 import { enqueueAiResponse } from "@/packages/automations/queue.server";
@@ -46,6 +47,8 @@ export async function processSocialInbound(event: SocialInboundEvent, origin: st
   const { context } = await resolveVerifiedChannelMaiaAgentContext({ organizationId: connection.organizationId, artistId: connection.artistId, clientId: client.id, conversationId: conversation.id }, event.provider);
   const ai = await runMaiaAgent(context, { message: event.text, messageAlreadyStored: true });
   if ("error" in ai || !ai.reply) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
+  if (ai.draft) return { accepted: true, conversationId: conversation.id, aiReplied: false, draftCreated: true } as const;
+  if (!await autoReplyStillAllowed(context)) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
   let sent;
   try { sent = await sendMetaMessage({ externalAccountId: connection.externalAccountId, recipientId: event.externalUserId, accessToken, text: ai.reply }); }
   catch (error) {

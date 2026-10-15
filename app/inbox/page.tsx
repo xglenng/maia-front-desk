@@ -8,6 +8,7 @@ type InboxItem = {
   id: string;
   artistId: string;
   artistName: string;
+  artistAiMode: string;
   clientId: string;
   clientName: string;
   clientPhone: string | null;
@@ -24,7 +25,8 @@ type Detail = {
   quote?: { action: string; serviceId: string; priceCents: number; durationMinutes: number; bookingId?: string; startsAt?: string };
   quoteServices: Array<{ id: string; name: string; durationMinutes: number; basePriceCents: number | null }>;
   conversation: InboxItem & { humanTakeoverAt: string | null; externalParticipantId: string | null };
-  artist: { id: string; displayName: string };
+  artist: { id: string; displayName: string; aiMode: string };
+  draft?: { id: string; body: string } | null;
   client: { id: string; name: string; phone: string | null; email: string | null; smsOptIn: boolean };
   messages: Array<{ id: string; senderType: string; content: string; createdAt: string; metadata: { provider?: string; attachments?: Array<{ type: string; url?: string }> } | null }>;
   events: Array<{ id: string; action: string; fromMode: string | null; toMode: string | null; createdAt: string; userName: string | null; details?: unknown }>;
@@ -62,6 +64,7 @@ export default function InboxPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
+  const [reviewingDraftId, setReviewingDraftId] = useState<string | null>(null);
   const [quoteService, setQuoteService] = useState("");
   const [quotePrice, setQuotePrice] = useState("");
   const [quoteDuration, setQuoteDuration] = useState("");
@@ -138,7 +141,29 @@ export default function InboxPage() {
     }
   }
 
-  useEffect(() => { setQuoteService(""); setQuotePrice(""); setQuoteDuration(""); setSquareBookingId(""); setSchedulingNotice(null); setError(null); }, [selectedId]);
+  useEffect(() => { setQuoteService(""); setQuotePrice(""); setQuoteDuration(""); setSquareBookingId(""); setSchedulingNotice(null); setError(null); setReviewingDraftId(null); }, [selectedId]);
+
+  async function changeReplyMode(aiMode: string) {
+    if (!selectedId || working) return;
+    setWorking(true);
+    try {
+      await json(await fetch(`/api/inbox/${selectedId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'SET_REPLY_MODE', aiMode }) }));
+      setDraft(''); setReviewingDraftId(null);
+      await Promise.all([loadDetail(selectedId, false), loadList()]); setError(null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to change reply mode'); }
+    finally { setWorking(false); }
+  }
+
+  async function manageDraft(discard = false) {
+    if (!selectedId || working) return;
+    setWorking(true);
+    try {
+      await json(await fetch(`/api/inbox/${selectedId}/draft${discard ? `?draftId=${encodeURIComponent(detail?.draft?.id || '')}` : ''}`, { method: discard ? 'DELETE' : 'POST', headers: { 'Content-Type': 'application/json' }, body: discard ? undefined : '{}' }));
+      if (discard) { setDraft(''); setReviewingDraftId(null); }
+      await loadDetail(selectedId, false); setError(null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to prepare draft'); }
+    finally { setWorking(false); }
+  }
 
   async function quoteScheduling(action: 'AI_SCHEDULE' | 'MANUAL_SCHEDULE') {
     if (!selectedId || working) return;
@@ -146,7 +171,7 @@ export default function InboxPage() {
     try {
       await json(await fetch(`/api/inbox/${selectedId}/quote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }));
       await Promise.all([loadDetail(selectedId, false), loadList()]); setError(null);
-      setSchedulingNotice(action === 'AI_SCHEDULE' ? 'Maia’s availability check is queued. Dates will be sent when the automation runs, usually within five minutes.' : null);
+      setSchedulingNotice(action === 'AI_SCHEDULE' ? detail?.artist.aiMode === 'DRAFT' ? 'Maia’s availability draft is queued for review, usually within five minutes.' : 'Maia’s availability check is queued. Dates will be sent when the automation runs, usually within five minutes.' : null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to change scheduling mode'); }
     finally { setWorking(false); }
   }
@@ -176,8 +201,9 @@ export default function InboxPage() {
     if (!selectedId || !draft.trim()) return;
     setWorking(true);
     try {
-      await json(await fetch(`/api/inbox/${selectedId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: draft.trim() }) }));
+      await json(await fetch(`/api/inbox/${selectedId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: draft.trim(), ...(reviewingDraftId ? { draftId: reviewingDraftId } : {}) }) }));
       setDraft("");
+      setReviewingDraftId(null);
       await Promise.all([loadDetail(selectedId, false), loadList()]);
       setError(null);
     } catch (cause) {
@@ -222,7 +248,7 @@ export default function InboxPage() {
                 <span className="thread-artist">{item.channel} · {item.artistName}</span>
                 <span className="thread-preview">{item.latestMessage?.content ?? "No messages yet"}</span>
               </span>
-              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "BOOKING_LINKED" ? "Booked" : item.status === "QUOTE_APPROVED" ? "Estimate approved" : item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
+              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "BOOKING_LINKED" ? "Booked" : item.status === "QUOTE_APPROVED" ? "Estimate approved" : item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? item.artistAiMode === 'DRAFT' ? 'Draft mode' : "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
             </button>)}
         </div>
       </section>
@@ -233,8 +259,9 @@ export default function InboxPage() {
           <header className="chat-header">
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
+              <label className="reply-mode-label">Reply mode<select aria-label="Artist reply mode" value={detail.artist.aiMode === 'DRAFT' ? 'DRAFT' : 'ASSISTED'} disabled={working} onChange={event => changeReplyMode(event.target.value)}><option value="ASSISTED">Automatic replies</option><option value="DRAFT">Draft for review</option></select></label>
               {detail.quote?.action === "QUOTE_AI_SCHEDULING" && <button disabled={working} className="plain-btn" onClick={() => quoteScheduling("MANUAL_SCHEDULE")}>Book manually</button>}
-              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? "AI responding" : detail.conversation.mode === "HUMAN" ? "AI off" : "Closed"}</span>
+              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? detail.artist.aiMode === 'DRAFT' ? 'AI drafting' : "AI responding" : detail.conversation.mode === "HUMAN" ? "AI off" : "Closed"}</span>
               {detail.conversation.mode !== "CLOSED" && <button role="switch" aria-checked={detail.conversation.aiEnabled} aria-label="AI replies" disabled={working} onClick={() => action(detail.conversation.aiEnabled ? "TAKE_OVER" : "RETURN_TO_AI")} className="ai-btn">AI {detail.conversation.aiEnabled ? 'on' : 'off'}</button>}
               {detail.conversation.mode === "CLOSED" ? <button disabled={working} onClick={() => action("REOPEN")} className="plain-btn">Reopen</button> : <button disabled={working} onClick={() => action("CLOSE")} className="plain-btn">Close</button>}
             </div>
@@ -251,8 +278,13 @@ export default function InboxPage() {
             })}
           </div>
 
-          <div className="composer-area">
-            {detail.quoteServices.length > 0 && detail.conversation.mode === "HUMAN" && <div className="composer-lock quote-controls">
+          <div className={`composer-area ${detail.artist.aiMode === 'DRAFT' ? 'draft-composer' : ''}`}>
+            {detail.artist.aiMode === 'DRAFT' && detail.conversation.mode !== 'CLOSED' && <section className="maia-draft" aria-label="Maia draft">
+              <div className="maia-draft-heading"><strong>✦ Maia draft</strong><span>Not sent to client</span></div>
+              <p className="draft-mode-note">Draft for review applies to all {detail.artist.displayName}&apos;s conversations. Maia suggests replies; you send them. Bookings and payments stay manual.</p>
+              {detail.draft ? <><p className="draft-proposal">{detail.draft.body}</p><div className="draft-actions"><button type="button" disabled={working} onClick={() => { setDraft(detail.draft!.body); setReviewingDraftId(detail.draft!.id); }}>Edit &amp; review</button><button type="button" className="plain-btn" disabled={working || !detail.conversation.aiEnabled} onClick={() => manageDraft()}>Regenerate</button><button type="button" className="plain-btn" disabled={working} onClick={() => manageDraft(true)}>Discard</button></div></> : <><p className="draft-mode-note">{detail.conversation.aiEnabled ? 'New client messages will get a suggested reply here. Nothing is sent automatically.' : 'AI is off. Turn it on to generate draft suggestions.'}</p><button type="button" disabled={working || !detail.conversation.aiEnabled || detail.conversation.status === 'AWAITING_QUOTE'} onClick={() => manageDraft()}>{working ? 'Preparing…' : 'Generate draft'}</button></>}
+            </section>}
+            {detail.quoteServices.length > 0 && (detail.conversation.mode === "HUMAN" || detail.artist.aiMode === 'DRAFT') && <details open={detail.artist.aiMode !== 'DRAFT'}><summary>Artist estimate &amp; booking</summary><div className="composer-lock quote-controls">
               <strong>{detail.quote && detail.quote.action !== 'QUOTE_APPROVED' ? 'Appointment linked' : detail.quote ? 'Estimate approved — arrange booking manually' : 'Record artist estimate'}</strong>
               {detail.quote && <p>${(detail.quote.priceCents / 100).toFixed(2)} · {detail.quote.durationMinutes} minutes{detail.quote.startsAt ? ` · ${new Date(detail.quote.startsAt).toLocaleString()}` : ''}</p>}
               {(!detail.quote || detail.quote.action === 'QUOTE_APPROVED') && <form onSubmit={event => saveQuote(event)}>
@@ -261,13 +293,14 @@ export default function InboxPage() {
                 <label>Duration (minutes) <input required type="number" min="1" max="1440" step="1" value={quoteDuration} onChange={event => setQuoteDuration(event.target.value)} /></label>
                 <button disabled={working}>Save approved estimate</button><span>This records the quote and pauses Maia. Send the estimate using the reply box.</span>
               </form>}
-              {detail.quote?.action === 'QUOTE_APPROVED' && <><button disabled={working} onClick={() => quoteScheduling('AI_SCHEDULE')}>Let Maia schedule</button><span>Maia will send the next available dates using this approved duration. Manual booking remains available below.</span></>}
+              {detail.quote?.action === 'QUOTE_APPROVED' && <><button disabled={working} onClick={() => quoteScheduling('AI_SCHEDULE')}>{detail.artist.aiMode === 'DRAFT' ? 'Draft available dates' : 'Let Maia schedule'}</button><span>{detail.artist.aiMode === 'DRAFT' ? 'Maia will draft available dates for review. Create the appointment manually after the client chooses.' : 'Maia will send the next available dates using this approved duration. Manual booking remains available below.'}</span></>}
               {detail.quote?.action === 'QUOTE_APPROVED' && <form onSubmit={event => saveQuote(event, true)}><label>Square booking ID <input required value={squareBookingId} onChange={event => setSquareBookingId(event.target.value)} /></label><button disabled={working}>Link existing appointment</button><span>Verifies the client, artist, location, and duration. Does not create an appointment.</span></form>}
-            </div>}
+            </div></details>}
 
             {detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : <form onSubmit={send} className="composer">
               <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Reply as the studio…" maxLength={1600} disabled={working || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)} />
-              <div><span>{detail.conversation.channel !== "SMS" || detail.client.smsOptIn ? `${draft.length}/1600` : "Client opted out of SMS"}</span><button disabled={working || !draft.trim() || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)}>{working ? "Sending…" : `Send ${detail.conversation.channel === "SMS" ? "SMS" : "reply"}`}</button></div>
+              {reviewingDraftId && <p className="draft-mode-note">{detail.draft?.id === reviewingDraftId ? 'Review and edit the suggestion, then send when ready.' : 'New activity arrived or this draft changed. Regenerate or discard your edit before sending.'}<button type="button" className="plain-btn" onClick={() => { setDraft(''); setReviewingDraftId(null); }}>Clear edit</button></p>}
+              <div><span>{detail.conversation.channel !== "SMS" || detail.client.smsOptIn ? `${draft.length}/1600` : "Client opted out of SMS"}</span><button disabled={working || !draft.trim() || Boolean(reviewingDraftId && detail.draft?.id !== reviewingDraftId) || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)}>{working ? "Sending…" : reviewingDraftId ? 'Send reviewed draft' : `Send ${detail.conversation.channel === "SMS" ? "SMS" : "reply"}`}</button></div>
             </form>}
             <details className="audit-log"><summary>Activity and takeover history ({detail.events.length})</summary>{detail.events.length === 0 ? <p>No control changes yet.</p> : detail.events.map(event => <p key={event.id}><strong>{event.action.replaceAll("_", " ")}</strong> · {event.userName ?? "System"} · {new Date(event.createdAt).toLocaleString()}</p>)}</details>
           </div>

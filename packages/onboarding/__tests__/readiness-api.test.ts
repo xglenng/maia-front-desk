@@ -44,7 +44,7 @@ test('Test Maia creates only an internal unconsented WEB_TEST profile and cannot
   assert.match(dashboardRoute, /ne\(conversations\.channel, 'WEB_TEST'\)/);
   assert.match(inboxRoute, /ne\(conversations\.channel, 'WEB_TEST'\)/);
   assert.match(inboxServer, /ne\(conversations\.channel, "WEB_TEST"\)/);
-  assert.match(agentSource, /context\.channel === 'WEB_TEST' \|\| input\.availabilityOnly \? \{\} :/);
+  assert.match(agentSource, /context\.channel === 'WEB_TEST' \|\| input\.availabilityOnly \|\| draftMode \? \{\} :/);
   assert.match(agentSource, /testMode: context\.channel === 'WEB_TEST'/);
   assert.match(contextResolver, /resolved\.context\.channel === 'WEB_TEST' && user\.role !== 'OWNER'/);
   assert.match(conversationRoute, /conversation\.channel === 'WEB_TEST'.*role !== 'OWNER'/);

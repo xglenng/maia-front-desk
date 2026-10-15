@@ -1,4 +1,6 @@
 import { estimateBeforeAvailability, plainArtistReply, selectsOfferedTime } from './reply-format';
+import { draftReadTools, shouldDraftReply } from '@/packages/inbox/draft-policy';
+import { saveReplyDraft } from '@/packages/inbox/drafts.server';
 import { currentTattooIntake, isNewTattooInquiry } from './tattoo-inquiry-policy';
 import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
 import { approvedAvailabilityInput, isRecordedBooking } from './approved-scheduling-policy';
@@ -8,7 +10,7 @@ import { availabilityToolParameters } from './availability-tool-schema';
 import { requiresServiceLookup, serviceScopedTools } from './service-lookup-policy';
 import { agentFailureDiagnostics } from './failure-diagnostics';
 import 'server-only';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { generateText, tool } from 'ai';
 import { configuredLanguageModel, modelConfiguration } from './model-config';
 import { z } from 'zod';
@@ -25,6 +27,7 @@ export type MaiaAgentResult = {
   conversationId: string;
   messageId: string;
   mode: 'mock' | 'live';
+  draft?: boolean;
   toolCalls?: string[];
   toolResults?: string[];
 };
@@ -70,8 +73,8 @@ function withAudit<TArgs extends unknown[], TResult>(runId: string | undefined, 
   };
 }
 
-export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; availabilityOnly?: boolean; messageAlreadyStored?: boolean; automationGuard?: () => Promise<boolean>; automationJobId?: string; automationInboundVersion?: number }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
-  const [artist] = await db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, responseLength: artists.responseLength, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
+export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; draftOnly?: boolean; availabilityOnly?: boolean; messageAlreadyStored?: boolean; automationGuard?: () => Promise<boolean>; automationJobId?: string; automationInboundVersion?: number }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
+  const [artist] = await db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, aiMode: artists.aiMode, responseLength: artists.responseLength, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
     .from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1);
   const [conversation] = await db.select().from(conversations).where(and(
     eq(conversations.id, context.conversationId),
@@ -82,36 +85,48 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
   if (!artist || !conversation) throw new Error('Agent context is no longer valid.');
   if (!shouldRunAi(conversation)) return { error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' };
   if (!artist.receptionistEnabled) return { error: 'The studio receptionist is disabled for this artist.', conversationId: conversation.id, mode: 'HUMAN' };
+  const draftMode = shouldDraftReply(artist.aiMode, context.channel, input.draftOnly);
+  let inboundVersion = conversation.inboundVersion;
   if (context.channel !== 'WEB_TEST') {
     const priorGuard = input.automationGuard;
     input.automationGuard = async () => {
       if (priorGuard && !await priorGuard()) return false;
       const [current] = await db.select({ inboundVersion: conversations.inboundVersion, aiEnabled: conversations.aiEnabled, status: conversations.status }).from(conversations).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, context.organizationId))).limit(1);
-      return Boolean(current && current.inboundVersion === conversation.inboundVersion && shouldRunAi(current));
+      return Boolean(current && current.inboundVersion === inboundVersion && shouldRunAi(current));
     };
   }
   if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
 
-  if (!input.messageAlreadyStored) await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
+  if (!input.messageAlreadyStored) {
+    await db.insert(messages).values({ conversationId: conversation.id, senderType: 'CLIENT', role: 'user', content: input.message });
+    const [updated] = await db.update(conversations).set({ inboundVersion: sql`${conversations.inboundVersion} + 1`, lastInboundAt: new Date() }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, context.organizationId))).returning({ inboundVersion: conversations.inboundVersion });
+    inboundVersion = updated.inboundVersion;
+  }
   await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversation.id));
 
   const modelName = modelConfiguration().model;
   const mockMode = process.env.AI_PROVIDER === 'mock' || !process.env.OPENAI_API_KEY;
   const startedAt = Date.now();
   const runId = await auditRun(context, mockMode ? 'mock' : modelName);
+  const deliverReply = async (reply: string) => {
+    if (!draftMode) return sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
+    const [source] = await db.select({ id: messages.id }).from(messages).where(and(eq(messages.conversationId, conversation.id), eq(messages.role, 'user'))).orderBy(desc(messages.createdAt)).limit(1);
+    if (!source) throw new Error('No client message is available to draft a reply.');
+    return saveReplyDraft(context, reply, inboundVersion, source.id, input.automationJobId);
+  };
 
   try {
     if (mockMode) {
       const text = input.message.toLowerCase();
-      const reply = text.includes('price') || text.includes('cost')
+      const reply = draftMode && text.includes('tattoo') ? 'Absolutely! What style are you thinking, and where would you like it placed?' : text.includes('price') || text.includes('cost')
         ? 'Which service are you asking about? I need the service details to answer accurately.'
         : text.includes('book') || text.includes('appointment')
           ? 'Which service would you like to book, and what timing works for you?'
           : 'Which service are you interested in, and what would you like help with?';
       if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
-      const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
+      const message = await deliverReply(reply);
       await updateRun(runId, { success: true, latencyMs: Date.now() - startedAt });
-      return { reply, conversationId: conversation.id, messageId: message.id, mode: 'mock' };
+      return { reply, conversationId: conversation.id, messageId: message.id, mode: 'mock', draft: draftMode };
     }
 
     const [providerTimezone, studioConfiguration] = await Promise.all([
@@ -142,11 +157,12 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       internalInstructions: studioConfiguration.internalInstructions,
       receptionistGuidance: studioConfiguration.receptionistGuidance,
       testMode: context.channel === 'WEB_TEST',
+      draftMode,
     }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_AI_SCHEDULING, the artist authorized you to schedule this approved quote: ask for timing if needed, call check_availability with the approved service ID, and createBookingHold only after the client selects an offered slot. Use the approved duration and price. The booking tool records and presents price/date confirmation automatically; do not ask a second time. On client agreement, call accept_quote_terms. If ACCEPTED and depositRequired is true, call create_deposit_request using its appointmentId and send the link. If ACCEPTED and no deposit is required, send a short final acknowledgment rather than asking again. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed. For a linked appointment, call accept_quote_terms if the client agrees; if confirmation is missing, call confirm_quote_terms and wait. After ACCEPTED, check the appointment deposit requirement and call create_deposit_request only if required. Never book it again.` : '');
 
     const [quoteService] = await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, context.organizationId), eq(services.artistId, context.artistId), eq(services.active, true), eq(services.serviceType, 'TATTOO'))).limit(1);
     const latestAttachments = (history.at(-1)?.metadata as { attachments?: Array<{ type?: string }> } | null)?.attachments || [];
-    if (context.channel !== 'WEB_TEST' && shouldHandoffReference({ quoteConfigured: Boolean(quoteService), quoteApproved: Boolean(approvedQuote), tattooContext: history.some(message => message.role === 'user' && /tattoo/i.test(message.content)), latestAttachments })) {
+    if (!draftMode && context.channel !== 'WEB_TEST' && shouldHandoffReference({ quoteConfigured: Boolean(quoteService), quoteApproved: Boolean(approvedQuote), tattooContext: history.some(message => message.role === 'user' && /tattoo/i.test(message.content)), latestAttachments })) {
       const reply = 'I’ll get back to you with a price.';
       if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
       const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
@@ -225,7 +241,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           parameters: z.object({}),
           execute: audit('get_client_appointments', async () => getClientAppointmentsForReceptionist(context)),
         }),
-        ...(context.channel === 'WEB_TEST' || input.availabilityOnly ? {} : {
+        ...(context.channel === 'WEB_TEST' || input.availabilityOnly || draftMode ? {} : {
         confirm_quote_terms: tool({
           description: 'Present the recorded approved price and linked appointment time together and ask the client to confirm. Use before collecting a deposit for a custom quote. Do not create another booking.',
           parameters: z.object({}),
@@ -300,7 +316,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       system,
       messages: conversationMessages,
       maxSteps: 10,
-      experimental_prepareStep: async ({ stepNumber }) => stepNumber === 0 && !input.availabilityOnly && context.channel !== 'WEB_TEST' && approvedQuote?.appointmentId && /deposit|payment|pay\b/i.test(input.message)
+      experimental_prepareStep: async ({ stepNumber }) => draftMode ? {} : stepNumber === 0 && !input.availabilityOnly && context.channel !== 'WEB_TEST' && approvedQuote?.appointmentId && /deposit|payment|pay\b/i.test(input.message)
         ? { toolChoice: { type: 'tool', toolName: approvedQuote.action === 'QUOTE_ACCEPTED' ? 'create_deposit_request' : 'confirm_quote_terms' } }
         : !input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && checkedQuoteSlots && !createdQuoteBooking && Boolean(selectedTimeMessage)
         ? { toolChoice: { type: 'tool', toolName: 'createBookingHold' } }
@@ -313,7 +329,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
         : stepNumber === 0 && requiresServiceLookup(input.message)
         ? { toolChoice: { type: 'tool', toolName: 'search_services' } }
         : { experimental_activeTools: serviceScopedTools(Object.keys(tools) as Array<keyof typeof tools>, servicesDiscovered) },
-      tools,
+      tools: draftMode ? draftReadTools(tools) : tools,
     });
     const candidateReply = quoteTermsPrompt || (quoteSummary ? 'I’ll get back to you with a price.' : result.text || 'I’ll get back to you shortly.');
     const unverifiedBookingClaim = approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && !createdQuoteBooking && /\b(confirmed|booked|scheduled)|have you down/i.test(candidateReply);
@@ -321,7 +337,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     const reply = input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING'
       ? estimateBeforeAvailability(plainReply, approvedQuote.priceCents) : plainReply;
     if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
-    const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
+    const message = await deliverReply(reply);
     if (quoteSummary || quoteTermsPrompt) await db.update(messages).set({ metadata: { ...(quoteTerms ? { quoteTerms } : {}), source: 'ai-receptionist', quoteSummary, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));
     await updateRun(runId, {
       success: true,
@@ -334,6 +350,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       conversationId: conversation.id,
       messageId: message.id,
       mode: 'live',
+      draft: draftMode,
       toolCalls: result.steps.flatMap(step => (step.toolCalls ?? []).flatMap(call => call?.toolName ? [call.toolName] : [])),
       toolResults: result.steps.flatMap(step => (step.toolResults ?? []).flatMap(toolResult => toolResult?.toolName ? [toolResult.toolName] : [])),
     };

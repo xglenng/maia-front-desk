@@ -20,7 +20,9 @@
     "staging:db:init": "node scripts/staging-bootstrap.cjs",
     "staging:db:generate": "node scripts/staging-schema-generate.cjs",
     "staging:test:artists": "node scripts/staging.cjs artist-check",
-    "staging:test:consent": "node scripts/staging.cjs consent-check"
+    "staging:test:consent": "node scripts/staging.cjs consent-check",
+    "staging:test:drafts": "node scripts/staging.cjs draft-check",
+    "staging:preview:drafts": "node scripts/staging.cjs draft-preview"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.0",

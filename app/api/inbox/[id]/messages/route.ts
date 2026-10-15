@@ -1,4 +1,5 @@
 import { cancelUndeliveredAiResponses } from '@/packages/automations/queue.server';
+import { claimReplyDraft, finishReplyDraft } from '@/packages/inbox/drafts.server';
 import { protectedRoute } from "@/packages/auth/server";
 import { accessibleConversation } from "@/packages/inbox/server";
 import { NextRequest, NextResponse } from "next/server";
@@ -13,7 +14,7 @@ import { withinInboundReplyWindow } from "@/packages/consent";
 import { hasScopedSmsConsent } from "@/packages/consent/server";
 
 type Context = { params: Promise<{ id: string }> };
-const bodySchema = z.object({ body: z.string().trim().min(1).max(1600) });
+const bodySchema = z.object({ body: z.string().trim().min(1).max(1600), draftId: z.string().uuid().optional() });
 
 async function handlePOST(request: NextRequest, { params }: Context) {
   const { id } = await params;
@@ -23,8 +24,11 @@ async function handlePOST(request: NextRequest, { params }: Context) {
   if (!access.ok) return access.error;
   const { conversation, client } = access.row;
   if (conversation.status === "CLOSED") return NextResponse.json({ error: "Reopen this conversation before replying." }, { status: 409 });
-
-
+  const draftId = parsed.data.draftId;
+  if (draftId && !await claimReplyDraft(access.user.organization_id, id, draftId)) return NextResponse.json({ error: 'This draft is stale or has already been sent. Refresh before replying.' }, { status: 409 });
+  let deliveryStarted = false;
+  let completed = false;
+  try {
   let providerMessageId: string | null = null;
   let providerStatus = "sent";
   let providerMetadata: Record<string, unknown>;
@@ -36,6 +40,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
     if (!number || !["APPROVED", "MOCK_APPROVED"].includes(number.complianceStatus)) return NextResponse.json({ error: "Outbound SMS is disabled until the artist's primary number and A2P campaign are active." }, { status: 409 });
     const [account] = number.twilioAccountId ? await db.select().from(twilioAccounts).where(and(eq(twilioAccounts.id, number.twilioAccountId), eq(twilioAccounts.organizationId, access.user.organization_id), eq(twilioAccounts.status, "ACTIVE"))) : [];
     if (!account) return NextResponse.json({ error: "Twilio is not configured for this artist." }, { status: 409 });
+    deliveryStarted = true;
     const result = await sendSms({ to: client.phone, body: parsed.data.body, accountSid: account.accountSid, authToken: decryptSecret(account.authTokenEncrypted), ...(number.twilioMessagingServiceSid ? { messagingServiceSid: number.twilioMessagingServiceSid } : { from: number.phoneNumber }) });
     providerMessageId = result.sid;
     providerStatus = result.status;
@@ -46,6 +51,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
     const [connection] = await db.select().from(channelConnections).where(and(eq(channelConnections.id, conversation.channelConnectionId), eq(channelConnections.organizationId, access.user.organization_id), eq(channelConnections.artistId, conversation.artistId), eq(channelConnections.status, "ACTIVE"))).limit(1);
     if (!connection?.accessTokenEncrypted) return NextResponse.json({ error: "Reconnect this social account before replying." }, { status: 409 });
     let result;
+    deliveryStarted = true;
     try { result = await sendMetaMessage({ externalAccountId: connection.externalAccountId, recipientId: conversation.externalParticipantId, accessToken: decryptComplianceSecret(connection.accessTokenEncrypted), text: parsed.data.body }); }
     catch (error) {
       const providerError = error instanceof Error ? error.message.slice(0, 500) : "Meta rejected the message.";
@@ -54,16 +60,24 @@ async function handlePOST(request: NextRequest, { params }: Context) {
     }
     providerMessageId = result.message_id ?? result.id ?? null;
     providerMetadata = { provider: conversation.channel.toLowerCase(), account: connection.displayName };
+  } else if (conversation.channel === 'WEB') {
+    providerMetadata = { provider: 'web' };
   } else {
     return NextResponse.json({ error: `Manual replies are not configured for ${conversation.channel}.` }, { status: 409 });
   }
 
   const now = new Date();
+  deliveryStarted = true;
   const [message] = await db.insert(messages).values({ conversationId: id, senderType: access.user.role, role: "assistant", content: parsed.data.body, externalMessageId: providerMessageId, metadata: { ...providerMetadata, status: providerStatus, sentByUserId: access.user.id } }).returning();
   await db.update(conversations).set({ lastMessageAt: now, updatedAt: now, inboundVersion: sql`${conversations.inboundVersion} + 1` }).where(eq(conversations.id, id));
   await cancelUndeliveredAiResponses(id, 'ARTIST_REPLIED');
   await db.insert(conversationEvents).values({ organizationId: access.user.organization_id, conversationId: id, userId: access.user.id, action: "MANUAL_REPLY_SENT", fromMode: conversation.aiEnabled ? "AI" : "HUMAN", toMode: conversation.aiEnabled ? "AI" : "HUMAN", details: { messageId: message.id, providerMessageId, channel: conversation.channel } });
+  if (draftId) await finishReplyDraft(access.user.organization_id, id, draftId, 'SENT');
+  completed = true;
   return NextResponse.json({ message, provider: { id: providerMessageId, status: providerStatus, channel: conversation.channel } });
+  } finally {
+    if (draftId && !completed) await finishReplyDraft(access.user.organization_id, id, draftId, deliveryStarted ? 'REVIEW_REQUIRED' : 'PENDING');
+  }
 }
 
 export const POST = protectedRoute(handlePOST, false);

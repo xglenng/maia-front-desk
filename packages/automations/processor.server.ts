@@ -1,4 +1,5 @@
 import { finalizeQuoteHandoff } from '@/packages/inbox/quote-handoff.server';
+import { autoReplyStillAllowed } from '@/packages/inbox/drafts.server';
 import 'server-only';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@db/index';
@@ -158,6 +159,10 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
       }
       throw error;
     }
+    if (!('error' in ai) && ai.draft) {
+      await completeJob(job, 'COMPLETED', 'DRAFT_READY_FOR_REVIEW');
+      return { id: job.id, status: 'COMPLETED' };
+    }
     if ('error' in ai || !ai.reply) {
       await completeJob(job, 'CANCELLED', 'AI_RESPONSE_SUPPRESSED');
       return { id: job.id, status: 'CANCELLED' };
@@ -184,6 +189,11 @@ async function processAiResponse(job: ClaimedAutomationJob, payload: Record<stri
     return { id: job.id, status: 'CANCELLED' };
   }
   await db.update(messages).set({ metadata: { ...(resultMessage?.metadata as Record<string, unknown> ?? {}), automationJobId: job.id, automationInboundVersion: latestInboundVersion, channel: job.channel.toLowerCase(), source: 'ai-receptionist', status: 'provider_send_started' } }).where(eq(messages.id, resultMessage.id));
+  if (!await autoReplyStillAllowed({ organizationId: job.organizationId, artistId: job.artistId, clientId: job.clientId, conversationId: conversation.id, channel: job.channel })) {
+    await db.delete(messages).where(eq(messages.id, resultMessage.id));
+    await completeJob(job, 'CANCELLED', 'REPLY_MODE_CHANGED');
+    return { id: job.id, status: 'CANCELLED' };
+  }
   if (!await currentAiEligibility(job, latestInboundVersion, true)) {
     await db.delete(messages).where(eq(messages.id, resultMessage.id));
     await completeJob(job, 'CANCELLED', 'AI_RESPONSE_SUPPRESSED');

@@ -18,6 +18,7 @@ async function handleGET(request: NextRequest) {
     id: conversations.id,
     artistId: conversations.artistId,
     artistName: artists.displayName,
+    artistAiMode: artists.aiMode,
     clientId: conversations.clientId,
     clientFirstName: clients.firstName,
     clientLastName: clients.lastName,

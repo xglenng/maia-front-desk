@@ -11,8 +11,8 @@ try {
     console.log('PASS: clean staging endpoint validated. No network connection made.');
     process.exit(0);
   }
-  if(['artist-check','consent-check'].includes(process.argv[2])) {
-    const child=spawn(process.execPath,['--import','tsx',path.join(root,process.argv[2]==='artist-check'?'scripts/staging-artist-check.ts':'scripts/staging-consent-check.ts')],{cwd:root,stdio:'inherit',env:{PATH:process.env.PATH,...config,NODE_OPTIONS:`--require ${JSON.stringify(path.join(root,'scripts/staging-network-guard.cjs'))}`}});
+  if(['artist-check','consent-check','draft-check','draft-preview'].includes(process.argv[2])) {
+    const child=spawn(process.execPath,['--import','tsx',path.join(root,`scripts/staging-${process.argv[2]}.ts`)],{cwd:root,stdio:'inherit',env:{PATH:process.env.PATH,...config,NODE_OPTIONS:`--require ${JSON.stringify(path.join(root,'scripts/staging-network-guard.cjs'))}`}});
     child.on('exit',code=>{process.exitCode=code||0;});
     child.on('error',()=>{console.error('Unable to run staging authorization checks.');process.exitCode=1;});
     return;

@@ -2,6 +2,7 @@ import { incomingTwilioAttachments, type TwilioAttachment } from '@/packages/inb
 import { finalizeQuoteHandoff } from '@/packages/inbox/quote-handoff.server';
 import { resolveVerifiedChannelMaiaAgentContext } from '@/packages/ai/src/context.server';
 import { runMaiaAgent } from '@/packages/ai/src/agent.server';
+import { autoReplyStillAllowed } from '@/packages/inbox/drafts.server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@db';
@@ -310,6 +311,8 @@ export async function POST(request: NextRequest) {
   const aiData = await runMaiaAgent(context, { message: text, messageAlreadyStored: true });
   if ('error' in aiData && (aiData.mode === 'HUMAN' || aiData.mode === 'CLOSED')) return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   if ('error' in aiData || !aiData.reply) return new NextResponse('AI processing failed', { status: 500 });
+  if (aiData.draft) return xmlResponse();
+  if (!await autoReplyStillAllowed(context)) return xmlResponse();
   if (await hasScopedSmsConsent({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, phone: from }) ||
       (!scopedOptedOut && !await hasStudioSmsOptOutHistory({ organizationId: number.organizationId, clientId: client.id }))) {
     const sent = await sendInboundReply(from, to, aiData.reply, account ? { accountSid: account.accountSid, authToken } : undefined, 'AI_REPLY', number.twilioMessagingServiceSid, aiData.messageId);
