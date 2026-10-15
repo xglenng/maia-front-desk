@@ -2,8 +2,12 @@ import type { Metadata } from "next";
 import SessionGate from '@/components/session-gate';
 
 export const metadata: Metadata = {
-  title: "INKFLOW · AI Tattoo Receptionist",
-  description: "AI booking assistant for tattoo artists"
+  title: "Maia Front Desk",
+  description: "Your studio’s AI front desk for conversations and appointments",
+  applicationName: "Maia",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "Maia", statusBarStyle: "default" },
+  icons: { apple: [{ url: "/app-icon/180", sizes: "180x180", type: "image/png" }] }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
