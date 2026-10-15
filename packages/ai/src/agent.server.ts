@@ -1,9 +1,9 @@
 import { plainArtistReply, selectsOfferedTime } from './reply-format';
-import { isNewTattooInquiry } from './tattoo-inquiry-policy';
+import { currentTattooIntake, isNewTattooInquiry } from './tattoo-inquiry-policy';
 import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
 import { approvedAvailabilityInput, isRecordedBooking } from './approved-scheduling-policy';
 import { shouldHandoffReference } from '@/packages/inbox/reference-handoff-policy';
-import { getConversationQuote } from '@/packages/inbox/quote-state.server';
+import { getConversationQuote, getConversationQuoteContext } from '@/packages/inbox/quote-state.server';
 import { availabilityToolParameters } from './availability-tool-schema';
 import { requiresServiceLookup, serviceScopedTools } from './service-lookup-policy';
 import { agentFailureDiagnostics } from './failure-diagnostics';
@@ -119,12 +119,19 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       getStudioPromptConfiguration(context, input.message),
     ]);
     const currentDateTime = new Intl.DateTimeFormat('en-US', { timeZone: providerTimezone, dateStyle: 'full', timeStyle: 'long' }).format(new Date());
-    let approvedQuote = await getConversationQuote(context.organizationId, context.conversationId);
-    if (!input.availabilityOnly && approvedQuote?.bookingId && isNewTattooInquiry(input.message)) {
+    const quoteContext = await getConversationQuoteContext(context.organizationId, context.conversationId);
+    let approvedQuote = quoteContext.quote;
+    let history = (await db.select({ id: messages.id, role: messages.role, senderType: messages.senderType, content: messages.content, metadata: messages.metadata })
+      .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20)).reverse();
+    const previousAssistant = history.at(-2)?.role === 'assistant' ? history.at(-2)?.content : undefined;
+    let intakeMessageId = quoteContext.intakeMessageId;
+    if (!input.availabilityOnly && approvedQuote?.bookingId && isNewTattooInquiry(input.message, previousAssistant)) {
       if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
-      await db.insert(conversationEvents).values({ organizationId: context.organizationId, conversationId: context.conversationId, action: 'QUOTE_REQUESTED', fromMode: 'AI', toMode: 'AI', details: { reason: 'NEW_TATTOO_INQUIRY', previousAppointmentId: approvedQuote.appointmentId } });
+      intakeMessageId = /\btattoo\b/i.test(input.message) ? history.at(-1)?.id : history.slice(0, -1).reverse().find(message => message.role === 'user' && /\btattoo\b/i.test(message.content))?.id || history.at(-1)?.id;
+      await db.insert(conversationEvents).values({ organizationId: context.organizationId, conversationId: context.conversationId, action: 'QUOTE_REQUESTED', fromMode: 'AI', toMode: 'AI', details: { reason: 'NEW_TATTOO_INQUIRY', previousAppointmentId: approvedQuote.appointmentId, intakeMessageId } });
       approvedQuote = null;
     }
+    history = currentTattooIntake(history, intakeMessageId);
     const system = buildSystemPrompt({
       artistName: artist.displayName,
       currentDateTime,
@@ -137,20 +144,18 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       testMode: context.channel === 'WEB_TEST',
     }) + (approvedQuote ? `\nTRUSTED REQUEST STATE:\n${JSON.stringify({ ...approvedQuote, priceLabel: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(approvedQuote.priceCents / 100) })}\nThis request already has an artist-approved estimate. Do not request another estimate. If QUOTE_BOOKING_LINKED, this request is already booked: never create another booking for it. If QUOTE_AI_SCHEDULING, the artist authorized you to schedule this approved quote: ask for timing if needed, call check_availability with the approved service ID, and createBookingHold only after the client selects an offered slot. Use the approved duration and price. The booking tool records and presents price/date confirmation automatically; do not ask a second time. On client agreement, call accept_quote_terms. If ACCEPTED and depositRequired is true, call create_deposit_request using its appointmentId and send the link. If ACCEPTED and no deposit is required, send a short final acknowledgment rather than asking again. If QUOTE_APPROVED, scheduling is handled manually until a Square appointment is linked; do not claim a booking is confirmed. For a linked appointment, call accept_quote_terms if the client agrees; if confirmation is missing, call confirm_quote_terms and wait. After ACCEPTED, check the appointment deposit requirement and call create_deposit_request only if required. Never book it again.` : '');
 
-    const history = await db.select({ role: messages.role, senderType: messages.senderType, content: messages.content, metadata: messages.metadata })
-      .from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(desc(messages.createdAt)).limit(20);
     const [quoteService] = await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, context.organizationId), eq(services.artistId, context.artistId), eq(services.active, true), eq(services.serviceType, 'TATTOO'))).limit(1);
-    const latestAttachments = (history[0]?.metadata as { attachments?: Array<{ type?: string }> } | null)?.attachments || [];
+    const latestAttachments = (history.at(-1)?.metadata as { attachments?: Array<{ type?: string }> } | null)?.attachments || [];
     if (context.channel !== 'WEB_TEST' && shouldHandoffReference({ quoteConfigured: Boolean(quoteService), quoteApproved: Boolean(approvedQuote), tattooContext: history.some(message => message.role === 'user' && /tattoo/i.test(message.content)), latestAttachments })) {
       const reply = 'I’ll get back to you with a price.';
       if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
       const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
-      const summary = history.filter(message => message.role === 'user').slice(0, 6).reverse().map(message => message.content).join('\n').slice(0, 1200);
+      const summary = history.filter(message => message.role === 'user').slice(-6).map(message => message.content).join('\n').slice(0, 1200);
       await db.update(messages).set({ metadata: { source: 'ai-receptionist', quoteSummary: `Reference image supplied; review the image in this conversation.\n${summary}`, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));
       await updateRun(runId, { success: true, latencyMs: Date.now() - startedAt });
       return { reply, conversationId: conversation.id, messageId: message.id, mode: 'live', toolCalls: [], toolResults: [] };
     }
-    const conversationMessages = history.reverse().map(message => ({ role: message.role === 'assistant' ? 'assistant' as const : 'user' as const, content: ['OWNER', 'ARTIST'].includes(message.senderType) ? `[Human artist reply] ${message.content}` : message.content }));
+    const conversationMessages = history.map(message => ({ role: message.role === 'assistant' ? 'assistant' as const : 'user' as const, content: ['OWNER', 'ARTIST'].includes(message.senderType) ? `[Human artist reply] ${message.content}` : message.content }));
     if (input.availabilityOnly) conversationMessages.push({ role: 'user', content: 'The studio authorized you to offer the next few available dates for the approved quote. Check the next 14 days using the provider-local date. Ask which time works; do not book, collect a deposit, or restart the intake. If no approved quote exists, do not offer dates.' });
     const audit = <TArgs extends unknown[], TResult>(name: string, execute: (...args: TArgs) => Promise<TResult>) => withAudit(runId, name, async (...args: TArgs) => {
       if (input.automationGuard && !await input.automationGuard()) throw new Error('AUTOMATION_SUPPRESSED');
@@ -284,7 +289,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
           }),
         }),
         escalateToArtist: tool({
-          description: 'Hand off uncertain, medical, legal, unusual, or artist-approval-required requests to the artist. Use when a human decision is needed; do not provide medical or legal advice.',
+          description: 'Hand off explicit human requests and safety-sensitive medical, legal, or unusual concerns. Ordinary new tattoo intake is not an escalation: gather its own missing details, then use request_artist_quote. Do not hand off just because a previous tattoo was booked or a custom tattoo needs pricing.',
           parameters: z.object({ reason: z.string().min(1).max(500) }),
           execute: audit('escalateToArtist', async (args: { reason: string }) => escalate(context, args.reason)),
         }),
