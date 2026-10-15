@@ -1,4 +1,4 @@
-import { plainArtistReply, selectsOfferedTime } from './reply-format';
+import { estimateBeforeAvailability, plainArtistReply, selectsOfferedTime } from './reply-format';
 import { currentTattooIntake, isNewTattooInquiry } from './tattoo-inquiry-policy';
 import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
 import { approvedAvailabilityInput, isRecordedBooking } from './approved-scheduling-policy';
@@ -156,7 +156,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
       return { reply, conversationId: conversation.id, messageId: message.id, mode: 'live', toolCalls: [], toolResults: [] };
     }
     const conversationMessages = history.map(message => ({ role: message.role === 'assistant' ? 'assistant' as const : 'user' as const, content: ['OWNER', 'ARTIST'].includes(message.senderType) ? `[Human artist reply] ${message.content}` : message.content }));
-    if (input.availabilityOnly) conversationMessages.push({ role: 'user', content: 'The studio authorized you to offer the next few available dates for the approved quote. Check the next 14 days using the provider-local date. Ask which time works; do not book, collect a deposit, or restart the intake. If no approved quote exists, do not offer dates.' });
+    if (input.availabilityOnly) conversationMessages.push({ role: 'user', content: 'The studio authorized you to offer the next few available dates for the approved quote. Check the next 14 days using the provider-local date. The approved estimate will accompany this message; write only the availability portion without repeating the price. Start available dates with "Here are my available dates:". Ask which time works; do not book, collect a deposit, request price acceptance, or restart the intake. If no approved quote exists, do not offer dates.' });
     const audit = <TArgs extends unknown[], TResult>(name: string, execute: (...args: TArgs) => Promise<TResult>) => withAudit(runId, name, async (...args: TArgs) => {
       if (input.automationGuard && !await input.automationGuard()) throw new Error('AUTOMATION_SUPPRESSED');
       return execute(...args);
@@ -317,7 +317,9 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     });
     const candidateReply = quoteTermsPrompt || (quoteSummary ? 'I’ll get back to you with a price.' : result.text || 'I’ll get back to you shortly.');
     const unverifiedBookingClaim = approvedQuote?.action === 'QUOTE_AI_SCHEDULING' && !createdQuoteBooking && /\b(confirmed|booked|scheduled)|have you down/i.test(candidateReply);
-    const reply = plainArtistReply(unverifiedBookingClaim ? 'That appointment isn’t booked yet. I need to finish checking that time before confirming it.' : candidateReply, artist.displayName);
+    const plainReply = plainArtistReply(unverifiedBookingClaim ? 'That appointment isn’t booked yet. I need to finish checking that time before confirming it.' : candidateReply, artist.displayName);
+    const reply = input.availabilityOnly && approvedQuote?.action === 'QUOTE_AI_SCHEDULING'
+      ? estimateBeforeAvailability(plainReply, approvedQuote.priceCents) : plainReply;
     if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
     const message = await sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
     if (quoteSummary || quoteTermsPrompt) await db.update(messages).set({ metadata: { ...(quoteTerms ? { quoteTerms } : {}), source: 'ai-receptionist', quoteSummary, ...(input.automationJobId ? { automationJobId: input.automationJobId } : {}), ...(input.automationInboundVersion == null ? {} : { automationInboundVersion: input.automationInboundVersion }) } }).where(and(eq(messages.id, message.id), eq(messages.conversationId, conversation.id)));
