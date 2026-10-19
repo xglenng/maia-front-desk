@@ -1,3 +1,4 @@
+import { effectiveReplyMode } from '@/packages/inbox/draft-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -13,7 +14,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
   const { id } = await params;
   const access = await accessibleConversation(request, id);
   if (!access.ok) return access.error;
-  if (access.row.artist.aiMode !== 'DRAFT') return NextResponse.json({ error: 'Select Draft for review first.' }, { status: 409 });
+  if (effectiveReplyMode(access.row.conversation.aiReplyMode, access.row.artist.aiMode) !== 'DRAFT') return NextResponse.json({ error: 'Select Draft for review first.' }, { status: 409 });
   const [message] = await db.select().from(messages).where(eq(messages.conversationId, id)).orderBy(desc(messages.createdAt)).limit(1);
   if (!message || message.role !== 'user') return NextResponse.json({ error: 'There is no unanswered client message to draft a reply to.' }, { status: 409 });
   const { context } = await resolveAuthenticatedMaiaAgentContext(request, { organizationId: access.user.organization_id, artistId: access.row.artist.id, clientId: access.row.client.id, conversationId: id });

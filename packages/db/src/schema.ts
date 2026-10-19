@@ -433,6 +433,7 @@ export const conversations = pgTable("conversations", {
   channel: text("channel").notNull(),
   status: text("status").default("OPEN").notNull(),
   aiEnabled: boolean("ai_enabled").default(true).notNull(),
+  aiReplyMode: text("ai_reply_mode"),
   unreadCount: integer("unread_count").default(0).notNull(),
   inboundVersion: integer("inbound_version").default(0).notNull(),
   lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
@@ -443,6 +444,7 @@ export const conversations = pgTable("conversations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 }, table => ({
+  replyModeCheck: check("conversations_ai_reply_mode_check", sql`${table.aiReplyMode} IS NULL OR ${table.aiReplyMode} IN ('DRAFT', 'ASSISTED')`),
   tenantIdentityUnique: uniqueIndex("conversations_id_organization_uidx").on(table.id, table.organizationId),
   tenantArtistIdReference: foreignKey({ name: "conversations_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
   tenantClientIdReference: foreignKey({ name: "conversations_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),

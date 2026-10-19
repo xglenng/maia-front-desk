@@ -71,6 +71,13 @@
       "when": 1792108800000,
       "tag": "0009_first_account_creation_intents",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792195200000,
+      "tag": "0010_conversation_reply_mode",
+      "breakpoints": true
     }
   ]
 }

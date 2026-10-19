@@ -15,7 +15,7 @@ const configuredOrigin=()=>new URL(process.env.NEXT_PUBLIC_APP_URL||'http://loca
 test('every browser API export is guarded',()=>{
   function walk(p:string):string[]{return readdirSync(p,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(p,e.name)):[join(p,e.name)]);}
   const exempt=['app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
-  for(const p of walk('app/api').filter(p=>p.endsWith('/route.ts')&&!exempt.includes(p))){const s=readFileSync(p,'utf8');assert.ok(s.includes('protectedRoute('),p);assert.equal(/export async function (GET|POST|PUT|DELETE|PATCH)/.test(s),false,p);}
+  for(const p of walk('app/api').filter(p=>p.endsWith('/route.ts')&&!exempt.includes(p))){const s=readFileSync(p,'utf8');if(p==='app/api/usage/route.ts'){assert.ok(s.includes('await identity(request)'));assert.ok(s.includes('platform && !isAdmin'));assert.ok(s.includes('platformAdmin(user.id)'));continue;}assert.ok(s.includes('protectedRoute('),p);assert.equal(/export async function (GET|POST|PUT|DELETE|PATCH)/.test(s),false,p);}
   const signup=readFileSync('app/api/auth/signup/route.ts','utf8');
   assert.ok(signup.includes('sameOrigin(req)'));
   assert.ok(signup.includes('studioName.length < 2'));

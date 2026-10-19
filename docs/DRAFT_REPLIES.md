@@ -1,8 +1,9 @@
 # Draft replies
 
-In the inbox, **Reply mode → Draft for review** applies to every conversation
-for that artist. Automatic replies retains the existing assisted/autonomous
-runtime. This change implements Draft mode only, not a new autonomous tier.
+In the inbox, **Conversation options → Reply mode** changes only that
+conversation: Automatic replies, Draft for review, or Use artist default.
+The default remains the artist AI setting; new and existing conversations inherit
+it until explicitly overridden. Automatic replies retains the existing runtime. This change implements Draft mode only, not a new autonomous tier.
 
 With AI on, inbound messages prepare private suggestions using existing response
 timing. A draft card offers Edit & review, Regenerate, and Discard. Edit copies the
@@ -18,14 +19,15 @@ The existing owner-only Test Maia screen remains a read-only chat preview; it
 continues to display test responses directly and never sends customer messages.
 
 Drafts live in tenant-scoped conversation events, not customer message history.
-No schema migration is required. PENDING/SENDING/SENT/DISCARDED/REVIEW_REQUIRED
+Migration `0010_conversation_reply_mode` adds a nullable constrained override to
+conversations. Deploy the migration before the application. PENDING/SENDING/SENT/DISCARDED/REVIEW_REQUIRED
 are internal delivery states. Approval takes a database lock and verifies the
-current source message, inbound version, latest draft, artist mode and conversation
+current source message, inbound version, latest draft, effective reply mode and conversation
 status. Duplicate and stale approvals fail closed. Provider delivery uncertainty
 blocks automatic retries; check delivery before composing another manual reply.
 Existing channel consent, authorization and Meta reply-window checks still apply.
 
-Changing reply mode invalidates drafts and pending AI responses for the artist.
+Changing reply mode invalidates drafts and pending AI responses for that conversation.
 Changing back to automatic replies does not send old drafts or replay queued
 messages; the next inbound message uses the new mode.
 
@@ -45,3 +47,19 @@ payments. The preview creates a synthetic Will Glenn WEB conversation under the
 existing local Val owner fixture. Local AI_PROVIDER=mock supplies sample draft
 copy; no live SMS, social messages or provider calls occur. Preview data remains
 in the staging database. No production setting is changed by these scripts.
+
+## Migration and rollback
+
+The nullable `ai_reply_mode` column accepts DRAFT/ASSISTED; null inherits the artist
+setting. Existing settings are preserved. A scoped mode change increments only
+that conversation's inbound version, invalidating its drafts, and cancels its
+pending/retrying/processing AI response jobs. Other conversations and the artist
+default are unchanged. AI on/off remains independent. Switching modes does not
+replay a previous message; use Generate draft or wait for a new client message.
+An already-dispatched provider message cannot be recalled by changing modes.
+
+The additive migration was tested only in synthetic staging. No production
+migration/deployment is authorized by this feature request. Roll back the app
+first and leave the nullable column in place; dropping it loses per-conversation
+choices and requires separate review. Old code ignores overrides, so pause
+automatic messaging before reverting to an old runtime that lacks this policy.

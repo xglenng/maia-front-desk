@@ -1,3 +1,4 @@
+import { effectiveReplyMode } from '@/packages/inbox/draft-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { latestDraft } from '@/packages/inbox/drafts.server';
 import { services } from '@db/schema';
@@ -13,7 +14,7 @@ import { artists, automationJobs, conversationEvents, conversations, messages, u
 import { cancelUndeliveredAiResponses } from "@/packages/automations/queue.server";
 
 type Context = { params: Promise<{ id: string }> };
-const actionSchema = z.object({ action: z.enum(["TAKE_OVER", "RETURN_TO_AI", "MARK_READ", "CLOSE", "REOPEN", "SET_REPLY_MODE"]), aiMode: z.enum(['DRAFT', 'ASSISTED']).optional() });
+const actionSchema = z.object({ action: z.enum(["TAKE_OVER", "RETURN_TO_AI", "MARK_READ", "CLOSE", "REOPEN", "SET_REPLY_MODE"]), aiMode: z.enum(['DRAFT', 'ASSISTED', 'DEFAULT']).optional() });
 
 async function handleGET(request: NextRequest, { params }: Context) {
   const { id } = await params;
@@ -33,12 +34,13 @@ async function handleGET(request: NextRequest, { params }: Context) {
     .where(eq(conversationEvents.conversationId, id))
     .orderBy(desc(conversationEvents.createdAt));
   const { conversation, artist, client } = access.row;
+  const replyMode = effectiveReplyMode(conversation.aiReplyMode, artist.aiMode);
   return NextResponse.json({
-    conversation: { ...conversation, mode: conversationMode(conversation) },
+    conversation: { ...conversation, replyMode, mode: conversationMode(conversation) },
     quote: await getConversationQuote(access.user.organization_id, id),
     quoteServices: await db.select({ id: services.id, name: services.name, durationMinutes: services.durationMinutes, basePriceCents: services.basePriceCents }).from(services).where(and(eq(services.organizationId, access.user.organization_id), eq(services.artistId, artist.id), or(eq(services.pricingType, 'QUOTE'), eq(services.serviceType, 'TATTOO')), eq(services.active, true))),
     artist: { id: artist.id, displayName: artist.displayName, aiMode: artist.aiMode },
-    draft: await latestDraft(access.user.organization_id, id, conversation.inboundVersion, artist.aiMode),
+    draft: await latestDraft(access.user.organization_id, id, conversation.inboundVersion, replyMode),
     client: { id: client.id, name: `${client.firstName}${client.lastName ? ` ${client.lastName}` : ""}`, phone: client.phone, email: client.email, smsOptIn: client.smsOptIn },
     messages: messageRows,
     events: eventRows,
@@ -56,10 +58,9 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
     const aiMode = parsed.data.aiMode;
     if (!aiMode) return NextResponse.json({ error: 'Choose a reply mode.' }, { status: 400 });
     await db.transaction(async tx => {
-      await tx.update(artists).set({ aiMode }).where(and(eq(artists.id, access.row.artist.id), eq(artists.organizationId, access.user.organization_id)));
-      await tx.update(conversations).set({ inboundVersion: sql`${conversations.inboundVersion} + 1`, updatedAt: new Date() }).where(and(eq(conversations.artistId, access.row.artist.id), eq(conversations.organizationId, access.user.organization_id)));
-      await tx.update(automationJobs).set({ status: 'CANCELLED', completedAt: new Date(), lastErrorCode: 'REPLY_MODE_CHANGED' }).where(and(eq(automationJobs.organizationId, access.user.organization_id), eq(automationJobs.artistId, access.row.artist.id), eq(automationJobs.type, 'AI_RESPONSE'), inArray(automationJobs.status, ['PENDING', 'RETRY', 'PROCESSING'])));
-      await tx.insert(conversationEvents).values({ organizationId: access.user.organization_id, conversationId: id, userId: access.user.id, action: 'AI_REPLY_MODE_CHANGED', details: { aiMode } });
+      await tx.update(conversations).set({ aiReplyMode: aiMode === 'DEFAULT' ? null : aiMode, inboundVersion: sql`${conversations.inboundVersion} + 1`, updatedAt: new Date() }).where(and(eq(conversations.id, id), eq(conversations.organizationId, access.user.organization_id)));
+      await tx.update(automationJobs).set({ status: 'CANCELLED', completedAt: new Date(), lastErrorCode: 'REPLY_MODE_CHANGED' }).where(and(eq(automationJobs.organizationId, access.user.organization_id), eq(automationJobs.conversationId, id), eq(automationJobs.type, 'AI_RESPONSE'), inArray(automationJobs.status, ['PENDING', 'RETRY', 'PROCESSING'])));
+      await tx.insert(conversationEvents).values({ organizationId: access.user.organization_id, conversationId: id, userId: access.user.id, action: 'AI_REPLY_MODE_CHANGED', details: { aiMode, scope: 'conversation' } });
     });
     return NextResponse.json({ aiMode });
   }

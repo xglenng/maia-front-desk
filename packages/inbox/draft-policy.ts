@@ -23,3 +23,8 @@ const readTools = new Set(['getClient', 'get_studio_context', 'search_services',
 export function draftReadTools<T>(tools: Record<string, T>) {
   return Object.fromEntries(Object.entries(tools).filter(([name]) => readTools.has(name)));
 }
+
+// A null override preserves the artist default for existing and new conversations.
+export function effectiveReplyMode(override: string | null | undefined, artistDefault: string): string {
+  return override === "DRAFT" || override === "ASSISTED" ? override : artistDefault;
+}

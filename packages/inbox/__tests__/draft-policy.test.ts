@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { draftDetailsSchema, draftReadTools, reviewableDraft, shouldDraftReply } from '../draft-policy';
+import { draftDetailsSchema, draftReadTools, reviewableDraft, shouldDraftReply, effectiveReplyMode } from '../draft-policy';
 
 const details = { body: 'What style are you thinking, and where would you like it?', inboundVersion: 3, sourceMessageId: '11111111-1111-4111-8111-111111111111', status: 'PENDING' };
 test('Draft mode covers client channels while the existing owner test remains read-only chat', () => {
@@ -25,4 +25,11 @@ test('drafts fail closed for unknown tools and all booking/payment/handoff mutat
 });
 test('draft payload requires a real source ID and channel-safe length', () => {
   for (const patch of [{ body: '' }, { body: 'a'.repeat(1601) }, { inboundVersion: -1 }, { sourceMessageId: 'another-tenant' }]) assert.equal(draftDetailsSchema.safeParse({ ...details, ...patch }).success, false);
+});
+
+test('conversation overrides are independent and null inherits the artist default', () => {
+  assert.equal(effectiveReplyMode('DRAFT', 'ASSISTED'), 'DRAFT');
+  assert.equal(effectiveReplyMode('ASSISTED', 'DRAFT'), 'ASSISTED');
+  assert.equal(effectiveReplyMode(null, 'DRAFT'), 'DRAFT');
+  assert.equal(effectiveReplyMode(undefined, 'ASSISTED'), 'ASSISTED');
 });

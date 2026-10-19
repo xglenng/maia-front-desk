@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 160de53849ea9bf06136bfe07eb6d32449543e29697ae45dc00a9708ee88048e
+-- schema-source-sha256: 6912fb496e126cc39bb2f47aa978dc4ccc2c40c832a52fa23a2f2ad605139ae3
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -377,6 +377,7 @@ CREATE TABLE "conversations" (
 	"channel" text NOT NULL,
 	"status" text DEFAULT 'OPEN' NOT NULL,
 	"ai_enabled" boolean DEFAULT true NOT NULL,
+	"ai_reply_mode" text,
 	"unread_count" integer DEFAULT 0 NOT NULL,
 	"inbound_version" integer DEFAULT 0 NOT NULL,
 	"last_inbound_at" timestamp with time zone,
@@ -385,7 +386,8 @@ CREATE TABLE "conversations" (
 	"human_takeover_by_user_id" uuid,
 	"last_message_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "conversations_ai_reply_mode_check" CHECK ("conversations"."ai_reply_mode" IS NULL OR "conversations"."ai_reply_mode" IN ('DRAFT', 'ASSISTED'))
 );
 --> statement-breakpoint
 CREATE TABLE "external_waiver_assignments" (

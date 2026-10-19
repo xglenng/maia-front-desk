@@ -1,5 +1,5 @@
 import { estimateBeforeAvailability, plainArtistReply, selectsOfferedTime } from './reply-format';
-import { draftReadTools, shouldDraftReply } from '@/packages/inbox/draft-policy';
+import { draftReadTools, shouldDraftReply, effectiveReplyMode } from '@/packages/inbox/draft-policy';
 import { saveReplyDraft } from '@/packages/inbox/drafts.server';
 import { currentTattooIntake, isNewTattooInquiry } from './tattoo-inquiry-policy';
 import { explicitQuoteAgreement } from '@/packages/inbox/quote-policy';
@@ -85,7 +85,7 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
   if (!artist || !conversation) throw new Error('Agent context is no longer valid.');
   if (!shouldRunAi(conversation)) return { error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' };
   if (!artist.receptionistEnabled) return { error: 'The studio receptionist is disabled for this artist.', conversationId: conversation.id, mode: 'HUMAN' };
-  const draftMode = shouldDraftReply(artist.aiMode, context.channel, input.draftOnly);
+  const draftMode = shouldDraftReply(effectiveReplyMode(conversation.aiReplyMode, artist.aiMode), context.channel, input.draftOnly);
   let inboundVersion = conversation.inboundVersion;
   if (context.channel !== 'WEB_TEST') {
     const priorGuard = input.automationGuard;

@@ -1,3 +1,4 @@
+import { effectiveReplyMode } from '@/packages/inbox/draft-policy';
 import { protectedRoute, identity } from "@/packages/auth/server";
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
@@ -19,6 +20,7 @@ async function handleGET(request: NextRequest) {
     artistId: conversations.artistId,
     artistName: artists.displayName,
     artistAiMode: artists.aiMode,
+    aiReplyMode: conversations.aiReplyMode,
     clientId: conversations.clientId,
     clientFirstName: clients.firstName,
     clientLastName: clients.lastName,
@@ -50,6 +52,7 @@ async function handleGET(request: NextRequest) {
 
   const data = visible.map(row => ({
     ...row,
+    replyMode: effectiveReplyMode(row.aiReplyMode, row.artistAiMode),
     clientName: `${row.clientFirstName}${row.clientLastName ? ` ${row.clientLastName}` : ""}`,
     mode: row.status === "CLOSED" ? "CLOSED" : row.aiEnabled ? "AI" : "HUMAN",
     latestMessage: latest.get(row.id) ?? null,

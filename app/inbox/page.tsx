@@ -16,6 +16,8 @@ type InboxItem = {
   channel: string;
   status: string;
   aiEnabled: boolean;
+  aiReplyMode: string | null;
+  replyMode: string;
   unreadCount: number;
   mode: "AI" | "HUMAN" | "CLOSED";
   lastMessageAt: string | null;
@@ -174,7 +176,7 @@ export default function InboxPage() {
     try {
       await json(await fetch(`/api/inbox/${selectedId}/quote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }));
       await Promise.all([loadDetail(selectedId, false), loadList()]); setError(null);
-      setSchedulingNotice(action === 'AI_SCHEDULE' ? detail?.artist.aiMode === 'DRAFT' ? 'Maia’s availability draft is queued for review, usually within five minutes.' : 'Maia’s availability check is queued. Dates will be sent when the automation runs, usually within five minutes.' : null);
+      setSchedulingNotice(action === 'AI_SCHEDULE' ? detail?.conversation.replyMode === 'DRAFT' ? 'Maia’s availability draft is queued for review, usually within five minutes.' : 'Maia’s availability check is queued. Dates will be sent when the automation runs, usually within five minutes.' : null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to change scheduling mode'); }
     finally { setWorking(false); }
   }
@@ -252,7 +254,7 @@ export default function InboxPage() {
                 <span className="thread-artist">{item.channel} · {item.artistName}</span>
                 <span className="thread-preview">{item.latestMessage?.content ?? "No messages yet"}</span>
               </span>
-              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "BOOKING_LINKED" ? "Booked" : item.status === "QUOTE_APPROVED" ? "Estimate approved" : item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? item.artistAiMode === 'DRAFT' ? 'Draft mode' : "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
+              <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "BOOKING_LINKED" ? "Booked" : item.status === "QUOTE_APPROVED" ? "Estimate approved" : item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? item.replyMode === 'DRAFT' ? 'Draft mode' : "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
             </button>)}
         </div>
       </section>
@@ -263,12 +265,12 @@ export default function InboxPage() {
           <header className="chat-header">
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
-              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? detail.artist.aiMode === 'DRAFT' ? 'AI drafting' : "AI responding" : detail.conversation.mode === "HUMAN" ? "AI off" : "Closed"}</span>
+              <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? detail.conversation.replyMode === 'DRAFT' ? 'AI drafting' : "AI responding" : detail.conversation.mode === "HUMAN" ? "AI off" : "Closed"}</span>
               {detail.conversation.mode !== "CLOSED" && <button role="switch" aria-checked={detail.conversation.aiEnabled} aria-label="AI replies" disabled={working} onClick={() => action(detail.conversation.aiEnabled ? "TAKE_OVER" : "RETURN_TO_AI")} className="ai-btn">AI {detail.conversation.aiEnabled ? 'on' : 'off'}</button>}
               <details className="conversation-options" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary aria-label="Conversation options" title="Conversation options"><UiIcon name="more" /></summary><div className="conversation-options-panel">
-              <label className="reply-mode-label">Reply mode<select aria-label="Artist reply mode" value={detail.artist.aiMode === 'DRAFT' ? 'DRAFT' : 'ASSISTED'} disabled={working} onChange={event => changeReplyMode(event.target.value)}><option value="ASSISTED">Automatic replies</option><option value="DRAFT">Draft for review</option></select></label>
+              <label className="reply-mode-label">Reply mode<select aria-label="Conversation reply mode" value={detail.conversation.aiReplyMode || 'DEFAULT'} disabled={working} onChange={event => changeReplyMode(event.target.value)}><option value="DEFAULT">Use artist default</option><option value="ASSISTED">Automatic replies</option><option value="DRAFT">Draft for review</option></select></label>
               {detail.quote?.action === "QUOTE_AI_SCHEDULING" && <button disabled={working} className="plain-btn" onClick={() => quoteScheduling("MANUAL_SCHEDULE")}>Book manually</button>}
-                <p className="draft-mode-note">Reply mode applies to all {detail.artist.displayName}&apos;s conversations.</p>
+                <p className="draft-mode-note">Applies only to this conversation. Artist default: {detail.artist.aiMode === 'DRAFT' ? 'Draft for review' : 'Automatic replies'}.</p>
               {detail.conversation.mode === "CLOSED" ? <button disabled={working} onClick={() => action("REOPEN")} className="plain-btn">Reopen</button> : <button disabled={working} onClick={() => action("CLOSE")} className="plain-btn">Close conversation</button>}
               </div></details>
             </div>
@@ -285,13 +287,13 @@ export default function InboxPage() {
             })}
           </div>
 
-          <div className={`composer-area ${detail.artist.aiMode === 'DRAFT' ? 'draft-composer' : ''}`}>
-            {detail.artist.aiMode === 'DRAFT' && detail.conversation.mode !== 'CLOSED' && <section className="maia-draft" aria-label="Maia draft">
+          <div className={`composer-area ${detail.conversation.replyMode === 'DRAFT' ? 'draft-composer' : ''}`}>
+            {detail.conversation.replyMode === 'DRAFT' && detail.conversation.mode !== 'CLOSED' && <section className="maia-draft" aria-label="Maia draft">
               <div className="maia-draft-heading"><strong>✦ Maia draft</strong><span>{reviewingDraftId === detail.draft?.id ? 'Editing · not sent' : 'Not sent'}</span></div>
-              <details className="draft-help"><summary>How drafts work</summary><p className="draft-mode-note">Applies to all {detail.artist.displayName}&apos;s conversations. You review and send; bookings and payments stay manual.</p></details>
+              <details className="draft-help"><summary>How drafts work</summary><p className="draft-mode-note">Applies to this conversation. You review and send; bookings and payments stay manual.</p></details>
               {detail.draft ? <>{reviewingDraftId !== detail.draft.id && <p className="draft-proposal">{detail.draft.body}</p>}<div className="draft-actions">{reviewingDraftId !== detail.draft.id && <button type="button" disabled={working} onClick={() => { setDraft(detail.draft!.body); setReviewingDraftId(detail.draft!.id); }}>Edit &amp; review</button>}<button type="button" className="plain-btn" disabled={working || !detail.conversation.aiEnabled} onClick={() => manageDraft()}>Regenerate</button><button type="button" className="plain-btn" disabled={working} onClick={() => manageDraft(true)}>Discard</button></div></> : <><p className="draft-mode-note">{detail.conversation.aiEnabled ? 'New client messages will get a suggested reply here. Nothing is sent automatically.' : 'AI is off. Turn it on to generate draft suggestions.'}</p><button type="button" disabled={working || !detail.conversation.aiEnabled || detail.conversation.status === 'AWAITING_QUOTE'} onClick={() => manageDraft()}>{working ? 'Preparing…' : 'Generate draft'}</button></>}
             </section>}
-            {detail.quoteServices.length > 0 && (detail.conversation.mode === "HUMAN" || detail.artist.aiMode === 'DRAFT') && <details open={detail.artist.aiMode !== 'DRAFT'}><summary>Artist estimate &amp; booking</summary><div className="composer-lock quote-controls">
+            {detail.quoteServices.length > 0 && (detail.conversation.mode === "HUMAN" || detail.conversation.replyMode === 'DRAFT') && <details open={detail.conversation.replyMode !== 'DRAFT'}><summary>Artist estimate &amp; booking</summary><div className="composer-lock quote-controls">
               <strong>{detail.quote && detail.quote.action !== 'QUOTE_APPROVED' ? 'Appointment linked' : detail.quote ? 'Estimate approved — arrange booking manually' : 'Record artist estimate'}</strong>
               {detail.quote && <p>${(detail.quote.priceCents / 100).toFixed(2)} · {detail.quote.durationMinutes} minutes{detail.quote.startsAt ? ` · ${new Date(detail.quote.startsAt).toLocaleString()}` : ''}</p>}
               {(!detail.quote || detail.quote.action === 'QUOTE_APPROVED') && <form onSubmit={event => saveQuote(event)}>
@@ -300,11 +302,11 @@ export default function InboxPage() {
                 <label>Duration (minutes) <input required type="number" min="1" max="1440" step="1" value={quoteDuration} onChange={event => setQuoteDuration(event.target.value)} /></label>
                 <button disabled={working}>Save approved estimate</button><span>This records the quote and pauses Maia. Send the estimate using the reply box.</span>
               </form>}
-              {detail.quote?.action === 'QUOTE_APPROVED' && <><button disabled={working} onClick={() => quoteScheduling('AI_SCHEDULE')}>{detail.artist.aiMode === 'DRAFT' ? 'Draft available dates' : 'Let Maia schedule'}</button><span>{detail.artist.aiMode === 'DRAFT' ? 'Maia will draft available dates for review. Create the appointment manually after the client chooses.' : 'Maia will send the next available dates using this approved duration. Manual booking remains available below.'}</span></>}
+              {detail.quote?.action === 'QUOTE_APPROVED' && <><button disabled={working} onClick={() => quoteScheduling('AI_SCHEDULE')}>{detail.conversation.replyMode === 'DRAFT' ? 'Draft available dates' : 'Let Maia schedule'}</button><span>{detail.conversation.replyMode === 'DRAFT' ? 'Maia will draft available dates for review. Create the appointment manually after the client chooses.' : 'Maia will send the next available dates using this approved duration. Manual booking remains available below.'}</span></>}
               {detail.quote?.action === 'QUOTE_APPROVED' && <form onSubmit={event => saveQuote(event, true)}><label>Square booking ID <input required value={squareBookingId} onChange={event => setSquareBookingId(event.target.value)} /></label><button disabled={working}>Link existing appointment</button><span>Verifies the client, artist, location, and duration. Does not create an appointment.</span></form>}
             </div></details>}
 
-            {detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : detail.artist.aiMode === 'DRAFT' && detail.draft && !reviewingDraftId && !manualComposerOpen ? <button type="button" className="manual-reply-toggle" onClick={() => setManualComposerOpen(true)}>Write your own reply</button> : <form onSubmit={send} className="composer">
+            {detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : detail.conversation.replyMode === 'DRAFT' && detail.draft && !reviewingDraftId && !manualComposerOpen ? <button type="button" className="manual-reply-toggle" onClick={() => setManualComposerOpen(true)}>Write your own reply</button> : <form onSubmit={send} className="composer">
               <textarea aria-label={reviewingDraftId ? 'Edit Maia draft' : 'Reply as the studio'} value={draft} onChange={event => setDraft(event.target.value)} placeholder="Reply as the studio…" maxLength={1600} disabled={working || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)} />
               {reviewingDraftId && <p className="draft-mode-note">{detail.draft?.id === reviewingDraftId ? 'Review and edit the suggestion, then send when ready.' : 'New activity arrived or this draft changed. Regenerate or discard your edit before sending.'}<button type="button" className="plain-btn" onClick={() => { setDraft(''); setReviewingDraftId(null); }}>Clear edit</button></p>}
               <div><span>{detail.conversation.channel !== "SMS" || detail.client.smsOptIn ? `${draft.length}/1600` : "Client opted out of SMS"}</span><button disabled={working || !draft.trim() || Boolean(reviewingDraftId && detail.draft?.id !== reviewingDraftId) || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)}>{working ? "Sending…" : reviewingDraftId ? 'Send reviewed draft' : `Send ${detail.conversation.channel === "SMS" ? "SMS" : "reply"}`}</button></div>
