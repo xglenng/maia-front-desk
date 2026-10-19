@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import "./inbox.css";
+import UiIcon from "@/components/ui-icon";
 
 type InboxItem = {
   id: string;
@@ -65,6 +66,8 @@ export default function InboxPage() {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [reviewingDraftId, setReviewingDraftId] = useState<string | null>(null);
+  const [manualComposerOpen, setManualComposerOpen] = useState(false);
+  useEffect(() => { setManualComposerOpen(false); setReviewingDraftId(null); }, [selectedId]);
   const [quoteService, setQuoteService] = useState("");
   const [quotePrice, setQuotePrice] = useState("");
   const [quoteDuration, setQuoteDuration] = useState("");
@@ -204,6 +207,7 @@ export default function InboxPage() {
       await json(await fetch(`/api/inbox/${selectedId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: draft.trim(), ...(reviewingDraftId ? { draftId: reviewingDraftId } : {}) }) }));
       setDraft("");
       setReviewingDraftId(null);
+      setManualComposerOpen(false);
       await Promise.all([loadDetail(selectedId, false), loadList()]);
       setError(null);
     } catch (cause) {
@@ -259,11 +263,14 @@ export default function InboxPage() {
           <header className="chat-header">
             <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
-              <label className="reply-mode-label">Reply mode<select aria-label="Artist reply mode" value={detail.artist.aiMode === 'DRAFT' ? 'DRAFT' : 'ASSISTED'} disabled={working} onChange={event => changeReplyMode(event.target.value)}><option value="ASSISTED">Automatic replies</option><option value="DRAFT">Draft for review</option></select></label>
-              {detail.quote?.action === "QUOTE_AI_SCHEDULING" && <button disabled={working} className="plain-btn" onClick={() => quoteScheduling("MANUAL_SCHEDULE")}>Book manually</button>}
               <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? detail.artist.aiMode === 'DRAFT' ? 'AI drafting' : "AI responding" : detail.conversation.mode === "HUMAN" ? "AI off" : "Closed"}</span>
               {detail.conversation.mode !== "CLOSED" && <button role="switch" aria-checked={detail.conversation.aiEnabled} aria-label="AI replies" disabled={working} onClick={() => action(detail.conversation.aiEnabled ? "TAKE_OVER" : "RETURN_TO_AI")} className="ai-btn">AI {detail.conversation.aiEnabled ? 'on' : 'off'}</button>}
-              {detail.conversation.mode === "CLOSED" ? <button disabled={working} onClick={() => action("REOPEN")} className="plain-btn">Reopen</button> : <button disabled={working} onClick={() => action("CLOSE")} className="plain-btn">Close</button>}
+              <details className="conversation-options" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}><summary aria-label="Conversation options" title="Conversation options"><UiIcon name="more" /></summary><div className="conversation-options-panel">
+              <label className="reply-mode-label">Reply mode<select aria-label="Artist reply mode" value={detail.artist.aiMode === 'DRAFT' ? 'DRAFT' : 'ASSISTED'} disabled={working} onChange={event => changeReplyMode(event.target.value)}><option value="ASSISTED">Automatic replies</option><option value="DRAFT">Draft for review</option></select></label>
+              {detail.quote?.action === "QUOTE_AI_SCHEDULING" && <button disabled={working} className="plain-btn" onClick={() => quoteScheduling("MANUAL_SCHEDULE")}>Book manually</button>}
+                <p className="draft-mode-note">Reply mode applies to all {detail.artist.displayName}&apos;s conversations.</p>
+              {detail.conversation.mode === "CLOSED" ? <button disabled={working} onClick={() => action("REOPEN")} className="plain-btn">Reopen</button> : <button disabled={working} onClick={() => action("CLOSE")} className="plain-btn">Close conversation</button>}
+              </div></details>
             </div>
           </header>
 
@@ -280,9 +287,9 @@ export default function InboxPage() {
 
           <div className={`composer-area ${detail.artist.aiMode === 'DRAFT' ? 'draft-composer' : ''}`}>
             {detail.artist.aiMode === 'DRAFT' && detail.conversation.mode !== 'CLOSED' && <section className="maia-draft" aria-label="Maia draft">
-              <div className="maia-draft-heading"><strong>✦ Maia draft</strong><span>Not sent to client</span></div>
-              <p className="draft-mode-note">Draft for review applies to all {detail.artist.displayName}&apos;s conversations. Maia suggests replies; you send them. Bookings and payments stay manual.</p>
-              {detail.draft ? <><p className="draft-proposal">{detail.draft.body}</p><div className="draft-actions"><button type="button" disabled={working} onClick={() => { setDraft(detail.draft!.body); setReviewingDraftId(detail.draft!.id); }}>Edit &amp; review</button><button type="button" className="plain-btn" disabled={working || !detail.conversation.aiEnabled} onClick={() => manageDraft()}>Regenerate</button><button type="button" className="plain-btn" disabled={working} onClick={() => manageDraft(true)}>Discard</button></div></> : <><p className="draft-mode-note">{detail.conversation.aiEnabled ? 'New client messages will get a suggested reply here. Nothing is sent automatically.' : 'AI is off. Turn it on to generate draft suggestions.'}</p><button type="button" disabled={working || !detail.conversation.aiEnabled || detail.conversation.status === 'AWAITING_QUOTE'} onClick={() => manageDraft()}>{working ? 'Preparing…' : 'Generate draft'}</button></>}
+              <div className="maia-draft-heading"><strong>✦ Maia draft</strong><span>{reviewingDraftId === detail.draft?.id ? 'Editing · not sent' : 'Not sent'}</span></div>
+              <details className="draft-help"><summary>How drafts work</summary><p className="draft-mode-note">Applies to all {detail.artist.displayName}&apos;s conversations. You review and send; bookings and payments stay manual.</p></details>
+              {detail.draft ? <>{reviewingDraftId !== detail.draft.id && <p className="draft-proposal">{detail.draft.body}</p>}<div className="draft-actions">{reviewingDraftId !== detail.draft.id && <button type="button" disabled={working} onClick={() => { setDraft(detail.draft!.body); setReviewingDraftId(detail.draft!.id); }}>Edit &amp; review</button>}<button type="button" className="plain-btn" disabled={working || !detail.conversation.aiEnabled} onClick={() => manageDraft()}>Regenerate</button><button type="button" className="plain-btn" disabled={working} onClick={() => manageDraft(true)}>Discard</button></div></> : <><p className="draft-mode-note">{detail.conversation.aiEnabled ? 'New client messages will get a suggested reply here. Nothing is sent automatically.' : 'AI is off. Turn it on to generate draft suggestions.'}</p><button type="button" disabled={working || !detail.conversation.aiEnabled || detail.conversation.status === 'AWAITING_QUOTE'} onClick={() => manageDraft()}>{working ? 'Preparing…' : 'Generate draft'}</button></>}
             </section>}
             {detail.quoteServices.length > 0 && (detail.conversation.mode === "HUMAN" || detail.artist.aiMode === 'DRAFT') && <details open={detail.artist.aiMode !== 'DRAFT'}><summary>Artist estimate &amp; booking</summary><div className="composer-lock quote-controls">
               <strong>{detail.quote && detail.quote.action !== 'QUOTE_APPROVED' ? 'Appointment linked' : detail.quote ? 'Estimate approved — arrange booking manually' : 'Record artist estimate'}</strong>
@@ -297,8 +304,8 @@ export default function InboxPage() {
               {detail.quote?.action === 'QUOTE_APPROVED' && <form onSubmit={event => saveQuote(event, true)}><label>Square booking ID <input required value={squareBookingId} onChange={event => setSquareBookingId(event.target.value)} /></label><button disabled={working}>Link existing appointment</button><span>Verifies the client, artist, location, and duration. Does not create an appointment.</span></form>}
             </div></details>}
 
-            {detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : <form onSubmit={send} className="composer">
-              <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Reply as the studio…" maxLength={1600} disabled={working || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)} />
+            {detail.conversation.mode === "CLOSED" ? <div className="composer-lock"><strong>Conversation closed</strong><span>Reopen it before sending another message.</span></div> : detail.artist.aiMode === 'DRAFT' && detail.draft && !reviewingDraftId && !manualComposerOpen ? <button type="button" className="manual-reply-toggle" onClick={() => setManualComposerOpen(true)}>Write your own reply</button> : <form onSubmit={send} className="composer">
+              <textarea aria-label={reviewingDraftId ? 'Edit Maia draft' : 'Reply as the studio'} value={draft} onChange={event => setDraft(event.target.value)} placeholder="Reply as the studio…" maxLength={1600} disabled={working || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)} />
               {reviewingDraftId && <p className="draft-mode-note">{detail.draft?.id === reviewingDraftId ? 'Review and edit the suggestion, then send when ready.' : 'New activity arrived or this draft changed. Regenerate or discard your edit before sending.'}<button type="button" className="plain-btn" onClick={() => { setDraft(''); setReviewingDraftId(null); }}>Clear edit</button></p>}
               <div><span>{detail.conversation.channel !== "SMS" || detail.client.smsOptIn ? `${draft.length}/1600` : "Client opted out of SMS"}</span><button disabled={working || !draft.trim() || Boolean(reviewingDraftId && detail.draft?.id !== reviewingDraftId) || (detail.conversation.channel === "SMS" && !detail.client.smsOptIn)}>{working ? "Sending…" : reviewingDraftId ? 'Send reviewed draft' : `Send ${detail.conversation.channel === "SMS" ? "SMS" : "reply"}`}</button></div>
             </form>}

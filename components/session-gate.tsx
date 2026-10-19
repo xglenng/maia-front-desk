@@ -1,6 +1,8 @@
 'use client';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
+import UiIcon from './ui-icon';
+import './session-gate.css';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; role: 'OWNER' | 'ARTIST' };
 const SessionContext = createContext<SessionUser | null>(null);
@@ -18,6 +20,8 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path.startsWith('/book/');
   const ownerPage = path === '/settings' || path === '/settings/services' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
   useEffect(() => {
     if (publicPage) return;
     let active = true;
@@ -33,11 +37,24 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   if (publicPage) return <>{children}</>;
   if (!user) return <p style={{ padding: 24 }}>Checking your session… <a href="/login">Sign in</a></p>;
   return <SessionContext.Provider value={user}>
-    <div style={{ padding: 12, background: '#fff', borderBottom: '1px solid #ddd', position: 'relative', zIndex: 10 }}>
-      {user.name} · {user.role} {' · '}<a href="/">Dashboard</a>
-      {user.role === 'OWNER' && <>{' · '}<a href="/settings">Settings</a></>}
-      {' '}<button onClick={async () => { await fetch('/api/auth/session', { method: 'DELETE' }); window.location.assign('/login'); }}>Sign out</button>
-    </div>
+    <header className="session-bar">
+      <a href="/" className="session-brand" aria-label="Maia home"><span aria-hidden="true">✦</span> Maia</a>
+      <nav className="session-nav" aria-label="Quick navigation">
+        <a href="/" className="session-icon" aria-label="Dashboard" title="Dashboard"><UiIcon name="dashboard" /></a>
+        {user.role === 'OWNER' && <a href="/settings" className="session-icon" aria-label="Settings" title="Settings"><UiIcon name="settings" /></a>}
+        <details className="session-account" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+          <summary aria-label="Account and sign out" title={user.name}>{user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'M'}</summary>
+          <div className="session-account-panel"><strong>{user.name}</strong><small>{user.role === 'OWNER' ? 'Studio owner' : 'Artist'}</small>
+            <button disabled={signingOut} onClick={async () => {
+              setSigningOut(true); setSignOutError('');
+              try { const response = await fetch('/api/auth/session', { method: 'DELETE' }); if (!response.ok) throw new Error(); window.location.assign('/login'); }
+              catch { setSignOutError('Unable to sign out. Please try again.'); setSigningOut(false); }
+            }}><UiIcon name="logout" />{signingOut ? 'Signing out…' : 'Sign out'}</button>
+            {signOutError && <p role="alert">{signOutError}</p>}
+          </div>
+        </details>
+      </nav>
+    </header>
     {children}
   </SessionContext.Provider>;
 }

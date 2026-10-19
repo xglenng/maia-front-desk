@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import "./dashboard.css";
 import { calendarBlock, calendarMinute } from "@/packages/studio/calendar-layout";
+import UiIcon from '@/components/ui-icon';
 
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
@@ -88,18 +89,18 @@ export default function Home() {
         <div className="artist-card"><div className="avatar">{artistInitials}</div><div><strong>{data?.artist.displayName ?? "Artist"}</strong><span>{data?.organization?.name ?? "Organization"}</span></div><button aria-label="Switch artist">⌄</button></div>
         <nav>
           {(["Overview", "Calendar", "Inbox", "Clients"] as const).map((item) => item === "Inbox" ?
-            <a key={item} href="/inbox" className="nav-item" style={{ textDecoration: "none" }}>
-              <span className="nav-icon">◌</span>{item}
+            <a key={item} href="/inbox" className="nav-item" aria-label={item} title={item} style={{ textDecoration: "none" }}>
+              <span className="nav-icon"><UiIcon name="inbox" /></span><span className="nav-label">{item}</span>
               {data && data.conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0) > 0 && <span className="nav-badge">{data.conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)}</span>}
             </a> :
-            <button key={item} className={view === item ? "nav-item active" : "nav-item"} onClick={() => setView(item)}>
-              <span className="nav-icon">{item === "Overview" ? "⌂" : item === "Calendar" ? "▣" : "♙"}</span>{item}
+            <button key={item} aria-label={item} title={item} aria-current={view === item ? 'page' : undefined} className={view === item ? "nav-item active" : "nav-item"} onClick={() => setView(item)}>
+              <span className="nav-icon"><UiIcon name={item === 'Overview' ? 'dashboard' : item === 'Calendar' ? 'calendar' : 'clients'} /></span><span className="nav-label">{item}</span>
             </button>
           )}
         </nav>
         <div className="sidebar-bottom">
-          {user?.role === 'OWNER' && <a href="/onboarding" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon">✓</span>Activation</a>}
-          {user?.role === 'OWNER' && <a href="/settings" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon">⚙</span>Settings</a>}
+          {user?.role === 'OWNER' && <a href="/onboarding" aria-label="Activation" title="Activation" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon"><UiIcon name="check" /></span><span className="nav-label">Activation</span></a>}
+          {user?.role === 'OWNER' && <a href="/settings" aria-label="Settings" title="Settings" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon"><UiIcon name="settings" /></span><span className="nav-label">Settings</span></a>}
           <div className="ai-status"><span className={aiEnabled ? "status-dot" : "status-dot off"}></span><div><strong>AI receptionist</strong><span>{aiEnabled ? "Active · Assisted mode" : "Paused"}</span></div><button onClick={() => setAiEnabled(!aiEnabled)}>{aiEnabled ? "ON" : "OFF"}</button></div>
         </div>
       </aside>
