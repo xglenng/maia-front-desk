@@ -39,7 +39,7 @@ async function handleGET(request: NextRequest, { params }: Context) {
     conversation: { ...conversation, replyMode, mode: conversationMode(conversation) },
     quote: await getConversationQuote(access.user.organization_id, id),
     quoteServices: await db.select({ id: services.id, name: services.name, durationMinutes: services.durationMinutes, basePriceCents: services.basePriceCents }).from(services).where(and(eq(services.organizationId, access.user.organization_id), eq(services.artistId, artist.id), or(eq(services.pricingType, 'QUOTE'), eq(services.serviceType, 'TATTOO')), eq(services.active, true))),
-    artist: { id: artist.id, displayName: artist.displayName, aiMode: artist.aiMode, requiresSupervisorApproval: artist.requiresSupervisorApproval },
+    artist: { id: artist.id, displayName: artist.displayName, calendarColor:artist.calendarColor, aiMode: artist.aiMode, requiresSupervisorApproval: artist.requiresSupervisorApproval },
     draft: await latestDraft(access.user.organization_id, id, conversation.inboundVersion, replyMode),
     client: { id: client.id, name: `${client.firstName}${client.lastName ? ` ${client.lastName}` : ""}`, phone: client.phone, email: client.email, smsOptIn: client.smsOptIn },
     messages: messageRows,

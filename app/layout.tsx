@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "./maia-ui.css";
 import SessionGate from '@/components/session-gate';
 
 export const metadata: Metadata = {
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, fontFamily: "Arial, sans-serif", background: "#f5f5f5" }}>
+      <body style={{ margin: 0, fontFamily: "Arial, sans-serif", background: "#fff" }}>
         <SessionGate>{children}</SessionGate>
       </body>
     </html>

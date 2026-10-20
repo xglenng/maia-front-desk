@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 611826261d05736337dee86f0cb5f2341ebace87b497e2f9c30f9248836c89ce
+-- schema-source-sha256: a635721b24a1287e55e7075452f84842d624c1668da1e6d663bab48e044f2b5e
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -92,6 +92,7 @@ CREATE TABLE "artists" (
 	"user_id" uuid,
 	"display_name" text NOT NULL,
 	"bio" text,
+	"calendar_color" text,
 	"booking_enabled" boolean DEFAULT true NOT NULL,
 	"requires_supervisor_approval" boolean DEFAULT false NOT NULL,
 	"minimum_price_cents" integer DEFAULT 15000 NOT NULL,
@@ -120,6 +121,7 @@ CREATE TABLE "artists" (
 	"review_followup_hours" integer DEFAULT 24 NOT NULL,
 	"google_review_url" text,
 	"review_followup_message" text,
+	CONSTRAINT "artists_calendar_color_check" CHECK ("artists"."calendar_color" IS NULL OR "artists"."calendar_color" IN ('#006AFF','#008A42','#C66B00','#8053C4','#C73564','#007F86','#B83C30','#596579')),
 	CONSTRAINT "artists_receptionist_tone_check" CHECK ("artists"."receptionist_tone" IN ('WARM', 'PROFESSIONAL', 'FRIENDLY')),
 	CONSTRAINT "artists_sms_response_delay_check" CHECK ("artists"."sms_response_delay_seconds" IN (0, 60, 120, 300)),
 	CONSTRAINT "artists_meta_response_delay_check" CHECK ("artists"."meta_response_delay_seconds" IN (0, 60, 120, 300)),
@@ -682,6 +684,20 @@ CREATE TABLE "sms_consent_evidence" (
 	"submitted_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "staff_invitations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"invited_by_user_id" uuid NOT NULL,
+	"email" text NOT NULL,
+	"token_hash" text NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"accepted_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "staff_invitations_token_hash_unique" UNIQUE("token_hash")
+);
+--> statement-breakpoint
 CREATE TABLE "studio_activation_events" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -918,6 +934,8 @@ CREATE UNIQUE INDEX "service_provider_mappings_connection_service_location_uidx"
 CREATE INDEX "service_provider_mappings_tenant_service_idx" ON "service_provider_mappings" USING btree ("organization_id","artist_id","service_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "services_id_organization_uidx" ON "services" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE INDEX "staff_invitations_artist_idx" ON "staff_invitations" USING btree ("organization_id","artist_id");
 --> statement-breakpoint
 CREATE INDEX "studio_aftercare_organization_idx" ON "studio_aftercare" USING btree ("organization_id","active","sort_order");
 --> statement-breakpoint
@@ -1248,6 +1266,12 @@ ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_artist_i
 ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_consent_form_id_tenant_fk" FOREIGN KEY ("consent_form_id","organization_id") REFERENCES "public"."artist_consent_forms"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "staff_invitations" ADD CONSTRAINT "staff_invitations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "staff_invitations" ADD CONSTRAINT "staff_invitations_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "staff_invitations" ADD CONSTRAINT "staff_invitations_inviter_tenant_fk" FOREIGN KEY ("invited_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_activation_events" ADD CONSTRAINT "studio_activation_events_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

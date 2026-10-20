@@ -1,14 +1,16 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import "./inbox.css";
+import { artistColor } from '@/packages/studio/artist-colors';
 import UiIcon from "@/components/ui-icon";
 
 type InboxItem = {
   id: string;
   artistId: string;
   artistName: string;
+  artistColor: string | null;
   artistAiMode: string;
   clientId: string;
   clientName: string;
@@ -28,7 +30,7 @@ type Detail = {
   quote?: { action: string; serviceId: string; priceCents: number; durationMinutes: number; bookingId?: string; startsAt?: string };
   quoteServices: Array<{ id: string; name: string; durationMinutes: number; basePriceCents: number | null }>;
   conversation: InboxItem & { humanTakeoverAt: string | null; externalParticipantId: string | null };
-  artist: { id: string; displayName: string; aiMode: string; requiresSupervisorApproval: boolean };
+  artist: { id: string; displayName: string; calendarColor: string | null; aiMode: string; requiresSupervisorApproval: boolean };
   draft?: { id: string; body: string } | null;
   client: { id: string; name: string; phone: string | null; email: string | null; smsOptIn: boolean };
   messages: Array<{ id: string; senderType: string; content: string; createdAt: string; metadata: { provider?: string; attachments?: Array<{ type: string; url?: string }> } | null }>;
@@ -271,7 +273,7 @@ export default function InboxPage() {
               <span className="thread-avatar">{initials(item.clientName)}</span>
               <span className="thread-copy">
                 <span className="thread-line"><strong>{item.clientName}</strong><time>{time(item.lastMessageAt)}</time></span>
-                <span className="thread-artist">{item.channel} · {item.artistName}</span>
+                <span className="thread-artist"><span className="artist-dot" style={{'--artist-color':artistColor(item.artistId,item.artistColor)} as CSSProperties}/> {item.channel} · {item.artistName}</span>
                 <span className="thread-preview">{item.latestMessage?.content ?? "No messages yet"}</span>
               </span>
               <span className="thread-flags"><span className={`mode-badge ${item.mode.toLowerCase()}`}>{item.status === "BOOKING_LINKED" ? "Booked" : item.status === "QUOTE_APPROVED" ? "Estimate approved" : item.status === "AWAITING_QUOTE" ? "Awaiting quote" : item.mode === "AI" ? item.replyMode === 'DRAFT' ? 'Draft mode' : "AI active" : item.mode === "HUMAN" ? "Human" : "Closed"}</span>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</span>
@@ -283,7 +285,7 @@ export default function InboxPage() {
         <button className="conversation-back" onClick={() => { setMobileConversationOpen(false); setSelectedId(null); setDraft(""); }}>← Conversations</button>
         {!detail || detail.conversation.id !== selectedId ? <div className="chat-placeholder"><div>◌</div><h2>{selectedId ? "Loading conversation…" : "Select a conversation"}</h2><p>Messages and takeover controls will appear here.</p></div> : <>
           <header className="chat-header">
-            <div className="chat-person"><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
+            <div className="chat-person" style={{borderLeft:`4px solid ${artistColor(detail.artist.id,detail.artist.calendarColor)}`,paddingLeft:12}}><span className="thread-avatar large">{initials(detail.client.name)}</span><div><h2>{detail.client.name}</h2><p>{detail.conversation.channel === "SMS" ? detail.client.phone ?? "No phone" : `${detail.conversation.channel} · ${detail.conversation.externalParticipantId ?? "Unknown sender"}`} · {detail.artist.displayName}</p></div></div>
             <div className="chat-actions">
               <span className={`mode-badge ${detail.conversation.mode.toLowerCase()}`}>{detail.conversation.status === "BOOKING_LINKED" ? "Booked" : detail.conversation.status === "QUOTE_APPROVED" ? "Estimate approved" : detail.conversation.status === "AWAITING_QUOTE" ? "Awaiting quote" : detail.conversation.mode === "AI" ? detail.conversation.replyMode === 'DRAFT' ? 'AI drafting' : "AI responding" : detail.conversation.mode === "HUMAN" ? "AI off" : "Closed"}</span>
               {detail.conversation.mode !== "CLOSED" && <button role="switch" aria-checked={detail.conversation.aiEnabled} aria-label="AI replies" disabled={working} onClick={() => action(detail.conversation.aiEnabled ? "TAKE_OVER" : "RETURN_TO_AI")} className="ai-btn">AI {detail.conversation.aiEnabled ? 'on' : 'off'}</button>}

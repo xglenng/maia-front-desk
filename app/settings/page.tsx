@@ -10,6 +10,7 @@ export default function SettingsPage() {
     <a href="/">← Dashboard</a><h1>Owner settings</h1>
     <p style={{ color: '#77736e' }}>Manage studio operations and the information Maia can share with clients.</p>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16, marginTop: 24 }}>
+      <a href="/settings/team" style={card}><strong>Team &amp; invitations</strong><p>Invite artists and apprentices to set up their own studio login.</p></a>
       <a href="/usage" style={card}><strong>Usage dashboard</strong><p>View SMS segments, AI tokens, and estimated AI costs by artist.</p></a>
       <a href="/onboarding" style={{...card,borderColor:'#b98b7f'}}><strong>Guided studio activation</strong><p>Follow one production checklist from business profile through tested go-live.</p></a>
       <a href="/compliance" style={card}><strong>Legal pages</strong><p>Business information, Privacy Policy, and Terms required for SMS registration.</p></a>

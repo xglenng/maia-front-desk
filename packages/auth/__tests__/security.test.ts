@@ -14,8 +14,16 @@ const other='22222222-2222-4222-8222-222222222222';
 const configuredOrigin=()=>new URL(process.env.NEXT_PUBLIC_APP_URL||'http://localhost').origin;
 test('every browser API export is guarded',()=>{
   function walk(p:string):string[]{return readdirSync(p,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(p,e.name)):[join(p,e.name)]);}
-  const exempt=['app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
+  const exempt=['app/api/auth/invitations/route.ts','app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
   for(const p of walk('app/api').filter(p=>p.endsWith('/route.ts')&&!exempt.includes(p))){const s=readFileSync(p,'utf8');if(p==='app/api/usage/route.ts'){assert.ok(s.includes('await identity(request)'));assert.ok(s.includes('platform && !isAdmin'));assert.ok(s.includes('platformAdmin(user.id)'));continue;}assert.ok(s.includes('protectedRoute('),p);assert.equal(/export async function (GET|POST|PUT|DELETE|PATCH)/.test(s),false,p);}
+  // Invitation acceptance is public, protected by its scoped one-use token rather than a login.
+  const invite=readFileSync('app/api/auth/invitations/route.ts','utf8');
+  assert.ok(invite.includes('sameOrigin(request)'));
+  assert.ok(invite.includes("isSignupRateLimited(request, 'staff-invite')"));
+  assert.ok(invite.includes('acceptStaffInviteSchema.safeParse'));
+  assert.ok(invite.includes('digest(input.token)'));
+  assert.ok(invite.includes('expires_at>now() AND accepted_at IS NULL AND revoked_at IS NULL FOR UPDATE'));
+  assert.ok(invite.includes("'ARTIST'"));
   const signup=readFileSync('app/api/auth/signup/route.ts','utf8');
   assert.ok(signup.includes('sameOrigin(req)'));
   assert.ok(signup.includes('studioName.length < 2'));
@@ -43,6 +51,7 @@ test('signup rate limit uses the trusted Railway proxy hop and fixed threshold',
   const request=new NextRequest('https://maia.example/api/auth/signup',{headers:{'x-forwarded-for':'203.0.113.8, 198.51.100.42'}});
   try {
     assert.equal(signupRateLimitKey(request),digest('signup-ip:198.51.100.42'));
+    assert.equal(signupRateLimitKey(request,'staff-invite'),digest('staff-invite-ip:198.51.100.42'));
     assert.equal(await isSignupRateLimited(request),false);
     attempts=SIGNUP_RATE_LIMIT+1;
     assert.equal(await isSignupRateLimited(request),true);

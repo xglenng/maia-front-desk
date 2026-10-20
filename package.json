@@ -26,7 +26,8 @@
     "staging:test:studio": "node scripts/staging.cjs studio-check",
     "staging:preview:studio": "node scripts/staging.cjs studio-preview",
     "staging:test:reopen": "node scripts/staging.cjs reopen-check",
-    "staging:test:knowledge": "node scripts/staging.cjs knowledge-check"
+    "staging:test:knowledge": "node scripts/staging.cjs knowledge-check",
+    "staging:test:invitations": "node scripts/staging.cjs invitations-check"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.0",

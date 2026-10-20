@@ -5,7 +5,7 @@ const {bootstrapSql,initialize}=require('./staging-bootstrap.cjs');
 test('staging bootstrap snapshot matches source and contains no data inserts',()=>{
   const {sql,hash}=bootstrapSql();
   assert.equal(hash.length,64);
-  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,52);
+  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,53);
   assert.match(sql,/users_normalized_email_uidx/);
   assert.equal(/^\s*(?:INSERT|DELETE|TRUNCATE|DROP)\b/im.test(sql),false);
 });

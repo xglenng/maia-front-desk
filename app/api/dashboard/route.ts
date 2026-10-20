@@ -32,12 +32,12 @@ async function handleGET(request: NextRequest) {
     if (!organizationId) return NextResponse.json({ error: 'Organization context is required.' }, { status: 400 });
     const user = await identity(request);
     if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const availableArtists = await db.select({ id: artists.id, displayName: artists.displayName }).from(artists).where(and(eq(artists.organizationId, organizationId), ...(user.role === 'ARTIST' ? [eq(artists.userId, user.id)] : []))).orderBy(asc(artists.displayName));
+    const availableArtists = await db.select({ id: artists.id, displayName: artists.displayName, calendarColor: artists.calendarColor, requiresSupervisorApproval: artists.requiresSupervisorApproval }).from(artists).where(and(eq(artists.organizationId, organizationId), ...(user.role === 'ARTIST' ? [eq(artists.userId, user.id)] : []))).orderBy(asc(artists.displayName));
     const artistConditions = [eq(artists.organizationId, organizationId)];
     if (requestedArtistId) artistConditions.push(eq(artists.id, requestedArtistId));
     else if (user.role === 'ARTIST') artistConditions.push(eq(artists.userId, user.id));
     const [artist] = await db.select({
-      id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName,
+      id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, calendarColor: artists.calendarColor,
       aiMode: artists.aiMode, requiresSupervisorApproval: artists.requiresSupervisorApproval, bookingEnabled: artists.bookingEnabled,
     }).from(artists).where(and(...artistConditions)).orderBy(asc(artists.displayName)).limit(1);
 

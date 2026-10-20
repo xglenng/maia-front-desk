@@ -43,3 +43,7 @@
 .composer .draft-mode-note .plain-btn{background:transparent;color:#604697;padding:6px;border:0;font-size:11px;text-decoration:underline;text-underline-offset:3px}.composer .draft-mode-note{display:flex;align-items:center;justify-content:space-between;gap:8px}.composer .draft-mode-note .plain-btn{flex-shrink:0;min-height:32px}
 .draft-editor{display:block;width:100%;min-height:110px;resize:vertical;font:inherit;font-size:16px;box-sizing:border-box}.draft-editor:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 @media(max-width:900px){.draft-editor{min-height:100px;font-size:16px}}
+/* Shared white workspace and quiet controls. */
+.inbox-page{background:#fff}.inbox-page h1{font-family:Arial,sans-serif!important;letter-spacing:-.04em}.search-box{border-radius:999px!important;background:#fff!important}.thread-artist{display:flex;align-items:center;gap:6px}.thread-button{border-radius:0}.thread-artist .artist-dot{width:8px;height:8px}.message-stream{background:#fff!important}
+@media(max-width:700px){.inbox-grid{height:calc(100dvh - 260px)!important;min-height:360px}.inbox-page{padding-bottom:12px!important}.inbox-page h1{font-size:32px!important}}
+@media(max-width:700px){body:has(.conversation-open) .mobile-nav{display:none}body:has(.conversation-open){padding-bottom:0}.conversation-open .inbox-grid{height:auto!important;min-height:0}.conversation-open{padding-bottom:env(safe-area-inset-bottom)!important}}

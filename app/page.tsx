@@ -1,27 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import "./dashboard.css";
 import { calendarBlock, calendarMinute } from "@/packages/studio/calendar-layout";
+import { artistColor } from '@/packages/studio/artist-colors';
 import UiIcon from '@/components/ui-icon';
 
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
 type ClientData = { id: string; name: string; email: string | null; phone: string | null; createdAt: string; };
-type DashboardData = { organization: { name: string; timezone: string } | null; artists: Array<{ id: string; displayName: string }>; artist: { id: string; displayName: string; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
+type DashboardData = { organization: { name: string; timezone: string } | null; artists: Array<{ id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean }>; artist: { id: string; displayName: string; calendarColor: string | null; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function formatTime(value: string) { return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
-function formatDate(value: string) { return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+function formatDate(value: string) { return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
 
 
 export default function Home() {
   const user = useSession();
-  const [view, setView] = useState<"Overview" | "Calendar" | "Inbox" | "Clients">("Overview");
+  const [view, setCurrentView] = useState<"Overview" | "Calendar" | "Inbox" | "Clients">("Overview");
+  function setView(next: "Overview" | "Calendar" | "Inbox" | "Clients") {
+    setCurrentView(next); window.history.replaceState(null,'',next==='Overview'?'/':`/?view=${next}`); window.dispatchEvent(new Event('maia-view'));
+  }
+  useEffect(()=>{const next=new URLSearchParams(window.location.search).get('view');if(next==='Calendar'||next==='Clients')setCurrentView(next);},[]);
   const [selectedArtistId, setSelectedArtistId] = useState('');
-  const [artistOptions, setArtistOptions] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [artistOptions, setArtistOptions] = useState<DashboardData['artists']>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [selectedDay, setSelectedDay] = useState(() => {
     const day = new Date().getDay();
@@ -87,7 +92,7 @@ export default function Home() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">✦</div><div><strong>INKFLOW</strong><span>AI Receptionist</span></div></div>
+        <div className="brand"><div className="brand-mark">✦</div><div><strong>MAIA</strong><span>AI Receptionist</span></div></div>
         <div className="artist-card"><div className="avatar">{artistInitials}</div><div><strong>{data?.artist.displayName ?? "Artist"}</strong><span>{data?.organization?.name ?? "Organization"}</span></div><select aria-label="Switch artist" value={selectedArtistId || data?.artist.id || artistOptions[0]?.id || ''} onChange={event => setSelectedArtistId(event.target.value)} disabled={loading || artistOptions.length < 2}>{artistOptions.map(artist => <option key={artist.id} value={artist.id}>{artist.displayName}</option>)}</select></div>
         <nav>
           {(["Overview", "Calendar", "Inbox", "Clients"] as const).map((item) => item === "Inbox" ?
@@ -113,6 +118,7 @@ export default function Home() {
           <div className="top-actions"><button className="icon-btn">⌕</button><button className="icon-btn">◔</button><button className="primary-btn">+ New appointment</button></div>
         </header>
 
+        {artistOptions.length>0&&<div className="artist-legend" aria-label="Studio team filter">{artistOptions.map(artist=><button key={artist.id} aria-pressed={(selectedArtistId||data?.artist.id)===artist.id} disabled={loading} onClick={()=>setSelectedArtistId(artist.id)}><span className="artist-dot" style={{'--artist-color':artistColor(artist.id,artist.calendarColor)} as CSSProperties}/>{artist.displayName}<small>{artist.requiresSupervisorApproval?'Apprentice':'Artist'}</small></button>)}</div>}
         {loading && !data ? <div className="content"><div className="panel"><h2>Loading dashboard…</h2><p>Reading live data from PostgreSQL.</p></div></div> : error ? <div className="content"><div className="panel"><h2>Dashboard unavailable</h2><p>{error}</p><p>Check studio setup and database availability, then try again.</p></div></div> : data ? <>
           {view === "Overview" && <Overview data={data} onNavigate={setView} />}
           {view === "Calendar" && <CalendarView
@@ -237,9 +243,9 @@ function CalendarView({
         <div className="day-column" style={{ minHeight: hours.length * 60 }}>
           {data.appointments.length
             ? data.appointments.map(a =>
-                <a key={a.id} href={`/appointments/${a.id}`} className="calendar-card" style={{ textDecoration: 'none', color: 'inherit', ...calendarBlock(a.startsAt, a.endsAt, timeZone, firstHour), overflow: 'hidden' }}>
+                <a key={a.id} href={`/appointments/${a.id}`} className="calendar-card" style={{ textDecoration: 'none', color: 'inherit', borderLeftColor:artistColor(data.artist.id,data.artist.calendarColor), background:artistColor(data.artist.id,data.artist.calendarColor)+'12', ...calendarBlock(a.startsAt, a.endsAt, timeZone, firstHour), overflow: 'hidden' }}>
                   <strong>{new Date(a.startsAt).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })}–{new Date(a.endsAt).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })} · {a.client}</strong>
-                  <span>{a.service}</span>
+                  <span>{a.service} · {data.artist.displayName}</span>
                   <small>{a.status}</small>
                 </a>
               )

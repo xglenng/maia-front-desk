@@ -46,6 +46,7 @@ export const artists = pgTable("artists", {
   userId: uuid("user_id").references(() => users.id),
   displayName: text("display_name").notNull(),
   bio: text("bio"),
+  calendarColor: text("calendar_color"),
   bookingEnabled: boolean("booking_enabled").default(true).notNull(),
   requiresSupervisorApproval: boolean("requires_supervisor_approval").default(false).notNull(),
   minimumPriceCents: integer("minimum_price_cents").default(15000).notNull(),
@@ -77,6 +78,7 @@ export const artists = pgTable("artists", {
 }, table => ({
   tenantIdentityUnique: uniqueIndex("artists_id_organization_uidx").on(table.id, table.organizationId),
   tenantUserIdReference: foreignKey({ name: "artists_user_id_tenant_fk", columns: [table.userId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+  calendarColorCheck: check("artists_calendar_color_check", sql`${table.calendarColor} IS NULL OR ${table.calendarColor} IN ('#006AFF','#008A42','#C66B00','#8053C4','#C73564','#007F86','#B83C30','#596579')`),
   receptionistToneCheck: check("artists_receptionist_tone_check", sql`${table.receptionistTone} IN ('WARM', 'PROFESSIONAL', 'FRIENDLY')`),
   smsDelayCheck: check("artists_sms_response_delay_check", sql`${table.smsResponseDelaySeconds} IN (0, 60, 120, 300)`),
   metaDelayCheck: check("artists_meta_response_delay_check", sql`${table.metaResponseDelaySeconds} IN (0, 60, 120, 300)`),
@@ -86,6 +88,23 @@ export const artists = pgTable("artists", {
   waiverSendMinutesCheck: check("artists_appointment_waiver_send_minutes_check", sql`${table.appointmentWaiverSendMinutes} IN (120, 240, 360, 720)`),
   aftercareHoursCheck: check("artists_aftercare_followup_hours_check", sql`${table.aftercareFollowupHours} IN (12, 24, 48, 72)`),
   reviewHoursCheck: check("artists_review_followup_hours_check", sql`${table.reviewFollowupHours} IN (24, 48, 72, 168)`),
+}));
+
+export const staffInvitations = pgTable('staff_invitations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  artistId: uuid('artist_id').notNull(),
+  invitedByUserId: uuid('invited_by_user_id').notNull(),
+  email: text('email').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  artistIndex: index('staff_invitations_artist_idx').on(table.organizationId, table.artistId),
+  artistTenant: foreignKey({ name: 'staff_invitations_artist_tenant_fk', columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
+  inviterTenant: foreignKey({ name: 'staff_invitations_inviter_tenant_fk', columns: [table.invitedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
 }));
 
 export const authOauthStates=pgTable('auth_oauth_states',{

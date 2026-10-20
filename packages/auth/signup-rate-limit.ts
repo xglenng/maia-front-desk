@@ -5,7 +5,7 @@ import { digest } from "./crypto";
 
 export const SIGNUP_RATE_LIMIT = 10;
 
-export function signupRateLimitKey(request: Pick<NextRequest, "headers">) {
+export function signupRateLimitKey(request: Pick<NextRequest, "headers">, scope: "signup" | "staff-invite" = "signup") {
   let clientIp = "untrusted-proxy";
 
   if (process.env.RAILWAY_ENVIRONMENT_ID) {
@@ -14,11 +14,11 @@ export function signupRateLimitKey(request: Pick<NextRequest, "headers">) {
     clientIp = rightmostAddress && isIP(rightmostAddress) ? rightmostAddress : "railway-unknown";
   }
 
-  return digest(`signup-ip:${clientIp}`);
+  return digest(`${scope}-ip:${clientIp}`);
 }
 
-export async function isSignupRateLimited(request: Pick<NextRequest, "headers">) {
-  const key = signupRateLimitKey(request);
+export async function isSignupRateLimited(request: Pick<NextRequest, "headers">, scope: "signup" | "staff-invite" = "signup") {
+  const key = signupRateLimitKey(request, scope);
   const result = await pool.query(
     `INSERT INTO auth_login_attempts(key, attempts, reset_at)
      VALUES($1, 1, now() + interval '1 hour')

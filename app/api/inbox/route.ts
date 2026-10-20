@@ -19,6 +19,7 @@ async function handleGET(request: NextRequest) {
     id: conversations.id,
     artistId: conversations.artistId,
     artistName: artists.displayName,
+    artistColor: artists.calendarColor,
     artistAiMode: artists.aiMode,
     requiresSupervisorApproval: artists.requiresSupervisorApproval,
     aiReplyMode: conversations.aiReplyMode,
