@@ -33,3 +33,7 @@ test('conversation overrides are independent and null inherits the artist defaul
   assert.equal(effectiveReplyMode(null, 'DRAFT'), 'DRAFT');
   assert.equal(effectiveReplyMode(undefined, 'ASSISTED'), 'ASSISTED');
 });
+
+test('supervision forces draft mode regardless of conversation override or artist default', () => {
+  for(const override of [null, 'ASSISTED', 'DRAFT']) for(const mode of ['ASSISTED','AUTONOMOUS','DRAFT']) assert.equal(effectiveReplyMode(override, mode, true),'DRAFT');
+});

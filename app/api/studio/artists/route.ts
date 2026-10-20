@@ -9,6 +9,7 @@ const schema = z.object({
   displayName: z.string().trim().min(2).max(120),
   bio: z.string().trim().max(1200).nullable().optional(),
   bookingEnabled: z.boolean().default(true),
+  requiresSupervisorApproval: z.boolean().default(false),
 }).strict();
 
 async function handlePOST(request: NextRequest) {
@@ -20,6 +21,7 @@ async function handlePOST(request: NextRequest) {
     displayName: artists.displayName,
     bio: artists.bio,
     bookingEnabled: artists.bookingEnabled,
+    requiresSupervisorApproval: artists.requiresSupervisorApproval,
     receptionistEnabled: artists.receptionistEnabled,
     receptionistTone: artists.receptionistTone,
     receptionistGreeting: artists.receptionistGreeting,

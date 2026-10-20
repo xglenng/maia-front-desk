@@ -20,6 +20,7 @@ async function handleGET(request: NextRequest) {
     artistId: conversations.artistId,
     artistName: artists.displayName,
     artistAiMode: artists.aiMode,
+    requiresSupervisorApproval: artists.requiresSupervisorApproval,
     aiReplyMode: conversations.aiReplyMode,
     clientId: conversations.clientId,
     clientFirstName: clients.firstName,
@@ -52,7 +53,7 @@ async function handleGET(request: NextRequest) {
 
   const data = visible.map(row => ({
     ...row,
-    replyMode: effectiveReplyMode(row.aiReplyMode, row.artistAiMode),
+    replyMode: effectiveReplyMode(row.aiReplyMode, row.artistAiMode, row.requiresSupervisorApproval),
     clientName: `${row.clientFirstName}${row.clientLastName ? ` ${row.clientLastName}` : ""}`,
     mode: row.status === "CLOSED" ? "CLOSED" : row.aiEnabled ? "AI" : "HUMAN",
     latestMessage: latest.get(row.id) ?? null,

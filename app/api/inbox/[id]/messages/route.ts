@@ -23,6 +23,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
   const access = await accessibleConversation(request, id);
   if (!access.ok) return access.error;
   const { conversation, client } = access.row;
+  if (access.row.artist.requiresSupervisorApproval && access.user.role !== 'OWNER') return NextResponse.json({ error: 'A studio owner must review and send this reply.' }, { status: 403 });
   if (conversation.status === "CLOSED") return NextResponse.json({ error: "Reopen this conversation before replying." }, { status: 409 });
   const draftId = parsed.data.draftId;
   if (draftId && !await claimReplyDraft(access.user.organization_id, id, draftId)) return NextResponse.json({ error: 'This draft is stale or has already been sent. Refresh before replying.' }, { status: 409 });
@@ -68,7 +69,7 @@ async function handlePOST(request: NextRequest, { params }: Context) {
 
   const now = new Date();
   deliveryStarted = true;
-  const [message] = await db.insert(messages).values({ conversationId: id, senderType: access.user.role, role: "assistant", content: parsed.data.body, externalMessageId: providerMessageId, metadata: { ...providerMetadata, status: providerStatus, sentByUserId: access.user.id } }).returning();
+  const [message] = await db.insert(messages).values({ conversationId: id, senderType: access.user.role, role: "assistant", content: parsed.data.body, externalMessageId: providerMessageId, metadata: { ...providerMetadata, status: providerStatus, sentByUserId: access.user.id, ...(draftId ? { reviewedDraftId: draftId } : {}) } }).returning();
   await db.update(conversations).set({ lastMessageAt: now, updatedAt: now, inboundVersion: sql`${conversations.inboundVersion} + 1` }).where(eq(conversations.id, id));
   await cancelUndeliveredAiResponses(id, 'ARTIST_REPLIED');
   await db.insert(conversationEvents).values({ organizationId: access.user.organization_id, conversationId: id, userId: access.user.id, action: "MANUAL_REPLY_SENT", fromMode: conversation.aiEnabled ? "AI" : "HUMAN", toMode: conversation.aiEnabled ? "AI" : "HUMAN", details: { messageId: message.id, providerMessageId, channel: conversation.channel } });

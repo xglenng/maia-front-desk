@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 6912fb496e126cc39bb2f47aa978dc4ccc2c40c832a52fa23a2f2ad605139ae3
+-- schema-source-sha256: 611826261d05736337dee86f0cb5f2341ebace87b497e2f9c30f9248836c89ce
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -93,6 +93,7 @@ CREATE TABLE "artists" (
 	"display_name" text NOT NULL,
 	"bio" text,
 	"booking_enabled" boolean DEFAULT true NOT NULL,
+	"requires_supervisor_approval" boolean DEFAULT false NOT NULL,
 	"minimum_price_cents" integer DEFAULT 15000 NOT NULL,
 	"hourly_rate_cents" integer DEFAULT 20000 NOT NULL,
 	"ai_mode" text DEFAULT 'ASSISTED' NOT NULL,

@@ -1,4 +1,5 @@
 'use client';
+import KnowledgeSuggestions from '@/components/studio-knowledge-suggestions';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSession } from '@/components/session-gate';
@@ -27,7 +28,7 @@ type Location = {
 type Rule = { id?: string; artistId: string; category: string; rule: string; visibility: Visibility; priority: number; active: boolean };
 type Faq = { id?: string; locationId: string | null; category: string | null; question: string; answer: string; active: boolean; sortOrder: number };
 type Aftercare = { id?: string; locationId: string | null; serviceType: string | null; category: string | null; title: string; instructions: string; active: boolean; sortOrder: number };
-type ArtistSettings = { artistId: string; displayName: string; bio: string | null; bookingEnabled: boolean; receptionistEnabled: boolean; receptionistTone: Tone; receptionistGreeting: string | null; receptionistInstructions: string | null; responseLength: ResponseLength };
+type ArtistSettings = { artistId: string; displayName: string; bio: string | null; bookingEnabled: boolean; requiresSupervisorApproval: boolean; receptionistEnabled: boolean; receptionistTone: Tone; receptionistGreeting: string | null; receptionistInstructions: string | null; responseLength: ResponseLength };
 type Config = { profile: { publicName: string | null; publicPhone: string | null; publicEmail: string | null; website: string | null; timezone: string }; rules: Rule[]; faqs: Faq[]; aftercare: Aftercare[]; artists: ArtistSettings[] };
 
 type LocationDraft = Omit<Location, 'id' | 'hours'> & { id?: string; hours: Hours[] };
@@ -185,13 +186,13 @@ export default function StudioSettingsPage() {
   return <main style={{ maxWidth: 1040, margin: '0 auto', padding: '32px 20px 72px', color: '#181716' }}>
     <a href="/settings">← Owner settings</a>
     <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', margin: '14px 0 20px' }}>
-      <div><h1 style={{ margin: 0 }}>Studio Configuration</h1><p style={{ color: '#706b66', marginBottom: 0 }}>Public studio information and the knowledge Maia may share with clients.</p></div>
+      <div><h1 style={{ margin: 0 }}>Studio settings</h1><p style={{ color: '#706b66', marginBottom: 0 }}>Set the basics once. Teach Maia through a few notes and the replies you already write.</p></div>
       <button type="button" onClick={event => { const form = document.getElementById('studio-config-form') as HTMLFormElement | null; form?.requestSubmit(); }} disabled={saving} style={button}>{saving ? 'Saving…' : 'Save configuration'}</button>
     </header>
     {error && <p role="alert" style={{ background: '#fff0f0', color: '#8b1e1e', padding: 12, borderRadius: 6 }}>{error}</p>}
     {notice && <p role="status" style={{ background: '#eef5ee', color: '#2f7651', padding: 12, borderRadius: 6 }}>{notice}</p>}
 
-    <form id="studio-config-form" onSubmit={saveConfiguration}>
+    <form id="studio-config-form" noValidate onSubmit={saveConfiguration}>
       <section style={panel}>
         <h2 style={{ marginTop: 0 }}>Business profile</h2>
         <div style={grid}>
@@ -203,7 +204,7 @@ export default function StudioSettingsPage() {
         </div>
       </section>
 
-      <section style={panel}>
+      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>Locations &amp; hours</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Locations &amp; business hours</h2><p style={{ color: '#706b66' }}>These are public operating hours, separate from each artist&apos;s bookable availability.</p></div><button type="button" onClick={() => editLocation('')} style={secondary}>Add location</button></div>
         {locations.map(location => <button key={location.id} type="button" onClick={() => editLocation(location.id)} style={{ ...secondary, margin: '0 8px 12px 0', borderColor: selectedLocation === location.id ? '#8f2f22' : '#ccc' }}>{location.name}{location.isPrimary ? ' · Primary' : ''}{!location.active ? ' · Inactive' : ''}</button>)}
         <div style={{ borderTop: '1px solid #eee', paddingTop: 14 }}>
@@ -236,9 +237,17 @@ export default function StudioSettingsPage() {
           </div>
           <button type="button" onClick={() => void saveLocation()} style={{ ...button, marginTop: 14 }}>Save location &amp; hours</button>
         </div>
-      </section>
+      </details>
 
       <section style={panel}>
+        <h2 style={{ marginTop: 0 }}>Studio knowledge</h2><p>Tell Maia how you work, in your own words. No separate setup is needed for every question. Prices, deposits, hours, and booking permissions stay in their dedicated settings.</p>
+        <label style={label}>Knowledge for artist<select value={selectedArtist} onChange={event=>setSelectedArtist(event.target.value)} style={field}>{config.artists.map(artist=><option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select></label>
+        {config.rules.map((rule,index)=>rule.artistId===selectedArtist&&rule.visibility==='CLIENT_VISIBLE'?<div key={rule.id||`note-${index}`} style={{marginTop:14}}><textarea aria-label="Studio knowledge note" rows={3} maxLength={1200} value={rule.rule} onChange={event=>patchConfig({rules:config.rules.map((item,i)=>i===index?{...item,rule:event.target.value}:item)})} style={field}/><label><input type="checkbox" checked={rule.active} onChange={event=>patchConfig({rules:config.rules.map((item,i)=>i===index?{...item,active:event.target.checked}:item)})}/> Use this note in future replies</label></div>:null)}
+        <button type="button" style={{...secondary,marginTop:12}} onClick={()=>patchConfig({rules:[...config.rules,{artistId:selectedArtist,category:'STUDIO_KNOWLEDGE',rule:'',visibility:'CLIENT_VISIBLE',priority:100,active:true}]})}>Add a note</button>
+        <KnowledgeSuggestions artistId={selectedArtist} onApproved={rule=>setConfig(current=>current?{...current,rules:[...current.rules.filter(item=>item.id!==rule.id),rule]}:current)}/>
+      </section>
+
+      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>Advanced knowledge controls · optional</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Policies</h2><p style={{ color: '#706b66' }}>Only Client-visible policies may be shared as facts. Internal rules guide handling and remain separate.</p></div><button type="button" onClick={() => patchConfig({ rules: [...config.rules, { artistId: selectedArtist || config.artists[0]?.artistId || '', category: '', rule: '', visibility: 'CLIENT_VISIBLE', priority: config.rules.length, active: true }] })} style={secondary}>Add policy</button></div>
         {config.rules.map((rule, index) => <div key={rule.id || `rule-${index}`} style={recordRow}>
           <select aria-label="Policy artist" value={rule.artistId} onChange={event => patchConfig({ rules: config.rules.map((item, i) => i === index ? { ...item, artistId: event.target.value } : item) })} style={field}>{config.artists.map(artist => <option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select>
@@ -247,9 +256,9 @@ export default function StudioSettingsPage() {
           <label><input type="checkbox" checked={rule.active} onChange={event => patchConfig({ rules: config.rules.map((item, i) => i === index ? { ...item, active: event.target.checked } : item) })} /> Active</label>
           <textarea aria-label="Policy text" rows={2} maxLength={1200} value={rule.rule} onChange={event => patchConfig({ rules: config.rules.map((item, i) => i === index ? { ...item, rule: event.target.value } : item) })} style={{ ...field, gridColumn: '1 / -1' }} />
         </div>)}
-      </section>
+      </details>
 
-      <section style={panel}>
+      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>FAQs · optional</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>FAQs</h2><p style={{ color: '#706b66' }}>Active answers are considered studio-provided facts.</p></div><button type="button" onClick={() => patchConfig({ faqs: [...config.faqs, { locationId: null, category: null, question: '', answer: '', active: true, sortOrder: config.faqs.length }] })} style={secondary}>Add FAQ</button></div>
         {config.faqs.map((faq, index) => <div key={faq.id || `faq-${index}`} style={recordRow}>
           <input aria-label="FAQ question" placeholder="Question" maxLength={240} value={faq.question} onChange={event => patchConfig({ faqs: config.faqs.map((item, i) => i === index ? { ...item, question: event.target.value } : item) })} style={field} />
@@ -258,9 +267,9 @@ export default function StudioSettingsPage() {
           <label><input type="checkbox" checked={faq.active} onChange={event => patchConfig({ faqs: config.faqs.map((item, i) => i === index ? { ...item, active: event.target.checked } : item) })} /> Active</label>
           <textarea aria-label="FAQ answer" rows={3} maxLength={1200} value={faq.answer} onChange={event => patchConfig({ faqs: config.faqs.map((item, i) => i === index ? { ...item, answer: event.target.value } : item) })} style={{ ...field, gridColumn: '1 / -1' }} />
         </div>)}
-      </section>
+      </details>
 
-      <section style={panel}>
+      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>Aftercare instructions · optional</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Aftercare</h2><p style={{ color: '#706b66' }}>Use client-specific studio instructions; categories and service types are free-form.</p></div><button type="button" onClick={() => patchConfig({ aftercare: [...config.aftercare, { locationId: null, serviceType: null, category: null, title: '', instructions: '', active: true, sortOrder: config.aftercare.length }] })} style={secondary}>Add aftercare</button></div>
         {config.aftercare.map((item, index) => <div key={item.id || `aftercare-${index}`} style={recordRow}>
           <input aria-label="Aftercare title" placeholder="Title" maxLength={160} value={item.title} onChange={event => patchConfig({ aftercare: config.aftercare.map((entry, i) => i === index ? { ...entry, title: event.target.value } : entry) })} style={field} />
@@ -269,16 +278,18 @@ export default function StudioSettingsPage() {
           <label><input type="checkbox" checked={item.active} onChange={event => patchConfig({ aftercare: config.aftercare.map((entry, i) => i === index ? { ...entry, active: event.target.checked } : entry) })} /> Active</label>
           <textarea aria-label="Aftercare instructions" rows={4} maxLength={2000} value={item.instructions} onChange={event => patchConfig({ aftercare: config.aftercare.map((entry, i) => i === index ? { ...entry, instructions: event.target.value } : entry) })} style={{ ...field, gridColumn: '1 / -1' }} />
         </div>)}
-      </section>
+      </details>
 
-      <section style={panel}>
+      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>Artist permissions &amp; Maia preferences</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Artist &amp; AI receptionist</h2><p style={{ color: '#706b66' }}>Artist ownership and receptionist settings remain artist-scoped.</p></div><button type="button" onClick={() => setAddingArtist(value => !value)} style={secondary}>{addingArtist ? 'Cancel' : 'Add artist'}</button></div>
         {addingArtist && <form onSubmit={createArtist} style={{ ...panel, padding: 14 }}><div style={grid}><label style={label}>Artist display name<input required minLength={2} maxLength={120} value={newArtistName} onChange={event => setNewArtistName(event.target.value)} style={field} /></label><label style={label}>Public bio<textarea maxLength={1200} rows={2} value={newArtistBio} onChange={event => setNewArtistBio(event.target.value)} style={field} /></label></div><button type="submit" disabled={saving} style={{ ...button, marginTop: 10 }}>{saving ? 'Creating…' : 'Create artist'}</button></form>}
         <label style={label}>Artist profile
           <select value={selectedArtist} onChange={event => setSelectedArtist(event.target.value)} style={field}>{config.artists.map(artist => <option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select>
         </label>
         {activeArtist && <>
+
           <div style={toggleRow}>
+            <label><input type="checkbox" checked={activeArtist.requiresSupervisorApproval} onChange={event => updateArtist({ requiresSupervisorApproval: event.target.checked })} /> Requires owner approval (apprentice)</label>
             <label><input type="checkbox" checked={activeArtist.bookingEnabled} onChange={event => updateArtist({ bookingEnabled: event.target.checked })} /> Booking enabled</label>
             <label><input type="checkbox" checked={activeArtist.receptionistEnabled} onChange={event => updateArtist({ receptionistEnabled: event.target.checked })} /> Receptionist enabled</label>
           </div>
@@ -291,7 +302,7 @@ export default function StudioSettingsPage() {
             <label style={{ ...label, gridColumn: '1 / -1' }}>Additional instructions<textarea maxLength={1200} rows={4} value={activeArtist.receptionistInstructions || ''} onChange={event => updateArtist({ receptionistInstructions: event.target.value })} style={field} /><small>Used as bounded configuration data. It cannot override safety, tenant, compliance, or confirmation requirements.</small></label>
           </div>
         </>}
-      </section>
+      </details>
       <button type="submit" disabled={saving} style={{ ...button, marginTop: 18 }}>{saving ? 'Saving…' : 'Save configuration'}</button>
     </form>
   </main>;

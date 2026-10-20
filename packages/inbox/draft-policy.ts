@@ -25,6 +25,7 @@ export function draftReadTools<T>(tools: Record<string, T>) {
 }
 
 // A null override preserves the artist default for existing and new conversations.
-export function effectiveReplyMode(override: string | null | undefined, artistDefault: string): string {
+export function effectiveReplyMode(override: string | null | undefined, artistDefault: string, requiresSupervisorApproval = false): string {
+  if (requiresSupervisorApproval) return "DRAFT";
   return override === "DRAFT" || override === "ASSISTED" ? override : artistDefault;
 }

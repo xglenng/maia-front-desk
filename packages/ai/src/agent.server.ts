@@ -1,3 +1,4 @@
+import { asksForArtworkPreview, artworkPreviewReply } from './artwork-preview-policy';
 import { estimateBeforeAvailability, plainArtistReply, selectsOfferedTime } from './reply-format';
 import { draftReadTools, shouldDraftReply, effectiveReplyMode } from '@/packages/inbox/draft-policy';
 import { saveReplyDraft } from '@/packages/inbox/drafts.server';
@@ -15,9 +16,9 @@ import { generateText, tool } from 'ai';
 import { configuredLanguageModel, modelConfiguration } from './model-config';
 import { z } from 'zod';
 import { db } from '@db/index';
-import { agentActions, agentRuns, artists, conversationEvents, conversations, messages, services } from '@db/schema';
+import { agentActions, agentRuns, artists, businessRules, conversationEvents, conversations, messages, services } from '@db/schema';
 import { buildSystemPrompt } from '@ai/system-prompt';
-import { shouldRunAi } from '@/packages/inbox/state';
+import { shouldRunAi, canPrepareDraft } from '@/packages/inbox/state';
 import { acceptApprovedQuote, createBookingHold, createDepositRequest, escalate, getClient, getContextTimezone, getWaiverLink, saveClientName, sendMessage } from './tools';
 import { checkAvailability, getClientAppointmentsForReceptionist, getServicePricing, getStudioContext, getStudioPromptConfiguration, listArtists, searchServices } from './read-tools.server';
 import type { MaiaAgentContext } from './context-policy';
@@ -73,8 +74,8 @@ function withAudit<TArgs extends unknown[], TResult>(runId: string | undefined, 
   };
 }
 
-export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; draftOnly?: boolean; previousDraft?: string; availabilityOnly?: boolean; messageAlreadyStored?: boolean; automationGuard?: () => Promise<boolean>; automationJobId?: string; automationInboundVersion?: number }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
-  const [artist] = await db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, aiMode: artists.aiMode, responseLength: artists.responseLength, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
+export async function runMaiaAgent(context: MaiaAgentContext, input: { message: string; draftOnly?: boolean; manualDraft?: boolean; previousDraft?: string; availabilityOnly?: boolean; messageAlreadyStored?: boolean; automationGuard?: () => Promise<boolean>; automationJobId?: string; automationInboundVersion?: number }): Promise<MaiaAgentResult | { error: string; conversationId: string; mode: 'HUMAN' | 'CLOSED' }> {
+  const [artist] = await db.select({ id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, aiMode: artists.aiMode, requiresSupervisorApproval: artists.requiresSupervisorApproval, responseLength: artists.responseLength, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
     .from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1);
   const [conversation] = await db.select().from(conversations).where(and(
     eq(conversations.id, context.conversationId),
@@ -83,16 +84,18 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     eq(conversations.clientId, context.clientId),
   )).limit(1);
   if (!artist || !conversation) throw new Error('Agent context is no longer valid.');
-  if (!shouldRunAi(conversation)) return { error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' };
+  const manualDraft = input.draftOnly === true && input.manualDraft === true;
+  const eligible = (state: { aiEnabled: boolean; status: string }) => manualDraft ? canPrepareDraft(state, true) : shouldRunAi(state);
+  if (!eligible(conversation)) return { error: 'AI is paused for this conversation.', conversationId: conversation.id, mode: conversation.status === 'CLOSED' ? 'CLOSED' : 'HUMAN' };
   if (!artist.receptionistEnabled) return { error: 'The studio receptionist is disabled for this artist.', conversationId: conversation.id, mode: 'HUMAN' };
-  const draftMode = shouldDraftReply(effectiveReplyMode(conversation.aiReplyMode, artist.aiMode), context.channel, input.draftOnly);
+  const draftMode = shouldDraftReply(effectiveReplyMode(conversation.aiReplyMode, artist.aiMode, artist.requiresSupervisorApproval), context.channel, input.draftOnly);
   let inboundVersion = conversation.inboundVersion;
   if (context.channel !== 'WEB_TEST') {
     const priorGuard = input.automationGuard;
     input.automationGuard = async () => {
       if (priorGuard && !await priorGuard()) return false;
       const [current] = await db.select({ inboundVersion: conversations.inboundVersion, aiEnabled: conversations.aiEnabled, status: conversations.status }).from(conversations).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, context.organizationId))).limit(1);
-      return Boolean(current && current.inboundVersion === inboundVersion && shouldRunAi(current));
+      return Boolean(current && current.inboundVersion === inboundVersion && eligible(current));
     };
   }
   if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
@@ -112,10 +115,19 @@ export async function runMaiaAgent(context: MaiaAgentContext, input: { message: 
     if (!draftMode) return sendMessage(context, reply, input.automationJobId, input.automationInboundVersion);
     const [source] = await db.select({ id: messages.id }).from(messages).where(and(eq(messages.conversationId, conversation.id), eq(messages.role, 'user'))).orderBy(desc(messages.createdAt)).limit(1);
     if (!source) throw new Error('No client message is available to draft a reply.');
-    return saveReplyDraft(context, reply, inboundVersion, source.id, input.automationJobId);
+    return saveReplyDraft(context, reply, inboundVersion, source.id, input.automationJobId, manualDraft);
   };
 
   try {
+    if (asksForArtworkPreview(input.message)) {
+      const policies = await db.select({ rule: businessRules.rule }).from(businessRules).where(and(eq(businessRules.organizationId, context.organizationId), eq(businessRules.artistId, context.artistId), eq(businessRules.visibility, 'CLIENT_VISIBLE'), eq(businessRules.active, true))).orderBy(desc(businessRules.priority), desc(businessRules.id)).limit(100);
+      const policy = policies.find(row => artworkPreviewReply(row.rule).startsWith('Drawings are reviewed'));
+      if (input.automationGuard && !await input.automationGuard()) return { error: 'The automated response is no longer current.', conversationId: conversation.id, mode: 'HUMAN' };
+      const reply = artworkPreviewReply(policy?.rule);
+      const message = await deliverReply(reply);
+      await updateRun(runId, { success: true, latencyMs: Date.now() - startedAt });
+      return { reply, conversationId: conversation.id, messageId: message.id, mode: mockMode ? 'mock' : 'live', draft: draftMode };
+    }
     if (mockMode) {
       const text = input.message.toLowerCase();
       let reply = draftMode && text.includes('tattoo') ? 'Absolutely! What style are you thinking, and where would you like it placed?' : text.includes('price') || text.includes('cost')

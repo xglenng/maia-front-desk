@@ -66,6 +66,12 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
       if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
       if (!['GET','HEAD'].includes(req.method) && !sameOrigin(req)) return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
       const url = new URL(req.url);
+      if (user.role === 'ARTIST' && !['GET','HEAD'].includes(req.method)) {
+        const supervised = await pool.query('SELECT requires_supervisor_approval FROM artists WHERE organization_id=$1 AND user_id=$2 AND requires_supervisor_approval=true LIMIT 1', [user.organization_id, user.id]);
+        const draftOrControl = /^\/api\/inbox\/[a-f0-9-]{36}(?:\/draft)?$/.test(url.pathname);
+        if (supervised.rows[0]?.requires_supervisor_approval === true && !draftOrControl && url.pathname !== '/api/ai/chat') return NextResponse.json({ error: 'Owner approval is required for this action. Submit a draft for review.' }, { status: 403 });
+      }
+
       const body = ['GET','HEAD','DELETE'].includes(req.method) ? {} : await req.clone().json();
       if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Invalid request'}, {status:400});
       for (const org of [url.searchParams.get('organizationId'), body.organizationId]) {

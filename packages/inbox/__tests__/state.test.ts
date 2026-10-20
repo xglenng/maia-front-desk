@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyInboxAction, canAccessArtist, conversationMode, shouldRunAi } from "../state";
+import { applyInboxAction, canAccessArtist, conversationMode, shouldRunAi, canPrepareDraft } from "../state";
 import { readFileSync } from "node:fs";
 
 test("quote requests stay paused through reading and takeover until explicitly resumed", () => {
@@ -93,4 +93,11 @@ test("mock social clients use a name plus a stable unique sender ID", () => {
   assert.match(mockRoute, /profileName: parsed\.data\.senderName/);
   assert.match(server, /event\.profileName/);
   assert.match(server, /externalUserId/);
+});
+
+test('manual private drafting can run with AI paused, but closed conversations remain blocked', () => {
+  assert.equal(canPrepareDraft({aiEnabled:false,status:'OPEN'}),false);
+  assert.equal(canPrepareDraft({aiEnabled:false,status:'OPEN'},true),true);
+  assert.equal(canPrepareDraft({aiEnabled:true,status:'CLOSED'},true),false);
+  assert.equal(canPrepareDraft({aiEnabled:false,status:'AWAITING_QUOTE'},true),true);
 });

@@ -1,9 +1,9 @@
 import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { sql, and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@db/index';
-import { artists, businessRules, organizations, studioAftercare, studioFaqs, studioLocations } from '@db/schema';
+import { conversations, automationJobs, artists, businessRules, organizations, studioAftercare, studioFaqs, studioLocations } from '@db/schema';
 import { isValidIanaTimezone } from '@/packages/studio/config-policy';
 
 const nullableText = (max: number) => z.string().trim().max(max).nullable().optional();
@@ -56,6 +56,7 @@ const artistSettingsSchema = z.object({
   displayName: z.string().trim().min(2).max(120),
   bio: nullableText(1200),
   bookingEnabled: z.boolean(),
+  requiresSupervisorApproval: z.boolean().optional(),
   receptionistEnabled: z.boolean(),
   receptionistTone: z.enum(['WARM', 'PROFESSIONAL', 'FRIENDLY']),
   receptionistGreeting: nullableText(240),
@@ -97,7 +98,7 @@ async function handleGET(request: NextRequest) {
       .from(studioFaqs).where(eq(studioFaqs.organizationId, organizationId)).orderBy(asc(studioFaqs.sortOrder)),
     db.select({ id: studioAftercare.id, locationId: studioAftercare.locationId, serviceType: studioAftercare.serviceType, category: studioAftercare.category, title: studioAftercare.title, instructions: studioAftercare.instructions, active: studioAftercare.active, sortOrder: studioAftercare.sortOrder })
       .from(studioAftercare).where(eq(studioAftercare.organizationId, organizationId)).orderBy(asc(studioAftercare.sortOrder)),
-    db.select({ artistId: artists.id, displayName: artists.displayName, bio: artists.bio, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions, responseLength: artists.responseLength })
+    db.select({ artistId: artists.id, displayName: artists.displayName, bio: artists.bio, bookingEnabled: artists.bookingEnabled, requiresSupervisorApproval: artists.requiresSupervisorApproval, receptionistEnabled: artists.receptionistEnabled, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions, responseLength: artists.responseLength })
       .from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName)),
   ]);
   if (!profile) return NextResponse.json({ error: 'Studio not found.' }, { status: 404 });
@@ -153,6 +154,11 @@ async function handlePUT(request: NextRequest) {
       }
       for (const settings of input.artists ?? []) {
         const { artistId, ...values } = settings;
+        const [before] = await tx.select().from(artists).where(and(eq(artists.id, artistId), eq(artists.organizationId, input.organizationId))).for('update');
+        if (values.requiresSupervisorApproval !== undefined && before.requiresSupervisorApproval !== values.requiresSupervisorApproval) {
+          await tx.update(conversations).set({ inboundVersion: sql`${conversations.inboundVersion} + 1`, updatedAt: new Date() }).where(and(eq(conversations.artistId, artistId), eq(conversations.organizationId, input.organizationId)));
+          await tx.update(automationJobs).set({ status: 'CANCELLED', completedAt: new Date(), lastErrorCode: 'SUPERVISION_CHANGED' }).where(and(eq(automationJobs.artistId, artistId), eq(automationJobs.organizationId, input.organizationId), eq(automationJobs.type, 'AI_RESPONSE'), inArray(automationJobs.status, ['PENDING','RETRY','PROCESSING'])));
+        }
         await tx.update(artists).set(values).where(and(eq(artists.id, artistId), eq(artists.organizationId, input.organizationId)));
       }
     });

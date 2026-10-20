@@ -9,7 +9,7 @@ import UiIcon from '@/components/ui-icon';
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
 type ClientData = { id: string; name: string; email: string | null; phone: string | null; createdAt: string; };
-type DashboardData = { organization: { name: string; timezone: string } | null; artist: { displayName: string; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
+type DashboardData = { organization: { name: string; timezone: string } | null; artists: Array<{ id: string; displayName: string }>; artist: { id: string; displayName: string; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -20,6 +20,8 @@ function formatDate(value: string) { return new Date(value).toLocaleDateString("
 export default function Home() {
   const user = useSession();
   const [view, setView] = useState<"Overview" | "Calendar" | "Inbox" | "Clients">("Overview");
+  const [selectedArtistId, setSelectedArtistId] = useState('');
+  const [artistOptions, setArtistOptions] = useState<Array<{ id: string; displayName: string }>>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [selectedDay, setSelectedDay] = useState(() => {
     const day = new Date().getDay();
@@ -57,13 +59,13 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null); setData(null);
-    fetch(`/api/dashboard?date=${selectedDate}`)
+    fetch(`/api/dashboard?date=${selectedDate}${selectedArtistId ? `&artistId=${encodeURIComponent(selectedArtistId)}` : ''}`)
       .then(async r => { if (!r.ok) throw new Error((await r.json()).error || "Failed to load dashboard"); return r.json(); })
-      .then(json => { if (!cancelled) { setData(json); setError(null); } })
+      .then(json => { if (!cancelled) { setData(json); setArtistOptions(json.artists); setError(null); } })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedDate, user?.organization_id]);
+  }, [selectedDate, selectedArtistId, user?.organization_id]);
 
   const dateLabel = useMemo(() => {
     return weekDates[selectedDay].toLocaleDateString("en-US", {
@@ -86,7 +88,7 @@ export default function Home() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">✦</div><div><strong>INKFLOW</strong><span>AI Receptionist</span></div></div>
-        <div className="artist-card"><div className="avatar">{artistInitials}</div><div><strong>{data?.artist.displayName ?? "Artist"}</strong><span>{data?.organization?.name ?? "Organization"}</span></div><button aria-label="Switch artist">⌄</button></div>
+        <div className="artist-card"><div className="avatar">{artistInitials}</div><div><strong>{data?.artist.displayName ?? "Artist"}</strong><span>{data?.organization?.name ?? "Organization"}</span></div><select aria-label="Switch artist" value={selectedArtistId || data?.artist.id || artistOptions[0]?.id || ''} onChange={event => setSelectedArtistId(event.target.value)} disabled={loading || artistOptions.length < 2}>{artistOptions.map(artist => <option key={artist.id} value={artist.id}>{artist.displayName}</option>)}</select></div>
         <nav>
           {(["Overview", "Calendar", "Inbox", "Clients"] as const).map((item) => item === "Inbox" ?
             <a key={item} href="/inbox" className="nav-item" aria-label={item} title={item} style={{ textDecoration: "none" }}>

@@ -1,3 +1,4 @@
+import { reopenAfterClientMessage } from '@/packages/inbox/inbound-reopen.server';
 import { incomingTwilioAttachments, type TwilioAttachment } from '@/packages/inbox/twilio-media-policy';
 import { finalizeQuoteHandoff } from '@/packages/inbox/quote-handoff.server';
 import { resolveVerifiedChannelMaiaAgentContext } from '@/packages/ai/src/context.server';
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
   if (!client) {
     [client] = await db.insert(clients).values({ organizationId: number.organizationId, firstName: params.ProfileName?.split(' ')[0] || 'SMS', lastName: params.ProfileName?.split(' ').slice(1).join(' ') || null, phone: from, ...inboundOnlyConsentState() }).returning();
   }
-  const [conversation] = await db.select().from(conversations).where(and(eq(conversations.organizationId, number.organizationId), eq(conversations.artistId, number.artistId), eq(conversations.clientId, client.id), eq(conversations.channel, 'SMS'), eq(conversations.status, 'OPEN'))).orderBy(asc(conversations.createdAt)).limit(1);
+  const [conversation] = await db.select().from(conversations).where(and(eq(conversations.organizationId, number.organizationId), eq(conversations.artistId, number.artistId), eq(conversations.clientId, client.id), eq(conversations.channel, 'SMS'))).orderBy(sql`${conversations.lastMessageAt} DESC NULLS LAST`, desc(conversations.createdAt)).limit(1);
   let conv = conversation ?? (await db.insert(conversations).values({ organizationId: number.organizationId, artistId: number.artistId, clientId: client.id, channel: 'SMS', status: 'OPEN', aiEnabled: true, lastMessageAt: new Date() }).returning())[0];
 
   const action = smsKeywordAction(text);
@@ -301,6 +302,7 @@ export async function POST(request: NextRequest) {
   }
   if (decision === 'WAIT_FOR_YES') return xmlResponse();
 
+  conv = await reopenAfterClientMessage(number.organizationId, conv.id, latestInbound.messageId) ?? conv;
   if (!shouldRunAi(conv)) return xmlResponse();
   const delaySeconds = aiResponseDelaySeconds('SMS', artist);
   if (delaySeconds > 0) {

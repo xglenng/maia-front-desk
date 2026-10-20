@@ -1,6 +1,6 @@
 import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or } from "drizzle-orm";
+import { sql, and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import { db } from "@db/index";
 import { artists, clients, conversations, messages, appointments, services, organizations } from "@db/schema";
 import { localDateTimeToUtc } from '@/packages/scheduling/square/time';
@@ -32,12 +32,13 @@ async function handleGET(request: NextRequest) {
     if (!organizationId) return NextResponse.json({ error: 'Organization context is required.' }, { status: 400 });
     const user = await identity(request);
     if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+    const availableArtists = await db.select({ id: artists.id, displayName: artists.displayName }).from(artists).where(and(eq(artists.organizationId, organizationId), ...(user.role === 'ARTIST' ? [eq(artists.userId, user.id)] : []))).orderBy(asc(artists.displayName));
     const artistConditions = [eq(artists.organizationId, organizationId)];
     if (requestedArtistId) artistConditions.push(eq(artists.id, requestedArtistId));
     else if (user.role === 'ARTIST') artistConditions.push(eq(artists.userId, user.id));
     const [artist] = await db.select({
       id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName,
-      aiMode: artists.aiMode, bookingEnabled: artists.bookingEnabled,
+      aiMode: artists.aiMode, requiresSupervisorApproval: artists.requiresSupervisorApproval, bookingEnabled: artists.bookingEnabled,
     }).from(artists).where(and(...artistConditions)).orderBy(asc(artists.displayName)).limit(1);
 
     if (!artist) return NextResponse.json({ error: "No artist profile is configured for this studio yet.", setupUrl: '/settings/studio' }, { status: 404 });
@@ -79,15 +80,19 @@ async function handleGET(request: NextRequest) {
       conversationId: messages.conversationId, content: messages.content, createdAt: messages.createdAt,
     }).from(messages).where(inArray(messages.conversationId, conversationIds)) : [];
 
+    const clientScope = and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)), sql`(
+      EXISTS (SELECT 1 FROM conversations c WHERE c.client_id = ${clients.id} AND c.organization_id = ${organizationId} AND c.artist_id = ${artist.id} AND c.channel <> 'WEB_TEST')
+      OR EXISTS (SELECT 1 FROM appointments a WHERE a.client_id = ${clients.id} AND a.organization_id = ${organizationId} AND a.artist_id = ${artist.id})
+    )`);
     const allClients = await db.select({
       id: clients.id, firstName: clients.firstName, lastName: clients.lastName, email: clients.email, phone: clients.phone, createdAt: clients.createdAt,
-    }).from(clients).where(and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)))).orderBy(desc(clients.createdAt)).limit(100);
+    }).from(clients).where(clientScope).orderBy(desc(clients.createdAt)).limit(100);
 
     const [allApptCount, bookedAppts, collectedAppts, clientCount] = await Promise.all([
       db.select({ count: count() }).from(appointments).where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), gte(appointments.startsAt, start), lt(appointments.startsAt, end))),
       db.select({ count: count() }).from(appointments).where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), eq(appointments.status, "CONFIRMED"))),
       db.select({ count: count() }).from(appointments).where(and(eq(appointments.organizationId, organizationId), eq(appointments.artistId, artist.id), eq(appointments.depositStatus, "PAID"))),
-      db.select({ count: count() }).from(clients).where(eq(clients.organizationId, artist.organizationId)),
+      db.select({ count: count() }).from(clients).where(clientScope),
     ]);
 
     const messageByConversation = new Map<string, { content: string; createdAt: Date }>();
@@ -97,7 +102,7 @@ async function handleGET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      organization: org, artist, date,
+      organization: org, artist: { ...artist, aiMode: artist.requiresSupervisorApproval ? 'DRAFT' : artist.aiMode }, artists: availableArtists, date,
       appointments: todayAppointments.map(a => ({
         ...a, client: `${a.clientFirstName}${a.clientLastName ? ` ${a.clientLastName}` : ""}`,
         service: a.serviceName ?? "Appointment",

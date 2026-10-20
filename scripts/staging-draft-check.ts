@@ -93,7 +93,15 @@ async function main() {
     await request(path + '/messages', 'POST', { body: 'Wrong mode', draftId: beforeModeChange.id }, 409);
     await request(path, 'PATCH', { action: 'SET_REPLY_MODE', aiMode: 'DRAFT' });
     await request(path, 'PATCH', { action: 'TAKE_OVER' });
+    await request(path + '/draft', 'POST', {});
+    const paused = await request(path);
+    assert.equal(paused.conversation.aiEnabled, false, 'Manual drafting must not enable automatic replies');
+    assert.ok(paused.draft?.id, 'Paused AI can prepare a private draft on explicit request');
+    await request(path, 'PATCH', { action: 'CLOSE' });
     await request(path + '/draft', 'POST', {}, 409);
+    await request(path, 'PATCH', { action: 'REOPEN' });
+    await request(path + '/draft', 'POST', {});
+    assert.equal((await request(path)).conversation.aiEnabled, false);
     await request(path + '/draft', 'POST', { organizationId: foreign }, 403);
     const count = (await pool.query('SELECT (SELECT count(*)::int FROM appointments WHERE organization_id=$1) AS appointments,(SELECT count(*)::int FROM payments WHERE organization_id=$1) AS payments', [org])).rows[0];
     assert.deepEqual(count, { appointments: 0, payments: 0 });

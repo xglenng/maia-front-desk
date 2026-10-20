@@ -47,6 +47,7 @@ export const artists = pgTable("artists", {
   displayName: text("display_name").notNull(),
   bio: text("bio"),
   bookingEnabled: boolean("booking_enabled").default(true).notNull(),
+  requiresSupervisorApproval: boolean("requires_supervisor_approval").default(false).notNull(),
   minimumPriceCents: integer("minimum_price_cents").default(15000).notNull(),
   hourlyRateCents: integer("hourly_rate_cents").default(20000).notNull(),
   aiMode: text("ai_mode").default("ASSISTED").notNull(),

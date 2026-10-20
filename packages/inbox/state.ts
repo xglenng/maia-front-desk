@@ -33,3 +33,9 @@ export function canAccessArtist(role: string, userId: string, artistUserId: stri
 export function shouldRunAi(state: Pick<ConversationControlState, "aiEnabled" | "status">) {
   return state.aiEnabled && state.status !== "CLOSED" && state.status !== "AWAITING_QUOTE";
 }
+
+// An authenticated request may prepare an unsent draft while automatic AI is off.
+// Closed conversations still require an explicit reopen.
+export function canPrepareDraft(state: Pick<ConversationControlState, 'aiEnabled' | 'status'>, manual = false) {
+  return state.status !== 'CLOSED' && (manual || shouldRunAi(state));
+}

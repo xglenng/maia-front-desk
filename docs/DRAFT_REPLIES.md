@@ -9,8 +9,9 @@ With AI on, inbound messages prepare private suggestions using existing response
 timing. The draft card is directly editable and offers Send, Regenerate, and Discard.
 Send submits the edited text and draft ID through the existing approval route.
 Polling preserves edits to the same draft; a replacement draft resets the editor.
-The separate manual reply composer remains available. AI off, closed conversations and awaiting-quote state
-continue to suppress generation. The artist can always write a manual reply.
+The separate manual reply composer remains available. AI off and awaiting-quote state suppress automatic generation. An authenticated
+artist can explicitly request an unsent draft in Draft mode while AI is paused;
+this never enables automatic replies. Closed conversations require reopening. The artist can always write a manual reply.
 
 Draft generation uses an allowlist of read-only tools. It cannot book, collect
 payments, send waivers, change client names, or escalate. Those operations remain
@@ -76,3 +77,25 @@ Live wording may still resemble the previous response when the required next
 step has not changed; new wording is requested, not guaranteed by the model.
 
 Conversation options uses a wand icon with its existing accessible label.
+
+## Closed and paused conversations
+
+The inbox shows a direct Reopen conversation button for a closed thread. Reopen
+preserves AI off; the artist can then explicitly generate a private draft without
+resuming automatic replies. Manual generation and saving draft edits use the same
+source/version checks and read-only tool policy. Automatic jobs still require AI
+on and do not use this override. New verified client messages reopen closed SMS/social threads and restore the
+last recorded pre-close AI on/off state. The conversation reply-mode override is
+preserved, and profiles using the artist default continue to inherit that default.
+Missing close history stays paused. Consent, opt-out, quote pauses, and apprentice
+supervision are still enforced. Repeated reopen processing adds only one event.
+
+## Drawing previews
+
+Owners can add a plain-language Studio knowledge note such as “We review tattoo
+drawings at the appointment.” Existing ARTWORK_PREVIEW rules remain supported.
+Explicit drawing/sketch/design preview requests receive the configured policy
+without calling booking/payment/intake tools. In draft mode, the response is
+private until approved. Other artists without this rule receive a cautious answer
+that the artist must confirm whether a preview can be shared; no timing is promised.
+No production policy or data has been changed.

@@ -1,4 +1,5 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { reopenAfterClientMessage } from '@/packages/inbox/inbound-reopen.server';
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@db/index";
 import { artists, channelConnections, clientChannelIdentities, clients, conversations, messages } from "@db/schema";
 import { decryptComplianceSecret } from "@/packages/compliance/secrets";
@@ -30,11 +31,12 @@ export async function processSocialInbound(event: SocialInboundEvent, origin: st
     [client] = await db.insert(clients).values({ organizationId: connection.organizationId, firstName: parts[0] || "Social", lastName: parts.slice(1).join(" ") || null, smsOptIn: false, notes: `${event.provider} contact ${profile.username ? `@${profile.username}` : event.externalUserId}` }).returning();
     [identity] = await db.insert(clientChannelIdentities).values({ organizationId: connection.organizationId, clientId: client.id, connectionId: connection.id, provider: event.provider, externalUserId: event.externalUserId, username: profile.username ?? null, profileName: profile.name ?? null }).returning();
   }
-  const [existing] = await db.select().from(conversations).where(and(eq(conversations.organizationId, connection.organizationId), eq(conversations.artistId, connection.artistId), eq(conversations.clientId, client.id), eq(conversations.channel, event.provider), eq(conversations.channelConnectionId, connection.id), eq(conversations.status, "OPEN"))).orderBy(asc(conversations.createdAt)).limit(1);
+  const [existing] = await db.select().from(conversations).where(and(eq(conversations.organizationId, connection.organizationId), eq(conversations.artistId, connection.artistId), eq(conversations.clientId, client.id), eq(conversations.channel, event.provider), eq(conversations.channelConnectionId, connection.id))).orderBy(sql`${conversations.lastMessageAt} DESC NULLS LAST`, desc(conversations.createdAt)).limit(1);
   const conversation = existing ?? (await db.insert(conversations).values({ organizationId: connection.organizationId, artistId: connection.artistId, clientId: client.id, channel: event.provider, channelConnectionId: connection.id, externalParticipantId: event.externalUserId, status: "OPEN", aiEnabled: true, lastMessageAt: new Date(event.timestamp) }).returning())[0];
   const inboundAt = new Date(event.timestamp);
   const [inboundMessage] = await db.insert(messages).values({ conversationId: conversation.id, senderType: "CLIENT", role: "user", content: event.text, externalMessageId: event.externalMessageId, metadata: { provider: event.provider.toLowerCase(), externalAccountId: event.externalAccountId, attachments: event.attachments } }).returning({ id: messages.id });
-  const [currentConversation] = await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, inboundVersion: sql`${conversations.inboundVersion} + 1`, lastInboundAt: inboundAt, lastMessageAt: inboundAt, updatedAt: new Date() }).where(eq(conversations.id, conversation.id)).returning();
+  let [currentConversation] = await db.update(conversations).set({ unreadCount: sql`${conversations.unreadCount} + 1`, inboundVersion: sql`${conversations.inboundVersion} + 1`, lastInboundAt: inboundAt, lastMessageAt: inboundAt, updatedAt: new Date() }).where(eq(conversations.id, conversation.id)).returning();
+  currentConversation = await reopenAfterClientMessage(connection.organizationId, conversation.id, inboundMessage.id) ?? currentConversation;
   if (!currentConversation || !shouldRunAi(currentConversation)) return { accepted: true, conversationId: conversation.id, aiReplied: false } as const;
   const [artist] = await db.select({ smsResponseDelaySeconds: artists.smsResponseDelaySeconds, metaResponseDelaySeconds: artists.metaResponseDelaySeconds, webResponseDelaySeconds: artists.webResponseDelaySeconds })
     .from(artists).where(and(eq(artists.id, connection.artistId), eq(artists.organizationId, connection.organizationId))).limit(1);

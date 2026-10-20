@@ -34,12 +34,12 @@ async function handleGET(request: NextRequest, { params }: Context) {
     .where(eq(conversationEvents.conversationId, id))
     .orderBy(desc(conversationEvents.createdAt));
   const { conversation, artist, client } = access.row;
-  const replyMode = effectiveReplyMode(conversation.aiReplyMode, artist.aiMode);
+  const replyMode = effectiveReplyMode(conversation.aiReplyMode, artist.aiMode, artist.requiresSupervisorApproval);
   return NextResponse.json({
     conversation: { ...conversation, replyMode, mode: conversationMode(conversation) },
     quote: await getConversationQuote(access.user.organization_id, id),
     quoteServices: await db.select({ id: services.id, name: services.name, durationMinutes: services.durationMinutes, basePriceCents: services.basePriceCents }).from(services).where(and(eq(services.organizationId, access.user.organization_id), eq(services.artistId, artist.id), or(eq(services.pricingType, 'QUOTE'), eq(services.serviceType, 'TATTOO')), eq(services.active, true))),
-    artist: { id: artist.id, displayName: artist.displayName, aiMode: artist.aiMode },
+    artist: { id: artist.id, displayName: artist.displayName, aiMode: artist.aiMode, requiresSupervisorApproval: artist.requiresSupervisorApproval },
     draft: await latestDraft(access.user.organization_id, id, conversation.inboundVersion, replyMode),
     client: { id: client.id, name: `${client.firstName}${client.lastName ? ` ${client.lastName}` : ""}`, phone: client.phone, email: client.email, smsOptIn: client.smsOptIn },
     messages: messageRows,
@@ -56,6 +56,7 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
   const action = parsed.data.action as InboxAction;
   if (parsed.data.action === 'SET_REPLY_MODE') {
     const aiMode = parsed.data.aiMode;
+    if (access.row.artist.requiresSupervisorApproval && aiMode !== 'DRAFT' && aiMode !== 'DEFAULT') return NextResponse.json({ error: 'Owner approval is required; automatic replies are disabled for this artist.' }, { status: 403 });
     if (!aiMode) return NextResponse.json({ error: 'Choose a reply mode.' }, { status: 400 });
     await db.transaction(async tx => {
       await tx.update(conversations).set({ aiReplyMode: aiMode === 'DEFAULT' ? null : aiMode, inboundVersion: sql`${conversations.inboundVersion} + 1`, updatedAt: new Date() }).where(and(eq(conversations.id, id), eq(conversations.organizationId, access.user.organization_id)));
