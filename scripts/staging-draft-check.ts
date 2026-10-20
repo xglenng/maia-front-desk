@@ -62,6 +62,13 @@ async function main() {
     assert.equal(generated.draft, true, 'Conversation DRAFT mode must save a draft, never send a message');
     let detail = await request(path);
     assert.ok(detail.draft?.body);
+    const firstDraft = detail.draft;
+    await request(path + '/draft', 'POST', {});
+    detail = await request(path);
+    assert.notEqual(detail.draft.id, firstDraft.id, 'Regenerate replaces the pending draft');
+    assert.notEqual(detail.draft.body, firstDraft.body, 'Mock regeneration produces alternative wording');
+    await request(path + '/messages', 'POST', { body: 'Old draft', draftId: firstDraft.id }, 409);
+
     assert.equal(detail.messages.filter((message: { role: string }) => message.role === 'assistant').length, 0);
     const sent = await Promise.all([0, 1].map(() => fetch(origin + path + '/messages', { method: 'POST', headers: { cookie: `inkflow_session=${token}`, origin, 'content-type': 'application/json' }, body: JSON.stringify({ body: 'Edited by the artist', draftId: detail.draft.id }) })));
     assert.deepEqual(sent.map(response => response.status).sort(), [200, 409], 'Duplicate approval must not send twice');

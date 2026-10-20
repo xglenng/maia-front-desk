@@ -1,3 +1,4 @@
+import { latestDraft } from '@/packages/inbox/drafts.server';
 import { effectiveReplyMode } from '@/packages/inbox/draft-policy';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, desc, eq, sql } from 'drizzle-orm';
@@ -19,7 +20,8 @@ async function handlePOST(request: NextRequest, { params }: Context) {
   if (!message || message.role !== 'user') return NextResponse.json({ error: 'There is no unanswered client message to draft a reply to.' }, { status: 409 });
   const { context } = await resolveAuthenticatedMaiaAgentContext(request, { organizationId: access.user.organization_id, artistId: access.row.artist.id, clientId: access.row.client.id, conversationId: id });
   try {
-    const result = await runMaiaAgent(context, { message: message.content, messageAlreadyStored: true, draftOnly: true });
+    const previous = await latestDraft(access.user.organization_id, id, access.row.conversation.inboundVersion, 'DRAFT');
+    const result = await runMaiaAgent(context, { message: message.content, messageAlreadyStored: true, draftOnly: true, previousDraft: previous?.body });
     if ('error' in result) return NextResponse.json(result, { status: 409 });
     return NextResponse.json({ draftId: result.messageId });
   } catch { return NextResponse.json({ error: 'Maia could not prepare this draft. Refresh and try again.' }, { status: 502 }); }

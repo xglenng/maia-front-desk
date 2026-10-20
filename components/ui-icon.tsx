@@ -1,6 +1,6 @@
 import type { SVGProps } from 'react';
 
-export type IconName = 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'logout';
+export type IconName = 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout';
 const paths: Record<IconName, React.ReactNode> = {
   dashboard: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
   settings: <><path d="m9 4 1-2h4l1 2 2 1 2-.2 2 3-1 2v4l1 2-2 3-2-.2-2 1-1 2h-4l-1-2-2-1-2 .2-2-3 1-2v-4l-1-2 2-3L7 5Z"/><circle cx="12" cy="12" r="3"/></>,
@@ -9,6 +9,7 @@ const paths: Record<IconName, React.ReactNode> = {
   clients: <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3m2-16a3 3 0 0 1 0 6m2 10v-3a6 6 0 0 0-2-4"/></>,
   check: <path d="m5 12 4 4L19 6"/>,
   more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+  wand: <><path d="m3 18 11-11 4 4L7 22Z"/><path d="m13 8 4 4M5 3v4M3 5h4m12-3v4m-2-2h4m0 12v4m-2-2h4"/></>,
   logout: <><path d="M9 4H4v16h5m5-8h7m-3-4 4 4-4 4"/></>
 };
 export default function UiIcon({ name, ...props }: SVGProps<SVGSVGElement> & { name: IconName }) {

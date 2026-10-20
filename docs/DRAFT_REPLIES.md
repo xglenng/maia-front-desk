@@ -6,9 +6,10 @@ The default remains the artist AI setting; new and existing conversations inheri
 it until explicitly overridden. Automatic replies retains the existing runtime. This change implements Draft mode only, not a new autonomous tier.
 
 With AI on, inbound messages prepare private suggestions using existing response
-timing. A draft card offers Edit & review, Regenerate, and Discard. Edit copies the
-suggestion into the normal reply composer. The artist edits it and explicitly
-presses Send reviewed draft. AI off, closed conversations and awaiting-quote state
+timing. The draft card is directly editable and offers Send, Regenerate, and Discard.
+Send submits the edited text and draft ID through the existing approval route.
+Polling preserves edits to the same draft; a replacement draft resets the editor.
+The separate manual reply composer remains available. AI off, closed conversations and awaiting-quote state
 continue to suppress generation. The artist can always write a manual reply.
 
 Draft generation uses an allowlist of read-only tools. It cannot book, collect
@@ -63,3 +64,15 @@ migration/deployment is authorized by this feature request. Roll back the app
 first and leave the nullable column in place; dropping it loses per-conversation
 choices and requires separate review. Old code ignores overrides, so pause
 automatic messaging before reverting to an old runtime that lacks this policy.
+
+## Regeneration
+
+Regenerate requests alternative wording using the latest pending unsent draft as
+reference, retaining the client history and read-only tool policy. The local mock
+alternates sample wording as well. The button shows progress, then reports that
+a new draft is ready; the inline draft editor is replaced only after success. Failed
+requests retain the existing edit. Previous draft IDs remain invalid for sending.
+Live wording may still resemble the previous response when the required next
+step has not changed; new wording is requested, not guaranteed by the model.
+
+Conversation options uses a wand icon with its existing accessible label.
