@@ -1,3 +1,4 @@
+import { lockArtistCalendar,nativeSlotAvailable } from '@/packages/booking/src/native-calendar.server';
 import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
@@ -33,9 +34,13 @@ async function handlePOST(request: NextRequest) {
   const depositStatus = noDepositConfirmationStatus(appointment.depositCents);
   if (!depositStatus) return NextResponse.json({ error: 'A deposit-required appointment can only be confirmed by a trusted payment confirmation.' }, { status: 409 });
 
-  const [updated] = await db.update(appointments).set({ status: 'CONFIRMED', depositStatus, holdExpiresAt: null, updatedAt: new Date() }).where(and(
+  const updated = await db.transaction(async tx => {
+    await lockArtistCalendar(tx,organizationId,appointment.artistId);
+    if(!await nativeSlotAvailable(tx,organizationId,appointment.artistId,appointment.startsAt,appointment.endsAt,appointment.id))return null;
+    return (await tx.update(appointments).set({ status: 'CONFIRMED', depositStatus, holdExpiresAt: null, updatedAt: new Date() }).where(and(
     eq(appointments.id, appointmentId), eq(appointments.organizationId, organizationId), eq(appointments.status, 'TENTATIVE'),
-  )).returning();
+  )).returning())[0];
+  });
   if (!updated) return NextResponse.json({ error: 'Appointment state changed before it could be confirmed.' }, { status: 409 });
   await scheduleConfirmedAppointmentAutomations(updated.id);
   return NextResponse.json({ appointment: updated });

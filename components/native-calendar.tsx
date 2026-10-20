@@ -1,0 +1,75 @@
+'use client';
+import { CSSProperties,FormEvent,useEffect,useRef,useState } from 'react';
+import { useSession } from './session-gate';
+import { artistColor } from '@/packages/studio/artist-colors';
+import { addCalendarDate,calendarDate,calendarHoursSchema,nativeDeposit } from '@/packages/studio/native-calendar-policy';
+import { localDateString } from '@/packages/booking/src/time';
+import { calendarMinute } from '@/packages/studio/calendar-layout';
+import './native-calendar.css';
+type Appointment={id:string;startsAt:string;endsAt:string;client:string;lastName:string|null;service:string|null;status:string;depositStatus:string};
+type Service={id:string;name:string;durationMinutes:number;basePriceCents:number|null;depositType:string;depositAmountCents:number|null;depositPercent:number|null};
+type Hours={dayOfWeek:number;startMinute:number;endMinute:number};
+type Data={appointments:Appointment[];services:Service[];clients:Array<{id:string;firstName:string;lastName:string|null}>;hours:Hours[];timezone:string;provider:{native:boolean;label:string}};
+const weekdays=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function weekStart(date:string){const day=new Date(date+'T12:00:00Z').getUTCDay();return addCalendarDate(date,-(day===0?6:day-1));}
+function clock(value:number){return `${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}`;}
+function minute(value:string){const [hour,min]=value.split(':').map(Number);return hour*60+min;}
+function displayDate(date:string){return new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'});}
+export default function NativeCalendar({artistId,artistName,color,supervised,timezone}:{artistId:string;artistName:string;color:string|null;supervised:boolean;timezone:string}){
+ const user=useSession();
+ const [date,setDate]=useState(()=>{const saved=typeof window!=='undefined'?new URLSearchParams(window.location.search).get('calendarDate'):null;return saved&&calendarDate(saved)?saved:localDateString(new Date(),timezone);});
+ const [view,setView]=useState<'DAY'|'WEEK'|'LIST'>(()=>{const saved=typeof window!=='undefined'?new URLSearchParams(window.location.search).get('calendarMode'):null;return saved==='WEEK'||saved==='LIST'?saved:'DAY';});
+ const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[revision,setRevision]=useState(0);
+ const [panel,setPanel]=useState<'BOOK'|'HOURS'|null>(null),[hours,setHours]=useState<Hours[]>([]);
+ const [serviceId,setServiceId]=useState(''),[clientId,setClientId]=useState('NEW'),[duration,setDuration]=useState(60),[price,setPrice]=useState(''),[localStart,setLocalStart]=useState(date+'T09:00');
+ const requestId=useRef(''),dialog=useRef<HTMLDialogElement>(null);
+ const from=weekStart(date),dates=Array.from({length:7},(_,i)=>addCalendarDate(from,i));
+ useEffect(()=>{let active=true;setLoading(true);setError('');fetch(`/api/calendar?artistId=${artistId}&date=${from}`,{cache:'no-store'}).then(async response=>{const body=await response.json();if(!response.ok)throw new Error(body.error);if(active)setData(body);}).catch(error=>{if(active)setError(error.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[artistId,from,revision]);
+ useEffect(()=>{if(panel&&!dialog.current?.open)dialog.current?.showModal();},[panel]);
+ useEffect(()=>{const url=new URL(window.location.href);url.searchParams.set('calendarDate',date);url.searchParams.set('calendarMode',view);window.history.replaceState(null,'',url.pathname+url.search);},[date,view]);
+ const canWrite=Boolean(user&&(user.role==='OWNER'||!supervised));
+ const canEdit=canWrite&&data?.provider.native;
+ function selectService(id:string){setServiceId(id);const service=data?.services.find(row=>row.id===id);if(service){setDuration(service.durationMinutes||60);setPrice(service.basePriceCents==null?'':(service.basePriceCents/100).toFixed(2));}}
+ function openBooking(day=date,time='09:00'){
+  setError('');requestId.current=crypto.randomUUID();setLocalStart(`${day}T${time}`);setClientId('NEW');selectService(data?.services[0]?.id||'');setPanel('BOOK');
+ }
+ async function submit(event:FormEvent<HTMLFormElement>){
+  event.preventDefault();if(!data)return;setBusy(true);setError('');setNotice('');
+  try{
+   const form=new FormData(event.currentTarget),isHours=panel==='HOURS';
+   if(isHours&&!calendarHoursSchema.safeParse(hours).success)throw new Error('Check bookable hours. End must follow start and periods must not overlap.');
+   const cents=Math.round(Number(price)*100);if(!isHours&&(!price.trim()||!Number.isFinite(cents)||cents<0))throw new Error('Enter an approved price.');
+   const response=await fetch('/api/calendar',{method:isHours?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(isHours?{artistId,hours}:{artistId,requestId:requestId.current,serviceId,localStart,durationMinutes:duration,priceCents:cents,...(clientId==='NEW'?{newClient:{firstName:form.get('clientName'),...(form.get('phone')?{phone:form.get('phone')}:{})}}:{clientId})})});
+   const body=await response.json();if(!response.ok)throw new Error(body.error);
+   setNotice(isHours?'Bookable hours saved. Existing appointments are unchanged.':body.appointment.status==='PAYMENT_PENDING'?'Appointment saved as payment pending. The slot is not reserved until payment is confirmed. No deposit link was sent.':'Appointment confirmed.');
+   setPanel(null);setRevision(value=>value+1);
+  }catch(error){setError(error instanceof Error?error.message:'Unable to save.');}finally{setBusy(false);}
+ }
+ const selectedService=data?.services.find(row=>row.id===serviceId);
+ let deposit:number|null=null;try{if(selectedService&&price!=='')deposit=nativeDeposit(selectedService,Math.round(Number(price)*100));}catch{}
+ const all=data?.appointments.filter(row=>row.status!=='CANCELLED')||[];
+ function daily(day:string){return all.filter(row=>localDateString(new Date(row.startsAt),data?.timezone||timezone)===day);}
+ const visibleDays=view==='WEEK'?dates:[date];
+ const firstHour=Math.max(0,Math.min(9,...all.map(row=>Math.floor(calendarMinute(row.startsAt,data?.timezone||timezone)/60))));
+ const lastHour=Math.min(24,Math.max(18,...all.map(row=>Math.ceil((calendarMinute(row.startsAt,data?.timezone||timezone)+(new Date(row.endsAt).getTime()-new Date(row.startsAt).getTime())/60000)/60))));
+ const gridHours=Array.from({length:lastHour-firstHour},(_,i)=>firstHour+i);
+ function timeLabel(value:string){return new Date(value).toLocaleTimeString('en-US',{timeZone:data?.timezone||timezone,hour:'numeric',minute:'2-digit'});}
+ return <section className="native-calendar" style={{'--artist-color':artistColor(artistId,color)} as CSSProperties}>
+  <header className="native-toolbar"><div><h2>{view==='DAY'?displayDate(date):`${displayDate(from)} – ${displayDate(dates[6])}`}</h2><p>{artistName} · {data?.timezone||timezone}</p></div><div className="native-actions"><button type="button" disabled={!canEdit||loading} onClick={()=>{setHours(data?.hours.map(({dayOfWeek,startMinute,endMinute})=>({dayOfWeek,startMinute,endMinute}))||[]);setError('');setPanel('HOURS');}}>Bookable hours</button><button type="button" className="native-primary" disabled={!canEdit||loading||!data?.services.length||!data?.hours.length} onClick={()=>openBooking()}>+ Appointment</button></div></header>
+  <div className="native-navigation"><div><button aria-label="Previous period" onClick={()=>setDate(addCalendarDate(date,view==='DAY'?-1:-7))}>‹</button><button onClick={()=>setDate(localDateString(new Date(),timezone))}>Today</button><button aria-label="Next period" onClick={()=>setDate(addCalendarDate(date,view==='DAY'?1:7))}>›</button></div><label className="native-date">Date<input type="date" value={date} onChange={event=>{if(event.target.value)setDate(event.target.value);}}/></label><div className="native-segments" aria-label="Calendar view">{(['DAY','WEEK','LIST'] as const).map(mode=><button key={mode} aria-pressed={view===mode} onClick={()=>setView(mode)}>{mode[0]+mode.slice(1).toLowerCase()}</button>)}</div></div>
+  {!canWrite&&<p className="native-notice">Owner approval is required to manage this apprentice’s appointments and hours.</p>}
+  {data&&!data.provider.native&&<p className="native-notice">{data.provider.label} manages this artist’s schedule. Local records are shown here; edit bookings in the connected provider.</p>}
+  {data?.provider.native&&!data.hours.length&&<p className="native-notice">Set bookable hours before adding appointments or offering times through Maia.</p>}
+  {data&&!data.services.length&&<p className="native-notice">Add an artist service in <a href="/settings/services">Services &amp; Pricing</a> before booking.</p>}
+  {error&&!panel&&<p role="alert" className="native-error">{error}</p>}{notice&&<p role="status" className="native-notice">{notice}</p>}
+  {loading?<p role="status">Loading calendar…</p>:view==='LIST'?<div className="native-list">{dates.map(day=><section key={day}><h3>{displayDate(day)}</h3>{daily(day).length?daily(day).map(row=><a key={row.id} href={`/appointments/${row.id}`}><span>{timeLabel(row.startsAt)}–{timeLabel(row.endsAt)}</span><strong>{row.client} {row.lastName}</strong><small>{row.service||'Appointment'} · {row.status.replaceAll('_',' ')}</small></a>):<p>No appointments</p>}</section>)}</div>:<div className="native-grid-scroll"><div className={`native-grid ${view==='WEEK'?'native-week':''}`} style={{gridTemplateColumns:`54px repeat(${visibleDays.length},minmax(0,1fr))`}}><div className="native-time-heading"/>{visibleDays.map(day=><div className="native-day-heading" key={day}>{displayDate(day)}</div>)}<div className="native-times">{gridHours.map(hour=><span key={hour}>{hour%12||12}{hour<12?'am':'pm'}</span>)}</div>{visibleDays.map(day=><div key={day} className="native-day" style={{height:gridHours.length*72}}>{gridHours.map(hour=><button key={hour} type="button" className="native-empty-slot" style={{top:(hour-firstHour)*72}} aria-label={`Add appointment ${displayDate(day)} at ${clock(hour*60)}`} disabled={!canEdit||!data?.services.length||!data?.hours.length} onClick={()=>openBooking(day,clock(hour*60))}/>)}{daily(day).map(row=>{const start=calendarMinute(row.startsAt,data?.timezone||timezone),length=(new Date(row.endsAt).getTime()-new Date(row.startsAt).getTime())/60000;return <a className={`native-event ${row.status==='PAYMENT_PENDING'?'native-pending':''}`} key={row.id} href={`/appointments/${row.id}`} style={{top:(start-firstHour*60)*1.2,height:Math.max(30,length*1.2-3)}}><strong>{timeLabel(row.startsAt)} · {row.client} {row.lastName}</strong><span>{row.service||'Appointment'}</span><small>{row.status==='PAYMENT_PENDING'?'Payment pending · not reserved':row.status.replaceAll('_',' ')}</small></a>;})}</div>)}</div></div>}
+  {panel&&<dialog className="native-dialog" ref={dialog} onCancel={event=>{if(busy)event.preventDefault();else setPanel(null);}}><form onSubmit={submit}><header><h2>{panel==='BOOK'?'New appointment':'Repeating bookable hours'}</h2><button type="button" aria-label="Close calendar editor" disabled={busy} onClick={()=>setPanel(null)}>×</button></header><p>{artistName} · {data?.timezone}</p>
+   {panel==='HOURS'?<><p>These are the hours Maia can offer every week. Existing appointments are kept. Leave a day out to keep it closed. Until 00:00 means midnight at the end of that day.</p>{hours.map((row,index)=><div key={index} className="native-hours-row"><label>Day<select value={row.dayOfWeek} onChange={event=>setHours(rows=>rows.map((r,i)=>i===index?{...r,dayOfWeek:Number(event.target.value)}:r))}>{weekdays.map((day,i)=><option key={day} value={i}>{day}</option>)}</select></label><label>From<input type="time" required value={clock(row.startMinute)} onChange={event=>setHours(rows=>rows.map((r,i)=>i===index?{...r,startMinute:minute(event.target.value)}:r))}/></label><label>Until<input type="time" required value={row.endMinute===1440?'00:00':clock(row.endMinute)} onChange={event=>setHours(rows=>rows.map((r,i)=>i===index?{...r,endMinute:minute(event.target.value)||1440}:r))}/></label><button type="button" aria-label={`Remove hours ${index+1}`} onClick={()=>setHours(rows=>rows.filter((_,i)=>i!==index))}>×</button></div>)}<button type="button" disabled={hours.length>=28||busy} onClick={()=>setHours(rows=>[...rows,{dayOfWeek:1,startMinute:540,endMinute:1020}])}>+ Add hours</button></>:<>
+    <label>Service<select required value={serviceId} onChange={event=>selectService(event.target.value)}><option value="">Select service</option>{data?.services.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+    <label>Client<select value={clientId} onChange={event=>setClientId(event.target.value)}><option value="NEW">+ New client</option>{data?.clients.map(row=><option key={row.id} value={row.id}>{row.firstName} {row.lastName}</option>)}</select></label>
+    {clientId==='NEW'&&<><label>Client name<input name="clientName" required minLength={2} maxLength={120}/></label><label>Phone · optional<input name="phone" type="tel" placeholder="+18015550123" pattern="\+[1-9][0-9]{7,14}"/></label><small>Adding a client does not opt them into SMS.</small></>}
+    <label>Start time<input type="datetime-local" required value={localStart} onChange={event=>setLocalStart(event.target.value)}/></label><div className="native-form-row"><label>Duration · minutes<input type="number" required min={5} max={1440} value={duration} onChange={event=>setDuration(Number(event.target.value))}/></label><label>Approved price · $<input type="number" required min={0} max={100000} step="0.01" value={price} onChange={event=>setPrice(event.target.value)}/></label></div>
+    <p className="native-notice">{deposit==null?'Check the service deposit settings.':deposit>0?`Deposit required: $${(deposit/100).toFixed(2)}. This saves an unpaid request; the slot is not reserved until payment is confirmed. No payment link is sent by this form.`:'No deposit required. Saving confirms the appointment.'}</p>
+   </>}{error&&<p role="alert" className="native-error">{error}</p>}<footer><button type="button" disabled={busy} onClick={()=>setPanel(null)}>Cancel</button><button className="native-primary" disabled={busy||!canEdit}>{busy?'Saving…':panel==='HOURS'?'Save hours':deposit?'Save payment-pending appointment':'Confirm appointment'}</button></footer></form></dialog>}
+ </section>;
+}

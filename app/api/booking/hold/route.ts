@@ -1,3 +1,5 @@
+import { nativeDeposit } from '@/packages/studio/native-calendar-policy';
+import { lockArtistCalendar,nativeSlotAvailable } from '@/packages/booking/src/native-calendar.server';
 import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq, gte, lt, or, isNull } from 'drizzle-orm';
@@ -31,18 +33,18 @@ async function handlePOST(request: NextRequest) {
     return NextResponse.json({ error: 'Booking through the connected scheduling provider is not enabled yet.' }, { status: 409 });
   }
 
+  const priceCents=input.priceCents??service.basePriceCents;
+  if(priceCents==null)return NextResponse.json({error:'An approved price is required before booking.'},{status:409});
+  let depositCents:number;
+  try{depositCents=nativeDeposit(service,priceCents);}catch{return NextResponse.json({error:'Check the service deposit configuration.'},{status:409});}
+  if(input.depositCents!=null&&input.depositCents!==depositCents)return NextResponse.json({error:'The deposit must match the configured service policy.'},{status:400});
   const endsAt = new Date(input.startsAt.getTime() + service.durationMinutes * 60_000);
   const now = new Date();
-  const conflicts = await db.select({ id: appointments.id }).from(appointments).where(and(
-    eq(appointments.organizationId, input.organizationId),
-    eq(appointments.artistId, input.artistId),
-    or(eq(appointments.status, 'CONFIRMED'), eq(appointments.status, 'COMPLETED'), and(eq(appointments.status, 'TENTATIVE'), or(isNull(appointments.holdExpiresAt), gte(appointments.holdExpiresAt, now))), and(eq(appointments.status, 'AI_HOLD'), or(isNull(appointments.holdExpiresAt), gte(appointments.holdExpiresAt, now)))),
-    lt(appointments.startsAt, endsAt),
-    gte(appointments.endsAt, input.startsAt),
-  ));
-  if (conflicts.length) return NextResponse.json({ error: 'That time is no longer available' }, { status: 409 });
+  const result = await db.transaction(async tx => {
+    await lockArtistCalendar(tx,input.organizationId,input.artistId);
+    if(!await nativeSlotAvailable(tx,input.organizationId,input.artistId,input.startsAt,endsAt))return null;
   const holdExpiresAt = new Date(now.getTime() + input.holdMinutes * 60_000);
-  const [appointment] = await db.insert(appointments).values({
+  const [appointment] = await tx.insert(appointments).values({
     organizationId: input.organizationId,
     artistId: input.artistId,
     clientId: input.clientId,
@@ -50,14 +52,17 @@ async function handlePOST(request: NextRequest) {
     startsAt: input.startsAt,
     endsAt,
     status: 'TENTATIVE',
-    priceCents: input.priceCents ?? service.basePriceCents ?? null,
-    depositCents: input.depositCents ?? null,
+    priceCents,
+    depositCents: depositCents||null,
     depositStatus: 'PENDING',
     paymentProvider: service.paymentProvider,
     holdExpiresAt,
   }).returning();
 
-  return NextResponse.json({ appointment, holdExpiresAt }, { status: 201 });
+  return {appointment,holdExpiresAt};
+  });
+  if(!result)return NextResponse.json({error:'That time is outside bookable hours or is no longer available'},{status:409});
+  return NextResponse.json(result, { status: 201 });
 }
 
 export const POST = protectedRoute(handlePOST, false);

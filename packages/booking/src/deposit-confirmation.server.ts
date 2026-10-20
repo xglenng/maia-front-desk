@@ -1,3 +1,4 @@
+import { lockArtistCalendar,nativeSlotAvailable } from './native-calendar.server';
 import 'server-only';
 import crypto from 'node:crypto';
 import { and, eq, gte, lt, ne, sql } from 'drizzle-orm';
@@ -72,12 +73,8 @@ export async function confirmAppointmentDeposit(input: {
 
     if (selectedPayment.status === 'PAID') return { status: 'INVALID_STATE' as const };
     if (current.schedulingProvider === 'INTERNAL' && canConfirm) {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${current.artistId}:${current.startsAt.toISOString()}`}))`);
-      const [conflict] = await tx.select({ id: appointments.id }).from(appointments).where(and(
-        eq(appointments.organizationId, current.organizationId), eq(appointments.artistId, current.artistId), ne(appointments.id, current.id),
-        lt(appointments.startsAt, current.endsAt), gte(appointments.endsAt, current.startsAt), eq(appointments.status, 'CONFIRMED'),
-      )).limit(1);
-      if (conflict) canConfirm = false;
+      await lockArtistCalendar(tx,current.organizationId,current.artistId);
+      if(!await nativeSlotAvailable(tx,current.organizationId,current.artistId,current.startsAt,current.endsAt,current.id))canConfirm=false;
     }
     const now = new Date();
     await tx.update(payments).set({ status: 'PAID', confirmationMethod: input.confirmationMethod, confirmedByUserId: input.confirmingUserId ?? null, confirmedAt: now, ...(input.providerPaymentIntentId !== undefined ? { providerPaymentIntentId: input.providerPaymentIntentId } : {}), updatedAt: now }).where(eq(payments.id, selectedPayment.id));

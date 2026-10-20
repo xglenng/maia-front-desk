@@ -1,3 +1,4 @@
+import { lockArtistCalendar,nativeSlotAvailable } from '@/packages/booking/src/native-calendar.server';
 import { approvedQuoteDeposit, matchesConfirmedQuoteTerms, parseQuoteState } from '@/packages/inbox/quote-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import 'server-only';
@@ -274,11 +275,15 @@ export async function createBookingHold(ctx: AgentContext, input: { serviceId: s
     return { appointmentId: appointment.id, start: result.start, end: result.end, providerBookingId: result.providerBookingId, status: appointment.status, depositRequired: false, depositCents: 0 };
   }
 
-  const [appointment] = await db.insert(appointments).values({
+  const appointment = await db.transaction(async tx => {
+    await lockArtistCalendar(tx,ctx.organizationId,ctx.artistId);
+    if(!await nativeSlotAvailable(tx,ctx.organizationId,ctx.artistId,startsAt,endsAt))throw new Error('That time is no longer available.');
+    return (await tx.insert(appointments).values({
     organizationId: ctx.organizationId, artistId: ctx.artistId, clientId: ctx.clientId, conversationId: ctx.conversationId, serviceId: service.id,
     startsAt, endsAt, status: 'CONFIRMED', priceCents, depositCents: null, depositStatus: 'WAIVED', paymentProvider: service.paymentProvider, holdExpiresAt: null,
     schedulingProvider: 'INTERNAL', notes: 'Created by AI receptionist booking tool.'
-  }).returning();
+  }).returning())[0];
+  });
   await scheduleConfirmedAppointmentAutomations(appointment.id);
   return { appointmentId: appointment.id, start: startsAt.toISOString(), end: endsAt.toISOString(), status: appointment.status, depositRequired: false, depositCents: 0 };
 }

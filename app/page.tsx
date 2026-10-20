@@ -5,12 +5,13 @@ import { useSession } from "@/components/session-gate";
 import "./dashboard.css";
 import { calendarBlock, calendarMinute } from "@/packages/studio/calendar-layout";
 import { artistColor } from '@/packages/studio/artist-colors';
+import NativeCalendar from '@/components/native-calendar';
 import UiIcon from '@/components/ui-icon';
 
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
 type ClientData = { id: string; name: string; email: string | null; phone: string | null; createdAt: string; };
-type DashboardData = { organization: { name: string; timezone: string } | null; artists: Array<{ id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean }>; artist: { id: string; displayName: string; calendarColor: string | null; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
+type DashboardData = { organization: { name: string; timezone: string } | null; artists: Array<{ id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean }>; artist: { id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -114,8 +115,8 @@ export default function Home() {
 
       <main className="main">
         <header className="topbar">
-          <div><div className="eyebrow">{data ? formatDate(data.date) : "Loading…"}</div><h1>{view === "Overview" ? `Good evening, ${data?.artist.displayName ?? "artist"}.` : view}</h1></div>
-          <div className="top-actions"><button className="icon-btn">⌕</button><button className="icon-btn">◔</button><button className="primary-btn">+ New appointment</button></div>
+          <div><div className="eyebrow">{view==="Calendar"?"Maia calendar":data ? formatDate(data.date) : "Loading…"}</div><h1>{view === "Overview" ? `Good evening, ${data?.artist.displayName ?? "artist"}.` : view}</h1></div>
+          <div className="top-actions"><button className="icon-btn">⌕</button><button className="icon-btn">◔</button><button className="primary-btn" onClick={()=>setView("Calendar")}>Open calendar</button></div>
         </header>
 
         {artistOptions.length>0&&<div className="artist-legend" aria-label="Studio team filter">{artistOptions.map(artist=><button key={artist.id} aria-pressed={(selectedArtistId||data?.artist.id)===artist.id} disabled={loading} onClick={()=>setSelectedArtistId(artist.id)}><span className="artist-dot" style={{'--artist-color':artistColor(artist.id,artist.calendarColor)} as CSSProperties}/>{artist.displayName}<small>{artist.requiresSupervisorApproval?'Apprentice':'Artist'}</small></button>)}</div>}
@@ -183,77 +184,8 @@ function formatRelative(value: string) { const mins = Math.max(0, Math.round((Da
 
 function Funnel({ label, value, width }: { label: string; value: string; width: string }) { return <div className="funnel-row"><div className="funnel-label"><span>{label}</span><strong>{value}</strong></div><div className="bar-track"><div className="bar" style={{ width }} /></div></div>; }
 
-function CalendarView({
-  data,
-  selectedDay,
-  setSelectedDay,
-  weekDates,
-  onPreviousWeek,
-  onToday,
-  onNextWeek,
-  dateLabel,
-}: {
-  data: DashboardData;
-  selectedDay: number;
-  setSelectedDay: (n: number) => void;
-  weekDates: Date[];
-  onPreviousWeek: () => void;
-  onToday: () => void;
-  onNextWeek: () => void;
-  dateLabel: string;
-}) {
-  const timeZone = data.organization?.timezone || 'America/Denver';
-  const firstHour = Math.min(9, ...data.appointments.map(a => Math.floor(calendarMinute(a.startsAt, timeZone) / 60)));
-  const lastHour = Math.max(18, ...data.appointments.map(a => Math.ceil((calendarMinute(a.startsAt, timeZone) + (new Date(a.endsAt).getTime() - new Date(a.startsAt).getTime()) / 60000) / 60)));
-  const hours = Array.from({ length: lastHour - firstHour }, (_, index) => firstHour + index);
-  return <div className="content">
-    <div className="calendar-toolbar">
-      <div>
-        <h2>{dateLabel}</h2>
-        <p>Live appointments from PostgreSQL</p>
-      </div>
-      <div className="toolbar-actions">
-        <button className="secondary-btn" onClick={onPreviousWeek}>‹</button>
-        <button className="secondary-btn" onClick={onToday}>Today</button>
-        <button className="secondary-btn" onClick={onNextWeek}>›</button>
-        <button className="primary-btn">+ Appointment</button>
-      </div>
-    </div>
-
-    <div className="week-tabs">
-      {days.map((day, i) =>
-        <button
-          key={day}
-          onClick={() => setSelectedDay(i)}
-          className={selectedDay === i ? "day-tab selected" : "day-tab"}
-        >
-          <span>{day}</span>
-          <strong>{weekDates[i].getDate()}</strong>
-        </button>
-      )}
-    </div>
-
-    <div className="calendar-panel">
-      <div className="calendar-grid">
-        <div className="time-column">
-          {hours.map(hour =>
-            <span key={hour}>{hour % 12 || 12} {hour < 12 ? 'AM' : 'PM'}</span>
-          )}
-        </div>
-        <div className="day-column" style={{ minHeight: hours.length * 60 }}>
-          {data.appointments.length
-            ? data.appointments.map(a =>
-                <a key={a.id} href={`/appointments/${a.id}`} className="calendar-card" style={{ textDecoration: 'none', color: 'inherit', borderLeftColor:artistColor(data.artist.id,data.artist.calendarColor), background:artistColor(data.artist.id,data.artist.calendarColor)+'12', ...calendarBlock(a.startsAt, a.endsAt, timeZone, firstHour), overflow: 'hidden' }}>
-                  <strong>{new Date(a.startsAt).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })}–{new Date(a.endsAt).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })} · {a.client}</strong>
-                  <span>{a.service} · {data.artist.displayName}</span>
-                  <small>{a.status}</small>
-                </a>
-              )
-            : <div className="empty-state">No appointments for this date.</div>}
-        </div>
-      </div>
-    </div>
-  </div>;
+function CalendarView({data}: {data:DashboardData;[key:string]:unknown}) {
+ return <NativeCalendar key={data.artist.id} artistId={data.artist.id} artistName={data.artist.displayName} color={data.artist.calendarColor} supervised={Boolean(data.artist.requiresSupervisorApproval)} timezone={data.organization?.timezone||'UTC'}/>;
 }
 
 function Inbox({ conversations }: { conversations: ConversationData[] }) { return <div className="content"><div className="inbox-layout"><div className="panel inbox-full"><div className="panel-head"><div><h2>AI inbox</h2><p>{conversations.length} conversations in PostgreSQL</p></div><button className="secondary-btn">Filter ▾</button></div>{conversations.map(c => <Conversation key={c.id} {...c} />)}</div><div className="panel conversation-detail"><div className="detail-head"><div className="avatar">{conversations[0]?.name.split(" ").map(x => x[0]).join("") ?? "AI"}</div><div><strong>{conversations[0]?.name ?? "No conversations"}</strong><span>{conversations[0] ? "Live conversation record" : ""}</span></div></div><div className="messages"><div className="message client">{conversations[0]?.preview ?? "No messages yet."}</div></div><div className="reply-box"><input placeholder="Reply to client..." /><button>Send</button></div></div></div></div>; }

@@ -27,7 +27,8 @@ export async function getInternalAvailability(
       eq(availabilityRules.active, true),
     )),
   ]);
-  const timeZone = connection?.locationTimezone || organization?.timezone || 'UTC';
+  // Native hours belong to the studio timezone, including after disconnecting Square.
+  const timeZone = organization?.timezone || 'UTC';
   const now = input.now ?? new Date();
   const busyRows = await db.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt }).from(appointments).where(and(
     eq(appointments.organizationId, organizationId),
