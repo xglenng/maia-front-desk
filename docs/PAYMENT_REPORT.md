@@ -1,0 +1,15 @@
+# Studio payment report
+
+Owners open **Studio payments → View payment report by artist**. The report has an inclusive payment-date range (UTC, maximum 366 days) and an optional artist filter. It aggregates recorded USD payments with a confirmation timestamp and status PAID, REFUNDED, REFUND_PENDING or REFUND_REVIEW. Pending/expired charges and undated legacy entries are excluded. No Stripe request or customer message is made.
+
+**Download CSV** exports using the displayed report's applied date/artist filters, even if the form has since been edited without pressing Update report. The endpoint re-queries current ledger data with those filters, so later settlements/refunds can change totals between viewing and downloading. Exports contain one row per artist and a total row, decimal USD amounts, inclusive UTC dates, and review counts. Header labels explicitly identify refunds to date and net collected before fees. UTF-8 BOM, quoted cells and CRLF lines support spreadsheet import; formula-leading artist names receive an apostrophe prefix. No customer/card data is exported. CSV uses the same protected GET handler with `format=csv`, private/no-store headers and a validated date-only filename.
+
+Service received is the gross amount less the recorded tip; tips are shown separately. Refunds are the current succeeded refund amounts against the selected payments, including refunds issued after the selected payment-date range. Net collected is gross service plus tips less those refunds, before processing fees. This is a payment-cohort report, not a refund-date cash-flow, payout, tax or artist-earnings statement. Artist attribution follows the appointment's current assigned artist, not historical assignment or payout ownership.
+
+`GET /api/payments/report` derives organization scope from the authenticated owner, validates date and artist filters, joins payments/appointments/artists with organization constraints, and returns grouped totals without client or card details. Responses are private/no-store. Foreign artist filters return 404; foreign organization requests and non-owner access are rejected. Empty results show zero totals.
+
+No additional database migration is required, but migration 0017_payment_tips must precede this code in production because the report reads tip_cents. Rollback can remove the report page/API without altering payment records. Current work remains local and undeployed.
+
+Validation: date-boundary/invalid-range unit tests; synthetic database integration checks for unauthenticated/artist denial, owner access, tenant spoofing, invalid/foreign artist filters, empty dates and correct tip aggregation. Browser verification covered populated studio totals and artist filtering. No real customer data or provider mutation was involved.
+
+CSV validation: formula/quote/newline escaping and amount/date/total unit checks; synthetic owner export with attachment headers and unauthenticated denial; an actual browser download verified the exported artist and total rows. 334 tests passed with 12 opt-in skips. No additional migration is required.

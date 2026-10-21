@@ -9,6 +9,7 @@ import {POST as terminalTokenRoute} from '../app/api/payments/terminal/token/rou
 import {paymentSummary} from '../packages/integrations/payment-summary';
 import {studioReceipt} from '../packages/booking/src/studio-receipt.server';
 import {studioCheckout} from '../packages/booking/src/studio-checkout.server';
+import {GET as paymentReportRoute} from '../app/api/payments/report/route';
 import {GET as paymentStatusRoute} from '../app/api/payments/connect/route';
 import {POST as refundRoute} from '../app/api/payments/connect/refund/route';
 import {POST as webhook} from '../app/api/payments/connect/webhook/route';
@@ -205,6 +206,21 @@ async function main(){
  receiptCharge.receipt_url='https://pay.stripe.com/receipts/payment/synthetic';receiptCharge.amount_refunded=400;
  await pool.query("UPDATE payments SET status='REFUNDED',refunded_cents=400 WHERE id=$1",[cardPayment.id]);
  assert.equal((await studioReceipt(org,cardAppointment,cardPayment.id,owner,receiptStripe)).refundedCents,400);
+ const reportUrl='http://localhost/api/payments/report?start='+new Date().toISOString().slice(0,10)+'&end='+new Date().toISOString().slice(0,10);
+ assert.equal((await paymentReportRoute(new NextRequest(reportUrl),undefined)).status,401);assert.equal((await paymentReportRoute(new NextRequest(reportUrl+'&format=csv'),undefined)).status,401);
+ await pool.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '5 minutes')",[tokenHash,artistUser]);
+ try{assert.equal((await paymentReportRoute(new NextRequest(reportUrl,{headers:{cookie:'inkflow_session='+rawToken}}),undefined)).status,403);}finally{await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[tokenHash]);}
+ await pool.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '5 minutes')",[tokenHash,owner]);
+ try{
+  const headers={cookie:'inkflow_session='+rawToken};
+  const report=await paymentReportRoute(new NextRequest(reportUrl,{headers}),undefined);assert.equal(report.status,200);const body=await report.json();
+  const csv=await paymentReportRoute(new NextRequest(reportUrl+'&format=csv&artistId='+artist,{headers}),undefined);assert.equal(csv.status,200);assert.match(csv.headers.get('Content-Type')||'',/text\/csv/);assert.match(csv.headers.get('Content-Disposition')||'',/attachment/);const csvText=await csv.text();assert.ok(csvText.includes('Synthetic Payment Artist'));assert.ok(csvText.includes('Selected artists'));
+  assert.equal(body.rows.length,1);assert.equal(body.rows[0].artistId,artist);assert.equal(body.totals.tipCents,100);assert.ok(body.totals.netCents>=0);
+  assert.equal((await paymentReportRoute(new NextRequest(reportUrl+'&artistId='+randomUUID(),{headers}),undefined)).status,404);
+  assert.equal((await paymentReportRoute(new NextRequest(reportUrl+'&organizationId='+foreign,{headers}),undefined)).status,403);
+  const empty=await paymentReportRoute(new NextRequest('http://localhost/api/payments/report?start=2000-01-01&end=2000-01-02',{headers}),undefined);assert.equal((await empty.json()).totals.paymentCount,0);
+  assert.equal((await paymentReportRoute(new NextRequest('http://localhost/api/payments/report?start=2026-02-30&end=2026-03-01',{headers}),undefined)).status,400);
+ }finally{await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[tokenHash]);}
  process.env.MAIA_STRIPE_TERMINAL_ENABLED='false';await assert.rejects(studioTerminalToken(org,terminalStripe),/disabled/);
  console.log('PASS: mocked Stripe with real synthetic database: tenant/account isolation, deposit holds, duplicate checkout/webhook, invalid signatures, mismatched amounts, remaining balance, owner-only full refunds, refund retry/pending/failure/partial/replay cases, cancellation and deduplicated confirmation jobs. No provider requests or messages.');
 }

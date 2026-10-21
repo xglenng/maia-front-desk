@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import {CheckoutTipReview} from '@/components/checkout-tip-review';
+import {checkoutTip,type TipChoice} from '@/packages/integrations/checkout-tip';
 import {StudioCardEntry} from '@/components/studio-card-entry';
 import {paymentSummary} from '@/packages/integrations/payment-summary';
 import { useSession } from '@/components/session-gate';
@@ -38,8 +40,7 @@ export default function AppointmentDetailPage() {
   const [receiptUrls,setReceiptUrls]=useState<Record<string,string>>({});
   async function receipt(paymentId:string){setBusy(true);setError('');try{const r=await fetch('/api/payments/connect/receipt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appointmentId:params.id,paymentId}),cache:'no-store'});const body=await r.json();if(!r.ok)throw Error(body.error);setReceiptUrls(prev=>({...prev,[paymentId]:body.receiptUrl}));}catch{setError('Receipt unavailable. Refresh payment status and try again.');}finally{setBusy(false);}}
   const [tipInput,setTipInput]=useState('0');
-  const tipCents=Math.round(Number(tipInput)*100);
-  const validTip=/^\d+(?:\.\d{1,2})?$/.test(tipInput)&&Number.isSafeInteger(tipCents)&&tipCents>=0&&tipCents<=100000;
+  const [tipChoice,setTipChoice]=useState<TipChoice>(0);
   const [cardEntry,setCardEntry]=useState(false);
   const [checkoutUrl,setCheckoutUrl]=useState('');
   async function checkout(purpose:'DEPOSIT'|'BALANCE'){setBusy(true);setError('');try{const r=await fetch('/api/payments/connect/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appointmentId:params.id,purpose})});const body=await r.json();if(!r.ok)throw new Error(body.error);setCheckoutUrl(body.checkoutUrl);await load();}catch(e){setError(e instanceof Error?e.message:'Unable to create checkout.');}finally{setBusy(false);}}
@@ -80,6 +81,7 @@ export default function AppointmentDetailPage() {
   const appointment = data.appointment;
   const clientName = `${data.client.firstName}${data.client.lastName ? ` ${data.client.lastName}` : ''}`;
   const summary=paymentSummary(appointment.priceCents,data.payments);
+  const {tipCents,valid:validTip,totalCents:checkoutTotal}=checkoutTip(summary.remainingCents??0,tipChoice,tipInput);
   const paid = appointment.depositStatus === 'PAID';
   const paymentProvider = appointment.paymentProvider || data.service?.paymentProvider;
   const canConfirmVenmo = paymentProvider === 'VENMO_MANUAL' && appointment.status === 'PAYMENT_PENDING' && !paid;
@@ -89,7 +91,7 @@ export default function AppointmentDetailPage() {
     <header style={{ margin: '20px 0' }}><p style={{ marginBottom: 4, color: '#706b66' }}>Appointment</p><h1 style={{ margin: 0 }}>{clientName}</h1><p>{data.service?.name || 'Appointment'} · {new Date(appointment.startsAt).toLocaleString()} – {new Date(appointment.endsAt).toLocaleTimeString()}</p></header>
     {error && <p role="alert" style={{ color: '#8b1e1e' }}>{error}</p>}{notice && <p role="status">{notice}</p>}
     {nativePayments&&user.role==='OWNER'&&paymentProvider==='STRIPE'&&['CONFIRMED','COMPLETED'].includes(appointment.status)&&summary.remainingCents!=null&&summary.remainingCents>0&&!data.payments.some(p=>p.status.startsWith('REFUND'))&&<section style={section}><button style={action} onClick={openNativePayment}>Test card tap on iPhone</button><p>Opens the native payment review. Simulation only.</p></section>}
-    {user.role==='OWNER'&&paymentProvider==='STRIPE'&&['CONFIRMED','COMPLETED'].includes(appointment.status)&&summary.remainingCents!=null&&summary.remainingCents>0&&!data.payments.some(p=>p.status.startsWith('REFUND'))&&<section style={section}><label style={{display:'block',marginBottom:12}}>Optional tip ($) <input type="text" inputMode="decimal" value={tipInput} disabled={cardEntry} onChange={e=>setTipInput(e.target.value)} style={{padding:8,width:100}}/></label>{!validTip&&<p role="alert">Enter a tip from $0 to $1,000 with up to two decimal places.</p>}<button style={secondary} disabled={busy||cardEntry||!validTip} onClick={()=>setCardEntry(true)}>Enter test card details</button><p>Secure sandbox card form. No real cards or charges.</p>{cardEntry&&<StudioCardEntry appointmentId={params.id} tipCents={tipCents} onClose={()=>{setCardEntry(false);void load().catch(()=>setError('Unable to refresh payment status.'));}}/>}</section>}
+    {user.role==='OWNER'&&paymentProvider==='STRIPE'&&['CONFIRMED','COMPLETED'].includes(appointment.status)&&summary.remainingCents!=null&&summary.remainingCents>0&&!data.payments.some(p=>p.status.startsWith('REFUND'))&&<section style={section}><CheckoutTipReview balanceCents={summary.remainingCents} choice={tipChoice} custom={tipInput} disabled={cardEntry} onChoice={setTipChoice} onCustom={setTipInput}/><button style={secondary} disabled={busy||cardEntry||!validTip} onClick={()=>setCardEntry(true)}>{cardEntry?'Card form open':validTip&&checkoutTotal!=null?`Continue to card entry · ${money(checkoutTotal)}`:'Continue to card entry'}</button><p>Secure sandbox card form. No real cards or charges.</p>{cardEntry&&<StudioCardEntry appointmentId={params.id} tipCents={tipCents} onClose={()=>{setCardEntry(false);void load().catch(()=>setError('Unable to refresh payment status.'));}}/>}</section>}
     <section style={section}><h2>Payment summary</h2><dl style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>{[['Total',summary.totalCents],['Payments received',summary.receivedCents],['Refunded',summary.refundedCents],['Net paid',summary.retainedCents],['Remaining service balance',summary.remainingCents],['Tips received',summary.tipReceivedCents],['Tips refunded',summary.tipRefundedCents]].map(([label,value])=><div key={label as string}><dt>{label}</dt><dd style={{margin:0,fontWeight:600}}>{value==null?'Not priced':money(value as number)}</dd></div>)}</dl>{data.payments.some(p=>p.status.startsWith('REFUND'))&&<p>Refunds do not cancel the appointment. Review the payment arrangement before collecting any remaining amount.</p>}{summary.needsReview&&<p role="status">Payment needs review. A refund is pending or requires attention. Check Stripe before taking further payment.</p>}</section>
     <section style={section}>
       <h2>Deposit</h2>
