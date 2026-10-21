@@ -586,6 +586,7 @@ export const payments = pgTable("payments", {
   refundRequestedByUserId: uuid("refund_requested_by_user_id").references(() => users.id),
   refundRequestedAt: timestamp("refund_requested_at", { withTimezone: true }),
   amountCents: integer("amount_cents").notNull(),
+  tipCents: integer("tip_cents").notNull().default(0),
   status: text("status").notNull().default("PENDING"),
   currency: text("currency").notNull().default("usd"),
   confirmationMethod: text("confirmation_method"),
@@ -595,6 +596,7 @@ export const payments = pgTable("payments", {
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 }, table => ({
   refundAmountCheck: check("payments_refund_amount_check", sql`${table.refundedCents} >= 0 AND ${table.refundedCents} <= ${table.amountCents}`),
+  tipAmountCheck: check("payments_tip_amount_check", sql`${table.tipCents} >= 0 AND ${table.tipCents} <= ${table.amountCents}`),
   tenantRefundUserReference: foreignKey({ name: "payments_refund_user_tenant_fk", columns: [table.refundRequestedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
   tenantAppointmentIdReference: foreignKey({ name: "payments_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
   tenantConfirmedByUserIdReference: foreignKey({ name: "payments_confirmed_by_user_id_tenant_fk", columns: [table.confirmedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),

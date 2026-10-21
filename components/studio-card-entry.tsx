@@ -2,14 +2,14 @@
 import {useEffect,useRef,useState} from 'react';
 import {loadStripe} from '@stripe/stripe-js/pure';
 
-export function StudioCardEntry({appointmentId,onClose}:{appointmentId:string;onClose:()=>void}){
+export function StudioCardEntry({appointmentId,tipCents,onClose}:{appointmentId:string;tipCents:number;onClose:()=>void}){
  const container=useRef<HTMLDivElement>(null);
  const [error,setError]=useState('');
  const [status,setStatus]=useState('Loading secure test card form…');
  useEffect(()=>{
   let disposed=false;let destroy:(()=>void)|undefined;
   async function mount(){
-   const response=await fetch('/api/payments/connect/card-entry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appointmentId}),cache:'no-store'});
+   const response=await fetch('/api/payments/connect/card-entry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appointmentId,tipCents}),cache:'no-store'});
    const data=await response.json();
    if(!response.ok)throw Error(data.error||'Unable to open card entry.');
    if(disposed)return;
@@ -24,7 +24,7 @@ export function StudioCardEntry({appointmentId,onClose}:{appointmentId:string;on
   }
   void mount().catch(()=>{if(!disposed){setStatus('');setError('Unable to open card entry. Check the test configuration, connection, and any existing payment request.');}});
   return()=>{disposed=true;destroy?.();};
- },[appointmentId]);
+ },[appointmentId,tipCents]);
  return <section aria-label="Secure test card entry" style={{border:'1px solid #ddd',borderRadius:12,padding:16,marginTop:16}}>
   <h2>Enter test card details</h2>
   <p role="status">{status}</p>

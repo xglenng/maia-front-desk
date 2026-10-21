@@ -7,7 +7,8 @@ import {assertConnectTestMode,stripeAccountReady} from '@/packages/integrations/
 import {nativeCalendarEnabled,lockArtistCalendar,nativeSlotAvailable} from './native-calendar.server';
 
 // Checkout and Terminal share locks, price calculation and pending-payment exclusion.
-export async function reserveStudioPayment(organizationId:string,appointmentId:string,purpose:'DEPOSIT'|'BALANCE',provider:'stripe_connect'|'stripe_terminal',stripe=getStripe()){
+export async function reserveStudioPayment(organizationId:string,appointmentId:string,purpose:'DEPOSIT'|'BALANCE',provider:'stripe_connect'|'stripe_terminal',stripe=getStripe(),tipCents=0){
+ if(!Number.isSafeInteger(tipCents)||tipCents<0||tipCents>100000||tipCents>0&&(purpose!=='BALANCE'||provider!=='stripe_connect'))throw Error('Invalid tip amount.');
  assertConnectTestMode(process.env);
  const [initial]=await db.select().from(appointments).where(and(eq(appointments.id,appointmentId),eq(appointments.organizationId,organizationId)));
  if(!initial)throw new Error('Appointment not found.');
@@ -27,16 +28,16 @@ export async function reserveStudioPayment(organizationId:string,appointmentId:s
   const existing=await tx.select().from(payments).where(and(eq(payments.organizationId,organizationId),eq(payments.appointmentId,appointmentId)));
   if(existing.some(p=>p.status.startsWith('REFUND')))throw new Error('This appointment has a refund. Review payments before collecting again.');
   const pending=existing.filter(p=>p.provider===provider&&p.purpose===purpose&&p.status==='PENDING').sort((a,b)=>b.createdAt.getTime()-a.createdAt.getTime())[0];
-  if(pending){if(pending.stripeAccountId!==connection.stripeAccountId)throw new Error('The studio payment account changed. Contact support.');return pending;}
+  if(pending){if(pending.tipCents!==tipCents)throw Error('An existing payment has a different tip. Finish or expire it before changing the amount.');if(pending.stripeAccountId!==connection.stripeAccountId)throw new Error('The studio payment account changed. Contact support.');return pending;}
   if(existing.some(p=>p.status==='PENDING'&&p.provider!==provider))throw new Error('An existing payment request must be resolved before creating another checkout.');
-  const paid=existing.filter(p=>p.status==='PAID').reduce((sum,p)=>sum+p.amountCents,0);
+  const paid=existing.filter(p=>p.status==='PAID').reduce((sum,p)=>sum+p.amountCents-p.tipCents,0);
   const amount=purpose==='DEPOSIT'?appointment.depositCents:(appointment.priceCents==null?null:appointment.priceCents-paid);
   if(!amount||amount<=0)throw new Error('There is no amount to collect.');
   if(purpose==='DEPOSIT'){
    if(!await nativeSlotAvailable(tx,organizationId,appointment.artistId,appointment.startsAt,appointment.endsAt,appointment.id))throw new Error('The appointment time is no longer available.');
    await tx.update(appointments).set({holdExpiresAt:new Date(Date.now()+32*60000),updatedAt:new Date()}).where(and(eq(appointments.id,appointmentId),eq(appointments.organizationId,organizationId)));
   }
-  return (await tx.insert(payments).values({organizationId,appointmentId,provider,stripeAccountId:connection.stripeAccountId,purpose,amountCents:amount,currency:'usd',status:'PENDING'}).returning())[0];
+  return (await tx.insert(payments).values({organizationId,appointmentId,provider,stripeAccountId:connection.stripeAccountId,purpose,amountCents:amount+tipCents,tipCents,currency:'usd',status:'PENDING'}).returning())[0];
  });
  return {initial,connection,payment};
 }

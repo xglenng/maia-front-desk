@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: b0eefaa39b54918bbb9ee45eae2c7b6c44ed35e0a881f6426e4a12efd42ce9e3
+-- schema-source-sha256: 365efc7217e7daba732b44084b8f1cc68e9f959b6de7778fcb93af1e5494453d
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -548,6 +548,7 @@ CREATE TABLE "payments" (
 	"refund_requested_by_user_id" uuid,
 	"refund_requested_at" timestamp with time zone,
 	"amount_cents" integer NOT NULL,
+	"tip_cents" integer DEFAULT 0 NOT NULL,
 	"status" text DEFAULT 'PENDING' NOT NULL,
 	"currency" text DEFAULT 'usd' NOT NULL,
 	"confirmation_method" text,
@@ -556,6 +557,7 @@ CREATE TABLE "payments" (
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "payments_refund_amount_check" CHECK ("payments"."refunded_cents" >= 0 AND "payments"."refunded_cents" <= "payments"."amount_cents"),
+	CONSTRAINT "payments_tip_amount_check" CHECK ("payments"."tip_cents" >= 0 AND "payments"."tip_cents" <= "payments"."amount_cents"),
 	CONSTRAINT "payments_confirmation_method_check" CHECK ("payments"."confirmation_method" IS NULL OR "payments"."confirmation_method" IN ('SQUARE_WEBHOOK', 'STRIPE_WEBHOOK', 'MANUAL')),
 	CONSTRAINT "payments_manual_confirmation_audit_check" CHECK ("payments"."confirmation_method" IS DISTINCT FROM 'MANUAL' OR ("payments"."confirmed_by_user_id" IS NOT NULL AND "payments"."confirmed_at" IS NOT NULL))
 );
