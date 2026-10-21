@@ -4,6 +4,8 @@ import Stripe from 'stripe';
 import {NextRequest} from 'next/server';
 import {pool} from '../packages/db/src';
 import {studioRefund,reconcileStudioRefund} from '../packages/booking/src/studio-refund.server';
+import {studioTerminalToken,studioTerminalIntent,reconcileTerminalIntent} from '../packages/booking/src/studio-terminal.server';
+import {POST as terminalTokenRoute} from '../app/api/payments/terminal/token/route';
 import {studioCheckout} from '../packages/booking/src/studio-checkout.server';
 import {GET as paymentStatusRoute} from '../app/api/payments/connect/route';
 import {POST as refundRoute} from '../app/api/payments/connect/refund/route';
@@ -119,6 +121,43 @@ async function main(){
  const body=await response.json();assert.ok(body.reviewPayments.some((p:any)=>p.id===failurePayment));
  const permittedIds=new Set((await pool.query('SELECT id FROM payments WHERE organization_id=$1',[org])).rows.map(p=>p.id));assert.ok(body.reviewPayments.every((p:any)=>permittedIds.has(p.id)));
  }finally{await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[ownerHash]);}
+ // Terminal pilot: owner-only tokens, server-derived balance, pending-method exclusion,
+ // exact reconciliation and refund reuse. All provider calls below are mocked.
+ process.env.MAIA_STRIPE_TERMINAL_ENABLED='true';
+ let terminalCreates=0;let locationCount=1;let terminalResult:any;
+ const terminalStripe={accounts:(stripe as any).accounts,terminal:{locations:{list:async(_input:any,options:any)=>{assert.equal(options.stripeAccount,account);return{has_more:false,data:Array.from({length:locationCount},()=>({id:'tml_synthetic',address:{country:'US'}}))};}},connectionTokens:{create:async(input:any,options:any)=>{assert.equal(input.location,'tml_synthetic');assert.equal(options.stripeAccount,account);return{secret:'synthetic-reader-token'};}}},paymentIntents:{create:async(input:any,options:any)=>{assert.equal(input.amount,300);assert.deepEqual(input.payment_method_types,['card_present']);assert.equal(input.capture_method,'automatic');assert.equal(options.stripeAccount,account);terminalCreates++;terminalResult={...input,id:'pi_terminal_synthetic',client_secret:'synthetic-intent-secret',livemode:false,status:'requires_payment_method',amount_received:0};return terminalResult;},retrieve:async(id:string,options:any)=>{assert.equal(id,'pi_terminal_synthetic');assert.equal(options.stripeAccount,account);return terminalResult;}}} as unknown as Stripe;
+ assert.equal((await studioTerminalToken(org,terminalStripe)).locationId,'tml_synthetic');
+ await assert.rejects(studioTerminalToken(foreign,terminalStripe),/not ready/);
+ locationCount=0;await assert.rejects(studioTerminalToken(org,terminalStripe),/exactly one/);locationCount=2;await assert.rejects(studioTerminalToken(org,terminalStripe),/exactly one/);locationCount=1;
+ const terminalAppointment=randomUUID();await pool.query("INSERT INTO appointments(id,organization_id,artist_id,client_id,service_id,starts_at,ends_at,status,price_cents,deposit_cents,deposit_status,payment_provider,scheduling_provider) VALUES($1,$2,$3,$4,$5,'2035-01-15 16:00:00','2035-01-15 17:00:00','CONFIRMED',400,100,'PAID','STRIPE','INTERNAL')",[terminalAppointment,org,artist,client,service]);
+ await pool.query("INSERT INTO payments(organization_id,appointment_id,provider,amount_cents,status) VALUES($1,$2,'stripe_connect',100,'PAID')",[org,terminalAppointment]);
+ const terminal=await studioTerminalIntent(org,terminalAppointment,terminalStripe);assert.equal(terminal.amountCents,300);
+ assert.equal((await studioTerminalIntent(org,terminalAppointment,terminalStripe)).paymentId,terminal.paymentId);assert.equal(terminalCreates,1);
+ const interruptedStripe={...terminalStripe,paymentIntents:{retrieve:async()=>{throw Error('Synthetic connection interrupted');}}} as unknown as Stripe;
+ await assert.rejects(studioTerminalIntent(org,terminalAppointment,interruptedStripe),/connection interrupted/);
+ assert.equal((await studioTerminalIntent(org,terminalAppointment,terminalStripe)).paymentId,terminal.paymentId);assert.equal(terminalCreates,1);
+ await assert.rejects(studioCheckout(org,terminalAppointment,'BALANCE',stripe),/existing payment/);
+ await assert.rejects(studioTerminalIntent(org,appointment,terminalStripe),/Confirm the appointment/);
+ terminalResult.status='requires_payment_method';await assert.rejects(reconcileTerminalIntent(account,terminalResult.id,terminalStripe),/mismatch/);
+ assert.equal((await pool.query('SELECT status FROM payments WHERE id=$1',[terminal.paymentId])).rows[0].status,'PENDING');
+ terminalResult.status='succeeded';terminalResult.amount_received=301;await assert.rejects(reconcileTerminalIntent(account,terminalResult.id,terminalStripe),/mismatch/);
+ terminalResult.amount_received=300;await reconcileTerminalIntent(account,terminalResult.id,terminalStripe);await reconcileTerminalIntent(account,terminalResult.id,terminalStripe);
+ assert.equal((await pool.query('SELECT status FROM payments WHERE id=$1',[terminal.paymentId])).rows[0].status,'PAID');
+ assert.equal((await pool.query('SELECT status FROM appointments WHERE id=$1',[terminalAppointment])).rows[0].status,'CONFIRMED');
+ assert.equal((await pool.query("SELECT count(*)::int AS n FROM automation_jobs WHERE appointment_id=$1 AND type='APPOINTMENT_CONFIRMATION'",[terminalAppointment])).rows[0].n,0);
+ await pool.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '5 minutes')",[tokenHash,artistUser]);
+ try{const denied=await terminalTokenRoute(new NextRequest('http://localhost/api/payments/terminal/token',{method:'POST',headers:{origin:'http://localhost',cookie:'inkflow_session='+rawToken,'Content-Type':'application/json'},body:'{}'}),undefined);assert.equal(denied.status,403);}finally{await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[tokenHash]);}
+ const terminalRefundStripe={refunds:{create:async(input:any,options:any)=>{assert.equal(input.payment_intent,'pi_terminal_synthetic');assert.equal(options.stripeAccount,account);return{charge:'ch_terminal_synthetic'};},list:async function*(){yield{id:'re_terminal_synthetic',currency:'usd',status:'succeeded',amount:300};}},charges:{retrieve:async()=>({livemode:false,payment_intent:'pi_terminal_synthetic',amount:300,currency:'usd'})}} as unknown as Stripe;
+ assert.equal((await studioRefund(org,terminalAppointment,terminal.paymentId,owner,terminalRefundStripe)).status,'REFUNDED');
+ await reconcileTerminalIntent(account,terminalResult.id,terminalStripe);
+ assert.equal((await pool.query('SELECT status,refunded_cents FROM payments WHERE id=$1',[terminal.paymentId])).rows[0].refunded_cents,300);
+ const canceledPayment=randomUUID();
+ await pool.query("INSERT INTO payments(id,organization_id,appointment_id,provider,amount_cents,status,purpose,stripe_account_id,provider_payment_intent_id) VALUES($1,$2,$3,'stripe_terminal',300,'PENDING','BALANCE',$4,'pi_terminal_canceled')",[canceledPayment,org,terminalAppointment,account]);
+ const canceledStripe={paymentIntents:{retrieve:async()=>({...terminalResult,id:'pi_terminal_canceled',status:'canceled',amount_received:0})}} as unknown as Stripe;
+ await reconcileTerminalIntent(account,'pi_terminal_canceled',canceledStripe);await reconcileTerminalIntent(account,'pi_terminal_canceled',canceledStripe);
+ assert.equal((await pool.query('SELECT status FROM payments WHERE id=$1',[canceledPayment])).rows[0].status,'EXPIRED');
+ assert.equal((await pool.query('SELECT status FROM appointments WHERE id=$1',[terminalAppointment])).rows[0].status,'CONFIRMED');
+ process.env.MAIA_STRIPE_TERMINAL_ENABLED='false';await assert.rejects(studioTerminalToken(org,terminalStripe),/disabled/);
  console.log('PASS: mocked Stripe with real synthetic database: tenant/account isolation, deposit holds, duplicate checkout/webhook, invalid signatures, mismatched amounts, remaining balance, owner-only full refunds, refund retry/pending/failure/partial/replay cases, cancellation and deduplicated confirmation jobs. No provider requests or messages.');
 }
 main().catch(error=>{console.error('Synthetic payment checks failed:',error.message);process.exitCode=1;}).finally(()=>pool.end());

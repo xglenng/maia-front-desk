@@ -12,3 +12,8 @@ node_modules
 
 # Private Stripe sandbox credentials
 .env.staging-stripe.local
+
+# Local Xcode state and native build products
+**/xcuserdata/
+native/ios/DerivedData/
+native/ios/build/

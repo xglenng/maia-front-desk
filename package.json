@@ -33,7 +33,8 @@
     "staging:test:payments": "node scripts/staging.cjs payment-check",
     "staging:stripe:check": "node scripts/staging.cjs stripe-check",
     "staging:stripe:dev": "node scripts/staging.cjs stripe-dev",
-    "staging:build": "node scripts/staging.cjs build"
+    "staging:build": "node scripts/staging.cjs build",
+    "staging:terminal:dev": "node scripts/staging.cjs terminal-dev"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.0",

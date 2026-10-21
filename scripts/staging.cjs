@@ -7,7 +7,8 @@ const root = path.resolve(__dirname,'..');
 try {
   const config = stagingConfig(fs.readFileSync(path.join(root,'.env.staging.local'),'utf8'));
   if (['sandbox-check','sandbox-dev'].includes(process.argv[2])) Object.assign(config, squareSandboxConfig(fs.readFileSync(path.join(root,'.env.staging-square.local'),'utf8')));
-  if(['stripe-check','stripe-dev'].includes(process.argv[2]))Object.assign(config,stripeSandboxConfig(fs.readFileSync(path.join(root,'.env.staging-stripe.local'),'utf8')));
+  if(['stripe-check','stripe-dev','terminal-dev'].includes(process.argv[2]))Object.assign(config,stripeSandboxConfig(fs.readFileSync(path.join(root,'.env.staging-stripe.local'),'utf8')));
+  if(process.argv[2]==='terminal-dev')config.MAIA_STRIPE_TERMINAL_ENABLED='true';
   if (['check','sandbox-check','stripe-check'].includes(process.argv[2])) {
     console.log('PASS: clean staging endpoint validated. No network connection made.');
     process.exit(0);
@@ -18,7 +19,7 @@ try {
     child.on('error',()=>{console.error('Unable to run staging authorization checks.');process.exitCode=1;});
     return;
   }
-  if (!['dev','sandbox-dev','stripe-dev','build'].includes(process.argv[2])) throw new Error('Use a staging check or dev mode.');
+  if (!['dev','sandbox-dev','stripe-dev','terminal-dev','build'].includes(process.argv[2])) throw new Error('Use a staging check or dev mode.');
   // Next receives a separate project directory with no production env files or
   // old .next cache. Next route discovery requires real source directories;
   // copying also prevents development-generated files from touching the checkout.

@@ -1,5 +1,5 @@
 import 'server-only';
-import {and,eq,sql} from 'drizzle-orm';
+import {and,eq,inArray,sql} from 'drizzle-orm';
 import {db} from '@/packages/db/src';
 import {appointments,payments,studioPaymentAccounts,users} from '@/packages/db/src/schema';
 import {getStripe} from '@/packages/integrations/payments';
@@ -15,7 +15,7 @@ export async function reconcileStudioRefund(accountId:string,chargeId:string,str
  if(!intent)return;
  const [connection]=await db.select().from(studioPaymentAccounts).where(eq(studioPaymentAccounts.stripeAccountId,accountId));
  if(!connection)return;
- const [payment]=await db.select().from(payments).where(and(eq(payments.organizationId,connection.organizationId),eq(payments.stripeAccountId,accountId),eq(payments.provider,'stripe_connect'),eq(payments.providerPaymentIntentId,intent)));
+ const [payment]=await db.select().from(payments).where(and(eq(payments.organizationId,connection.organizationId),eq(payments.stripeAccountId,accountId),inArray(payments.provider,['stripe_connect','stripe_terminal']),eq(payments.providerPaymentIntentId,intent)));
  if(!payment)return;
  if(charge.amount!==payment.amountCents||charge.currency!==payment.currency)throw Error('Refund amount requires review.');
  const [initial]=await db.select().from(appointments).where(and(eq(appointments.id,payment.appointmentId),eq(appointments.organizationId,payment.organizationId)));
@@ -47,7 +47,7 @@ export async function studioRefund(organizationId:string,appointmentId:string,pa
  const payment=await db.transaction(async tx=>{
   await lockArtistCalendar(tx,organizationId,initial.artistId);
   await tx.execute(sql`SELECT id FROM appointments WHERE id=${appointmentId} AND organization_id=${organizationId} FOR UPDATE`);
-  const [p]=await tx.select().from(payments).where(and(eq(payments.id,paymentId),eq(payments.appointmentId,appointmentId),eq(payments.organizationId,organizationId),eq(payments.provider,'stripe_connect')));
+  const [p]=await tx.select().from(payments).where(and(eq(payments.id,paymentId),eq(payments.appointmentId,appointmentId),eq(payments.organizationId,organizationId),inArray(payments.provider,['stripe_connect','stripe_terminal'])));
   if(!p||!p.stripeAccountId||!p.providerPaymentIntentId)throw Error('Verified Stripe payment not found.');
   const [connection]=await tx.select().from(studioPaymentAccounts).where(and(eq(studioPaymentAccounts.organizationId,organizationId),eq(studioPaymentAccounts.stripeAccountId,p.stripeAccountId)));
   if(!connection)throw Error('The payment account requires review.');

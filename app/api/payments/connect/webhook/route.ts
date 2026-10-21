@@ -1,3 +1,4 @@
+import {reconcileTerminalIntent} from '@/packages/booking/src/studio-terminal.server';
 import {reconcileStudioRefund} from '@/packages/booking/src/studio-refund.server';
 import {NextRequest,NextResponse} from 'next/server';
 import {and,eq,sql} from 'drizzle-orm';
@@ -15,6 +16,13 @@ export async function POST(request:NextRequest){
  let event;
  try{event=getStripe().webhooks.constructEvent(await request.text(),signature,secret);}catch{return NextResponse.json({error:'Invalid signature.'},{status:400});}
  if(event.livemode||!event.account)return NextResponse.json({error:'Expected a connected-account test event.'},{status:400});
+ if(event.type==='payment_intent.succeeded'||event.type==='payment_intent.canceled'){
+  if(process.env.MAIA_STRIPE_TERMINAL_ENABLED!=='true')return NextResponse.json({received:true});
+  const intent=event.data.object;
+  if(!intent.id||!('metadata' in intent)||intent.metadata?.flow!=='TERMINAL_BALANCE')return NextResponse.json({received:true});
+  try{await reconcileTerminalIntent(event.account,intent.id);return NextResponse.json({received:true});}
+  catch{return NextResponse.json({error:'Terminal reconciliation pending.'},{status:503});}
+ }
  if(event.type==='charge.refunded'||event.type==='refund.updated'||event.type==='refund.created'||event.type==='refund.failed'){
   try{const object=event.data.object;const charge=event.type==='charge.refunded'?object.id:('charge' in object?(typeof object.charge==='string'?object.charge:object.charge?.id):null);if(charge)await reconcileStudioRefund(event.account,charge);return NextResponse.json({received:true});}
   catch{return NextResponse.json({error:'Refund reconciliation pending.'},{status:503});}
