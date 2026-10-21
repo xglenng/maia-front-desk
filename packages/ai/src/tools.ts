@@ -1,3 +1,4 @@
+import {studioCheckout} from '@/packages/booking/src/studio-checkout.server';
 import { lockArtistCalendar,nativeSlotAvailable } from '@/packages/booking/src/native-calendar.server';
 import { approvedQuoteDeposit, matchesConfirmedQuoteTerms, parseQuoteState } from '@/packages/inbox/quote-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
@@ -370,6 +371,8 @@ export async function createDepositRequest(ctx: AgentContext, appointmentId: str
   if (!['SQUARE', 'STRIPE'].includes(provider)) throw new Error('This service has an unsupported deposit provider.');
 
   if (provider === 'STRIPE') {
+    if(process.env.MAIA_STRIPE_CONNECT_ENABLED==='true'&&appointment.schedulingProvider==='INTERNAL'){const session=await studioCheckout(ctx.organizationId,appointment.id);return {provider:'STRIPE',url:session.checkoutUrl,amountCents:session.amountCents,appointmentId:appointment.id,paymentStatus:'PENDING' as const};}
+
     const [existingPayment] = await db.select().from(payments).where(and(
       eq(payments.organizationId, ctx.organizationId), eq(payments.appointmentId, appointment.id), eq(payments.provider, 'stripe'), eq(payments.status, 'PENDING'),
     )).orderBy(desc(payments.createdAt)).limit(1);

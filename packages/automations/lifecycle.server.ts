@@ -4,7 +4,7 @@ import { db } from '@db/index';
 import { appointments, artists, automationJobs, clients, services } from '@db/schema';
 import { appointmentCompletionDedupeKey, appointmentLifecycleDedupeKey, appointmentReminderPlan } from './lifecycle-policy';
 
-const APPOINTMENT_JOB_TYPES = ['APPOINTMENT_REMINDER', 'APPOINTMENT_WAIVER_SEND', 'WAIVER_REMINDER', 'AFTERCARE_FOLLOWUP', 'REVIEW_FOLLOWUP'];
+const APPOINTMENT_JOB_TYPES = ['APPOINTMENT_CONFIRMATION', 'APPOINTMENT_REMINDER', 'APPOINTMENT_WAIVER_SEND', 'WAIVER_REMINDER', 'AFTERCARE_FOLLOWUP', 'REVIEW_FOLLOWUP'];
 
 async function enqueue(input: {
   organizationId: string;
@@ -126,4 +126,10 @@ export async function cancelAppointmentPreCompletionJobs(appointmentId: string, 
   return db.update(automationJobs).set({ status: 'CANCELLED', completedAt: now, lastErrorCode: reason, lockedAt: null, lockExpiresAt: null, lockToken: null, updatedAt: now })
     .where(and(eq(automationJobs.appointmentId, appointmentId), inArray(automationJobs.type, ['APPOINTMENT_REMINDER', 'APPOINTMENT_WAIVER_SEND', 'WAIVER_REMINDER']), inArray(automationJobs.status, ['PENDING', 'RETRY', 'PROCESSING'])))
     .returning({ id: automationJobs.id });
+}
+
+export async function schedulePaymentConfirmation(appointmentId:string){
+ const [row]=await db.select().from(appointments).where(and(eq(appointments.id,appointmentId),eq(appointments.status,'CONFIRMED'),eq(appointments.depositStatus,'PAID')));
+ if(!row)return;
+ await enqueue({organizationId:row.organizationId,artistId:row.artistId,clientId:row.clientId,appointmentId:row.id,type:'APPOINTMENT_CONFIRMATION',dedupeKey:`payment-confirmation:${row.id}`,runAt:new Date(),payload:{scheduleRevision:row.scheduleRevision}});
 }

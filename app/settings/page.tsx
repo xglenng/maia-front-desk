@@ -10,6 +10,7 @@ export default function SettingsPage() {
     <a href="/">← Dashboard</a><h1>Owner settings</h1>
     <p style={{ color: '#77736e' }}>Manage studio operations and the information Maia can share with clients.</p>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16, marginTop: 24 }}>
+      <a href="/settings/payments" style={card}><strong>Studio payments</strong><p>Set up your studio’s Stripe test account.</p></a>
       <a href="/settings/team" style={card}><strong>Team &amp; invitations</strong><p>Invite artists and apprentices to set up their own studio login.</p></a>
       <a href="/usage" style={card}><strong>Usage dashboard</strong><p>View SMS segments, AI tokens, and estimated AI costs by artist.</p></a>
       <a href="/onboarding" style={{...card,borderColor:'#b98b7f'}}><strong>Guided studio activation</strong><p>Follow one production checklist from business profile through tested go-live.</p></a>
@@ -24,6 +25,6 @@ export default function SettingsPage() {
       <a href="/waivers" style={card}><strong>Waiver providers and delivery</strong><p>Connect Jotform or another provider, map consent forms, and send the correct waiver to clients.</p></a>
       <a href="/channels" style={card}><strong>Instagram and Facebook</strong><p>Connect studio social accounts and route direct messages into the unified inbox.</p></a>
     </div>
-    <section style={{ ...card, marginTop: 16 }}><strong>Signed-in studio</strong><p>{user.organization_id}</p><small>This is shown for troubleshooting; setup pages no longer require you to paste it.</small></section>
+
   </main>;
 }

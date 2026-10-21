@@ -11,3 +11,12 @@ export function calendarDate(value:string){
  const date=new Date(value+'T12:00:00Z');return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===value;
 }
 export function addCalendarDate(value:string,days:number){const date=new Date(value+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+days);return date.toISOString().slice(0,10);}
+
+export const rescheduleSchema=z.object({
+ organizationId:z.string().uuid(),artistId:z.string().uuid(),appointmentId:z.string().uuid(),
+ localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
+ expectedRevision:z.number().int().min(0),
+});
+export function canRescheduleNative(status:string,provider:string|null,externalId:string|null){
+ return status==='CONFIRMED'&&provider==='INTERNAL'&&!externalId;
+}

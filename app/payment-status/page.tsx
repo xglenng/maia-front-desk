@@ -1,0 +1,1 @@
+export default function PaymentStatus(){return <main style={{maxWidth:650,margin:'auto',padding:32}}><h1>Payment status</h1><p>If you completed your payment, your studio will receive its verified status shortly. Your appointment is confirmed only when the studio confirms your booking.</p><p>You can close this page.</p></main>;}

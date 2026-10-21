@@ -42,3 +42,13 @@ test('preloaded guard refuses HTTP, fetch, TLS and raw sockets before network ac
   assert.equal(result.status,0,result.stderr);
   assert.match(result.stdout,/blocked/);
 });
+test('Stripe sandbox configuration rejects live keys and unrelated credentials',()=>{
+ const {stripeSandboxConfig}=require('./staging-config.cjs');
+ assert.equal(stripeSandboxConfig('STRIPE_SECRET_KEY=sk_test_fake').MAIA_STRIPE_CONNECT_ENABLED,'true');
+ for(const contents of ['STRIPE_SECRET_KEY=sk_live_fake','STRIPE_SECRET_KEY=sk_test_fake\nTWILIO_AUTH_TOKEN=fake','STRIPE_SECRET_KEY=sk_test_fake\nSTRIPE_SECRET_KEY=sk_test_duplicate'])assert.throws(()=>stripeSandboxConfig(contents));
+});
+test('Stripe sandbox permits only Stripe TLS and requires a test key',()=>{
+ const script=`const assert=require('node:assert/strict');const {allowedSocket}=require('./scripts/staging-network-guard.cjs');assert.equal(allowedSocket('api.stripe.com',443),true);assert.equal(allowedSocket('api.stripe.com',80),false);assert.equal(allowedSocket('api.twilio.com',443),false);assert.equal(allowedSocket('api.stripe.com.evil.test',443),false);process.env.STRIPE_SECRET_KEY='sk_live_fake';assert.equal(allowedSocket('api.stripe.com',443),false);console.log('blocked');`;
+ const result=spawnSync(process.execPath,['-e',script],{env:{PATH:process.env.PATH,MAIA_STAGING_STRIPE_SANDBOX:'1',STRIPE_SECRET_KEY:'sk_test_fake'},encoding:'utf8'});
+ assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/blocked/);
+});

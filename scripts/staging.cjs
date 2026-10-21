@@ -2,22 +2,23 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const {spawn} = require('node:child_process');
-const {stagingConfig, squareSandboxConfig} = require('./staging-config.cjs');
+const {stagingConfig, squareSandboxConfig, stripeSandboxConfig} = require('./staging-config.cjs');
 const root = path.resolve(__dirname,'..');
 try {
   const config = stagingConfig(fs.readFileSync(path.join(root,'.env.staging.local'),'utf8'));
   if (['sandbox-check','sandbox-dev'].includes(process.argv[2])) Object.assign(config, squareSandboxConfig(fs.readFileSync(path.join(root,'.env.staging-square.local'),'utf8')));
-  if (['check','sandbox-check'].includes(process.argv[2])) {
+  if(['stripe-check','stripe-dev'].includes(process.argv[2]))Object.assign(config,stripeSandboxConfig(fs.readFileSync(path.join(root,'.env.staging-stripe.local'),'utf8')));
+  if (['check','sandbox-check','stripe-check'].includes(process.argv[2])) {
     console.log('PASS: clean staging endpoint validated. No network connection made.');
     process.exit(0);
   }
-  if(['artist-check','consent-check','draft-check','draft-preview','studio-check','studio-preview','reopen-check','knowledge-check','invitations-check','calendar-check','calendar-preview'].includes(process.argv[2])) {
-    const child=spawn(process.execPath,[...(process.argv[2]==='reopen-check'?['--require',path.join(root,'scripts/staging-server-module-guard.cjs')]:[]),'--import','tsx',path.join(root,`scripts/staging-${process.argv[2]}.ts`)],{cwd:root,stdio:'inherit',env:{PATH:process.env.PATH,...config,NODE_OPTIONS:`--require ${JSON.stringify(path.join(root,'scripts/staging-network-guard.cjs'))}`}});
+  if(['artist-check','consent-check','draft-check','draft-preview','studio-check','studio-preview','reopen-check','knowledge-check','invitations-check','calendar-check','calendar-preview','payment-check'].includes(process.argv[2])) {
+    const child=spawn(process.execPath,[...(['reopen-check','payment-check'].includes(process.argv[2])?['--require',path.join(root,'scripts/staging-server-module-guard.cjs')]:[]),'--import','tsx',path.join(root,`scripts/staging-${process.argv[2]}.ts`)],{cwd:root,stdio:'inherit',env:{PATH:process.env.PATH,...config,NODE_OPTIONS:`--require ${JSON.stringify(path.join(root,'scripts/staging-network-guard.cjs'))}`}});
     child.on('exit',code=>{process.exitCode=code||0;});
     child.on('error',()=>{console.error('Unable to run staging authorization checks.');process.exitCode=1;});
     return;
   }
-  if (!['dev','sandbox-dev'].includes(process.argv[2])) throw new Error('Use a staging check or dev mode.');
+  if (!['dev','sandbox-dev','stripe-dev','build'].includes(process.argv[2])) throw new Error('Use a staging check or dev mode.');
   // Next receives a separate project directory with no production env files or
   // old .next cache. Next route discovery requires real source directories;
   // copying also prevents development-generated files from touching the checkout.
@@ -36,7 +37,7 @@ try {
     fs.copyFileSync(path.join(root,entry),path.join(workspace,entry));
   }
   const env={PATH:process.env.PATH,...config,NODE_OPTIONS:`--require ${JSON.stringify(path.join(root,'scripts/staging-network-guard.cjs'))}`};
-  const child=spawn(process.execPath,[path.join(root,'node_modules/next/dist/bin/next'),'dev',workspace,'--hostname','127.0.0.1','--port','3100'],{env,stdio:'inherit',cwd:workspace});
+  const child=spawn(process.execPath,[path.join(root,'node_modules/next/dist/bin/next'),...(process.argv[2]==='build'?['build',workspace]:['dev',workspace,'--hostname','127.0.0.1','--port','3100'])],{env,stdio:'inherit',cwd:workspace});
   child.on('error',()=>{console.error('Unable to start isolated staging app.');process.exitCode=1;});
   child.on('exit',code=>{process.exitCode=code||0;});
   for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>child.kill(signal));

@@ -3,7 +3,7 @@ import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, artists, calendarConnections, clients, externalWaiverAssignments, externalWaiverForms, payments, services, waiverSubmissions, waiverTemplates } from '@db/schema';
+import { appointments, artists, calendarConnections, clients, externalWaiverAssignments, externalWaiverForms, payments, users, services, waiverSubmissions, waiverTemplates } from '@db/schema';
 import { GoogleCalendarAdapter } from '@integrations/index';
 import { canAccessArtist } from '@/packages/inbox/state';
 import { cancelAppointmentLifecycleJobs, cancelAppointmentPreCompletionJobs, scheduleAppointmentCompletionFollowups } from '@/packages/automations/lifecycle.server';
@@ -22,6 +22,7 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
     .where(and(eq(appointments.id, id), eq(appointments.organizationId, organizationId)));
   if (!row || !canAccessArtist(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   const paymentRows = await db.select().from(payments).where(and(eq(payments.appointmentId, id), eq(payments.organizationId, organizationId)));
+  const refundAudit = await db.select({paymentId:payments.id,requestedBy:users.name,requestedAt:payments.refundRequestedAt}).from(payments).innerJoin(users,and(eq(users.id,payments.refundRequestedByUserId),eq(users.organizationId,payments.organizationId))).where(and(eq(payments.appointmentId,id),eq(payments.organizationId,organizationId)));
   const [externalWaivers, signedWaivers] = await Promise.all([
     db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name })
       .from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id))
@@ -30,7 +31,7 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
       .from(waiverSubmissions).innerJoin(waiverTemplates, eq(waiverSubmissions.waiverTemplateId, waiverTemplates.id))
       .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
   ]);
-  return NextResponse.json({ appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, externalWaivers, signedWaivers });
+  return NextResponse.json({ appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers });
 }
 
 async function handleDELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

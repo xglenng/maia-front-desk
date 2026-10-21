@@ -1,6 +1,6 @@
-# Native calendar: first working pass
+# Native calendar
 
-Dashboard → Calendar provides day, week and list views for the selected authorized artist, a date picker, Today/previous/next navigation, saved artist colors, click-to-open appointment details, repeating bookable hours and manual appointment creation. Date/view are preserved in the URL when switching artists. Week view scrolls horizontally on small screens. This is one artist at a time, not an all-studio resource grid.
+Dashboard → Calendar provides day, week and list views for the selected authorized artist, a date picker, Today/previous/next navigation, saved artist colors, click-to-reschedule confirmed native appointments (with a link to details), repeating bookable hours manual appointment creation, rescheduling and one-time time off. Date/view are preserved in the URL when switching artists. Week view scrolls horizontally on small screens. This is one artist at a time, not an all-studio resource grid.
 
 Owners and unsupervised artists can edit their authorized calendar; supervised artists can view but cannot write. Hours are recurring artist availability_rules, separate from public studio business hours. Multiple non-overlapping periods per day allow lunch breaks. No periods means no bookable hours. Changing hours does not move/cancel existing appointments. Midnight as an end time means the end of that day.
 
@@ -12,14 +12,18 @@ Calendar writes serialize on an artist row lock. Manual creation, AI native no-d
 
 Artists with a connected Square or active calendar connection are shown read-only in this manual editor. The new API never silently books locally for an externally managed artist and does not call or mutate provider APIs. Existing Square integrations remain separate.
 
+## Rescheduling and time off
+
+Confirmed native appointments can move to a new future time. Server-side availability is rechecked under the shared artist lock; duration, service, price and deposit are preserved. An expected schedule revision prevents stale browser edits; a move increments the revision and schedules replacement reminder/waiver jobs. Old jobs reject obsolete revisions. Externally linked bookings and unconfirmed/cancelled/completed appointments cannot move here. No reschedule SMS is sent by this editor.
+
+Time off is stored separately from appointments in calendar_time_off. Creation refuses overlaps with confirmed appointments or active holds. All native availability and payment-confirmation checks include these blocks. Authorized owners/artists can remove their scoped blocks. Existing client records and bookings are never deleted to represent time off.
+
 ## Scope limits
 
-Appointment details retain existing cancellation/completion/manual Venmo actions. Rescheduling, drag-and-drop, one-time time-off exceptions, combined multi-artist columns, and a native artist-quote-to-AI scheduling expansion are not implemented in this pass. Existing hours can contain recurring breaks. Existing AI quote/provider workflows were not replaced. Full live-provider and production SMS/payment behavior has not been tested by this local work.
+Day/week/list still show one artist at a time; a combined studio resource grid and drag-and-drop remain future work. The new Stripe Connect path is a test-only preview described in STUDIO_PAYMENTS.md. Existing Square/Venmo flows remain separate. No live payment or SMS behavior has been validated by these changes.
 
 ## Validation and rollout
 
-No schema migration is needed. Existing appointments, clients and availability_rules tables are reused. `npm run staging:test:calendar` runs real HTTP/database checks on isolated synthetic staging for authorization, timezone conversion, hours validation, booking idempotency, client rollback/consent, adjacent/cancelled/conflicting slots, pending deposits/payment confirmation, competing manual/legacy hold requests and external-provider safety. `npm run staging:preview:calendar` creates labeled synthetic services/hours and two appointments under the synthetic Blair profile for visual testing only. It cannot run without the dedicated staging endpoint and marker.
+Migration 0014 adds calendar_time_off; 0015 adds studio payment-account and ledger fields. These additive migrations were applied only to the verified synthetic staging database. Production migrations and deployment require approval. Rollback to the previous app would ignore time-off blocks, so pause native booking before rolling back; do not delete booking or payment history.
 
-Production deployment requires approval. The previously approved release 986dc0b is independent of these uncommitted calendar changes; its migrations 0012/0013 have already been applied, but Railway's paused builds prevented that release's rollout. A calendar release must be separately reviewed/deployed, rather than mixed into that pending release unnoticed.
-
-Rollback uses the previous application version without deleting appointments or hours created here. Those records continue to exist in the existing schema. Removing the UI does not cancel bookings or queued lifecycle jobs.
+`npm run staging:test:calendar` runs actual HTTP/database authorization, timezone, hours, idempotency, concurrency, reschedule-revision and time-off checks. `npm run staging:test:payments` uses mocked Stripe responses with actual signed webhook verification and the synthetic database. Neither sends messages or processes real payments.

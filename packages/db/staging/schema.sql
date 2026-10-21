@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: a635721b24a1287e55e7075452f84842d624c1668da1e6d663bab48e044f2b5e
+-- schema-source-sha256: b0eefaa39b54918bbb9ee45eae2c7b6c44ed35e0a881f6426e4a12efd42ce9e3
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -237,6 +237,17 @@ CREATE TABLE "calendar_connections" (
 	"active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "calendar_time_off" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"starts_at" timestamp NOT NULL,
+	"ends_at" timestamp NOT NULL,
+	"label" text DEFAULT 'Time off' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "calendar_time_off_range_check" CHECK ("calendar_time_off"."ends_at">"calendar_time_off"."starts_at")
 );
 --> statement-breakpoint
 CREATE TABLE "channel_connections" (
@@ -526,9 +537,16 @@ CREATE TABLE "payments" (
 	"organization_id" uuid NOT NULL,
 	"appointment_id" uuid NOT NULL,
 	"provider" text DEFAULT 'stripe' NOT NULL,
+	"stripe_account_id" text,
+	"checkout_url" text,
+	"purpose" text DEFAULT 'DEPOSIT' NOT NULL,
 	"provider_checkout_session_id" text,
 	"provider_checkout_link_id" text,
 	"provider_payment_intent_id" text,
+	"refunded_cents" integer DEFAULT 0 NOT NULL,
+	"provider_refund_id" text,
+	"refund_requested_by_user_id" uuid,
+	"refund_requested_at" timestamp with time zone,
 	"amount_cents" integer NOT NULL,
 	"status" text DEFAULT 'PENDING' NOT NULL,
 	"currency" text DEFAULT 'usd' NOT NULL,
@@ -537,6 +555,7 @@ CREATE TABLE "payments" (
 	"confirmed_at" timestamp with time zone,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "payments_refund_amount_check" CHECK ("payments"."refunded_cents" >= 0 AND "payments"."refunded_cents" <= "payments"."amount_cents"),
 	CONSTRAINT "payments_confirmation_method_check" CHECK ("payments"."confirmation_method" IS NULL OR "payments"."confirmation_method" IN ('SQUARE_WEBHOOK', 'STRIPE_WEBHOOK', 'MANUAL')),
 	CONSTRAINT "payments_manual_confirmation_audit_check" CHECK ("payments"."confirmation_method" IS DISTINCT FROM 'MANUAL' OR ("payments"."confirmed_by_user_id" IS NOT NULL AND "payments"."confirmed_at" IS NOT NULL))
 );
@@ -786,6 +805,16 @@ CREATE TABLE "studio_locations" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "studio_payment_accounts" (
+	"organization_id" uuid PRIMARY KEY NOT NULL,
+	"stripe_account_id" text NOT NULL,
+	"charges_enabled" boolean DEFAULT false NOT NULL,
+	"payouts_enabled" boolean DEFAULT false NOT NULL,
+	"details_submitted" boolean DEFAULT false NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "studio_payment_accounts_stripe_account_id_unique" UNIQUE("stripe_account_id")
+);
+--> statement-breakpoint
 CREATE TABLE "twilio_account_creation_intents" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -906,6 +935,8 @@ CREATE INDEX "automation_jobs_due_idx" ON "automation_jobs" USING btree ("status
 CREATE INDEX "automation_jobs_conversation_idx" ON "automation_jobs" USING btree ("conversation_id","status");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "automation_jobs_result_message_uidx" ON "automation_jobs" USING btree ("result_message_id") WHERE "automation_jobs"."result_message_id" IS NOT NULL;
+--> statement-breakpoint
+CREATE INDEX "calendar_time_off_artist_range_idx" ON "calendar_time_off" USING btree ("organization_id","artist_id","starts_at");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "channel_connections_id_organization_uidx" ON "channel_connections" USING btree ("id","organization_id");
 --> statement-breakpoint
@@ -1077,6 +1108,10 @@ ALTER TABLE "calendar_connections" ADD CONSTRAINT "calendar_connections_artist_i
 --> statement-breakpoint
 ALTER TABLE "calendar_connections" ADD CONSTRAINT "calendar_connections_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
+ALTER TABLE "calendar_time_off" ADD CONSTRAINT "calendar_time_off_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "calendar_time_off" ADD CONSTRAINT "calendar_time_off_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
 ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
@@ -1193,7 +1228,11 @@ ALTER TABLE "payments" ADD CONSTRAINT "payments_organization_id_organizations_id
 --> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_appointment_id_appointments_id_fk" FOREIGN KEY ("appointment_id") REFERENCES "public"."appointments"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
+ALTER TABLE "payments" ADD CONSTRAINT "payments_refund_requested_by_user_id_users_id_fk" FOREIGN KEY ("refund_requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_confirmed_by_user_id_users_id_fk" FOREIGN KEY ("confirmed_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "payments" ADD CONSTRAINT "payments_refund_user_tenant_fk" FOREIGN KEY ("refund_requested_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_appointment_id_tenant_fk" FOREIGN KEY ("appointment_id","organization_id") REFERENCES "public"."appointments"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1302,6 +1341,8 @@ ALTER TABLE "studio_faqs" ADD CONSTRAINT "studio_faqs_organization_id_organizati
 ALTER TABLE "studio_faqs" ADD CONSTRAINT "studio_faqs_tenant_location_fk" FOREIGN KEY ("location_id","organization_id") REFERENCES "public"."studio_locations"("id","organization_id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_locations" ADD CONSTRAINT "studio_locations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_payment_accounts" ADD CONSTRAINT "studio_payment_accounts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "twilio_account_creation_intents" ADD CONSTRAINT "twilio_account_creation_intents_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

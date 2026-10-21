@@ -3,7 +3,7 @@ import { protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq, gte, lt } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, availabilityRules, calendarConnections } from '@db/schema';
+import { calendarTimeOff, appointments, availabilityRules, calendarConnections } from '@db/schema';
 import { GoogleCalendarAdapter } from '@integrations/index';
 import { getAvailableSlots } from '@booking/index';
 import { z } from 'zod';
@@ -52,7 +52,8 @@ async function handleGET(request: NextRequest) {
     }
   }
 
-  const slots = getAvailableSlots(rules, [...localBusy, ...calendarBusy], { from, to, durationMinutes, slotIntervalMinutes });
+  const timeOff=await db.select({startsAt:calendarTimeOff.startsAt,endsAt:calendarTimeOff.endsAt}).from(calendarTimeOff).where(and(eq(calendarTimeOff.organizationId,organizationId),eq(calendarTimeOff.artistId,artistId),lt(calendarTimeOff.startsAt,to),gte(calendarTimeOff.endsAt,from)));
+  const slots = getAvailableSlots(rules, [...localBusy, ...calendarBusy,...timeOff], { from, to, durationMinutes, slotIntervalMinutes });
   return NextResponse.json({ slots });
 }
 

@@ -22,3 +22,12 @@ test('native manual booking calculates service deposit without accepting a clien
  assert.equal(nativeDeposit({depositType:'NONE',depositAmountCents:null,depositPercent:null},25000),0);
  assert.throws(()=>nativeDeposit({depositType:'PERCENT',depositAmountCents:null,depositPercent:101},25000));
 });
+
+test('rescheduling is limited to confirmed native appointments',async()=>{
+ const {canRescheduleNative,rescheduleSchema}=await import('../native-calendar-policy');
+ assert.equal(canRescheduleNative('CONFIRMED','INTERNAL',null),true);
+ for(const status of ['PAYMENT_PENDING','COMPLETED','CANCELLED','PAYMENT_RECEIVED_SLOT_UNAVAILABLE'])assert.equal(canRescheduleNative(status,'INTERNAL',null),false);
+ assert.equal(canRescheduleNative('CONFIRMED','SQUARE',null),false);
+ assert.equal(canRescheduleNative('CONFIRMED','INTERNAL','external'),false);
+ assert.equal(rescheduleSchema.safeParse({}).success,false);
+});

@@ -55,6 +55,30 @@ async function main(){
  const startsAt=localDateTimeToUtc(`${date}T15:00`,'America/Denver').toISOString();
  const responses=await Promise.all([fetch(origin+'/api/calendar',{method:'POST',headers:{origin,cookie:`inkflow_session=${sessions.get(owner)}`,'Content-Type':'application/json'},body:JSON.stringify(book('15:00'))}),fetch(origin+'/api/booking/hold',{method:'POST',headers:{origin,cookie:`inkflow_session=${sessions.get(owner)}`,'Content-Type':'application/json'},body:JSON.stringify({artistId:artist,clientId:client,serviceId:service,startsAt})})]);
  assert.deepEqual(responses.map(row=>row.status).sort(),[201,409]);checks+=2;
+
+ // Rescheduling preserves deposits/prices and uses optimistic schedule revisions.
+ const movable=await request(owner,'/api/calendar','POST',book('16:00'),201);
+ const move={artistId:artist,appointmentId:movable.appointment.id,localStart:`${date}T16:00`,expectedRevision:0};
+ await request(junior,'/api/calendar','PATCH',move,403);
+ await request(owner,'/api/calendar','PATCH',{...move,localStart:`${date}T14:00`},409);
+ await request(owner,'/api/calendar','PATCH',{...move,expectedRevision:1},409);
+ const same=await request(staff,'/api/calendar','PATCH',move);assert.equal(same.appointment.scheduleRevision,0);
+ await request(owner,`/api/appointments/${movable.appointment.id}`,'DELETE');
+ // Move the existing 10am appointment to 16:00; retrying old revision cannot move again.
+ const ten=(await pool.query("SELECT id FROM appointments WHERE organization_id=$1 AND starts_at=$2 AND status='CONFIRMED'",[org,localDateTimeToUtc(`${date}T10:00`,'America/Denver').toISOString()])).rows[0];
+ const moved=await request(owner,'/api/calendar','PATCH',{...move,appointmentId:ten.id});assert.equal(moved.appointment.scheduleRevision,1);assert.equal(moved.appointment.priceCents,10000);
+ await request(owner,'/api/calendar','PATCH',{...move,appointmentId:ten.id},409);
+ const off={action:'TIME_OFF',id:randomUUID(),artistId:artist,localStart:`${date}T10:00`,localEnd:`${date}T11:00`,label:'Synthetic time off'};
+ await request(junior,'/api/calendar','POST',off,403);
+ await request(owner,'/api/calendar','POST',{...off,artistId:other},404);
+ await request(owner,'/api/calendar','POST',{...off,localStart:`${date}T12:00`,localEnd:`${date}T13:00`},409);
+ await request(staff,'/api/calendar','POST',off);
+ await request(staff,'/api/calendar','POST',off); // idempotent
+ await request(owner,'/api/calendar','POST',book('10:00'),409);
+ const blocked=await getInternalAvailability(org,artist,{durationMinutes:60,from:localDateTimeToUtc(`${date}T10:00`,'America/Denver').toISOString(),to:localDateTimeToUtc(`${date}T11:00`,'America/Denver').toISOString()});assert.equal(blocked.status,'NO_AVAILABILITY');
+ await request(owner,`/api/calendar?artistId=${artist}&id=${off.id}`,'DELETE');
+ await request(owner,'/api/calendar','POST',book('10:00'),201);
+ await request(owner,`/api/appointments/${ten.id}`,'DELETE');
  const row=await request(owner,endpoint);assert.ok(row.appointments.some((a:any)=>a.id===pending.appointment.id));assert.equal(row.provider.native,true);
  // Peer clients cannot be used by an artist even within the same studio.
  const peerClient=randomUUID();await pool.query("INSERT INTO clients(id,organization_id,first_name) VALUES($1,$2,'Synthetic Peer Client')",[peerClient,org]);

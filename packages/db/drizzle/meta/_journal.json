@@ -99,6 +99,27 @@
       "when": 1792454400000,
       "tag": "0013_artist_calendar_colors",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792540800000,
+      "tag": "0014_calendar_time_off",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792627200000,
+      "tag": "0015_studio_payment_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792713600000,
+      "tag": "0016_payment_refund_audit",
+      "breakpoints": true
     }
   ]
 }

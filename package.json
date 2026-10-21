@@ -29,7 +29,11 @@
     "staging:test:knowledge": "node scripts/staging.cjs knowledge-check",
     "staging:test:invitations": "node scripts/staging.cjs invitations-check",
     "staging:test:calendar": "node scripts/staging.cjs calendar-check",
-    "staging:preview:calendar": "node scripts/staging.cjs calendar-preview"
+    "staging:preview:calendar": "node scripts/staging.cjs calendar-preview",
+    "staging:test:payments": "node scripts/staging.cjs payment-check",
+    "staging:stripe:check": "node scripts/staging.cjs stripe-check",
+    "staging:stripe:dev": "node scripts/staging.cjs stripe-dev",
+    "staging:build": "node scripts/staging.cjs build"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.0",

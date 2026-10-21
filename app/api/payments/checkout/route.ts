@@ -1,3 +1,4 @@
+import {studioCheckout} from '@/packages/booking/src/studio-checkout.server';
 import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, desc, eq } from 'drizzle-orm';
@@ -23,6 +24,7 @@ async function handlePOST(request: NextRequest) {
   if (!row || !canManageAppointment(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   const appointment = row.appointment;
   if ((appointment.paymentProvider || row.service?.paymentProvider) && (appointment.paymentProvider || row.service?.paymentProvider) !== 'STRIPE') return NextResponse.json({ error: 'This appointment uses a different configured deposit provider.' }, { status: 409 });
+  if(process.env.MAIA_STRIPE_CONNECT_ENABLED==='true'&&appointment.schedulingProvider==='INTERNAL'){try{return NextResponse.json(await studioCheckout(organizationId,appointmentId));}catch{return NextResponse.json({error:'Studio checkout is unavailable. Check the studio payment setup and appointment status.'},{status:409});}}
   if (appointment.status !== 'TENTATIVE') return NextResponse.json({ error: 'Only tentative appointments can accept a deposit' }, { status: 409 });
   if (!appointment.depositCents || appointment.depositCents <= 0) return NextResponse.json({ error: 'Appointment has no deposit amount' }, { status: 400 });
   if (appointment.holdExpiresAt && appointment.holdExpiresAt < new Date()) return NextResponse.json({ error: 'Booking hold has expired' }, { status: 409 });

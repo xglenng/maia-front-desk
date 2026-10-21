@@ -5,7 +5,7 @@ const {bootstrapSql,initialize}=require('./staging-bootstrap.cjs');
 test('staging bootstrap snapshot matches source and contains no data inserts',()=>{
   const {sql,hash}=bootstrapSql();
   assert.equal(hash.length,64);
-  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,53);
+  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,55);
   assert.match(sql,/users_normalized_email_uidx/);
   assert.equal(/^\s*(?:INSERT|DELETE|TRUNCATE|DROP)\b/im.test(sql),false);
 });
@@ -20,7 +20,7 @@ test('full-schema initialization is atomic and refuses an existing database',{sk
     const snapshot=bootstrapSql();
     await assert.rejects(initialize(pool,{...snapshot,sql:snapshot.sql+'; SELECT missing_function_for_rollback_test()'}),{code:'42883'});
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'")).rows[0].n,0);
-    assert.equal(await initialize(pool,snapshot),52);
+    assert.equal(await initialize(pool,snapshot),55);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM maia_staging_meta.bootstrap')).rows[0].n,1);
     await assert.rejects(initialize(pool,snapshot),/existing relations/);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM maia_staging_meta.bootstrap')).rows[0].n,1);

@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, or, isNull } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, availabilityRules, organizations, schedulingConnections } from '@db/schema';
+import { calendarTimeOff, appointments, availabilityRules, organizations, schedulingConnections } from '@db/schema';
 import { getAvailableSlots } from '@booking/index';
 import type { AvailabilityRequest, AvailabilityResult, ProviderAvailabilityInput, SchedulingProvider } from './types';
 
@@ -38,10 +38,12 @@ export async function getInternalAvailability(
     or(
       eq(appointments.status, 'CONFIRMED'),
       eq(appointments.status, 'COMPLETED'),
+      and(eq(appointments.status,'PAYMENT_PENDING'),gte(appointments.holdExpiresAt,now)),
       and(or(eq(appointments.status, 'TENTATIVE'), eq(appointments.status, 'AI_HOLD')), or(isNull(appointments.holdExpiresAt), gte(appointments.holdExpiresAt, now))),
     ),
   ));
-  const slots = getAvailableSlots(rules, busyRows, { from, to, durationMinutes: input.durationMinutes, slotIntervalMinutes: 30, timeZone, now })
+  const timeOff=await db.select({startsAt:calendarTimeOff.startsAt,endsAt:calendarTimeOff.endsAt}).from(calendarTimeOff).where(and(eq(calendarTimeOff.organizationId,organizationId),eq(calendarTimeOff.artistId,artistId),lt(calendarTimeOff.startsAt,to),gte(calendarTimeOff.endsAt,from)));
+  const slots = getAvailableSlots(rules, [...busyRows,...timeOff], { from, to, durationMinutes: input.durationMinutes, slotIntervalMinutes: 30, timeZone, now })
     .slice(0, 20)
     .map(slot => ({ start: slot.startsAt.toISOString(), end: slot.endsAt.toISOString() }));
   return slots.length ? { status: 'AVAILABLE', slots } : { status: 'NO_AVAILABILITY', slots: [] };

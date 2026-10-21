@@ -32,3 +32,16 @@ function squareSandboxConfig(contents) {
   return {...values, SQUARE_ENVIRONMENT:'sandbox', MAIA_STAGING_SQUARE_SANDBOX:'1'};
 }
 module.exports.squareSandboxConfig = squareSandboxConfig;
+function stripeSandboxConfig(contents) {
+  const values={};
+  for(const line of contents.split(/\r?\n/)){
+    if(!line.trim()||line.trim().startsWith('#'))continue;
+    const match=line.match(/^([A-Z_]+)\s*=\s*(.*?)\s*$/);
+    if(!match||!['STRIPE_SECRET_KEY','STRIPE_CONNECT_WEBHOOK_SECRET'].includes(match[1])||values[match[1]]!==undefined)throw new Error('Invalid Stripe sandbox configuration.');
+    values[match[1]]=match[2].replace(/^(['"])(.*)\1$/,'$2');
+  }
+  if(!/^sk_test_[A-Za-z0-9]+$/.test(values.STRIPE_SECRET_KEY||''))throw new Error('A Stripe test secret key is required.');
+  if(values.STRIPE_CONNECT_WEBHOOK_SECRET&&!/^whsec_[A-Za-z0-9]+$/.test(values.STRIPE_CONNECT_WEBHOOK_SECRET))throw new Error('Invalid Stripe test webhook secret.');
+  return {...values,MAIA_STAGING_STRIPE_SANDBOX:'1',MAIA_STRIPE_CONNECT_ENABLED:'true'};
+}
+module.exports.stripeSandboxConfig=stripeSandboxConfig;

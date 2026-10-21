@@ -575,9 +575,16 @@ export const payments = pgTable("payments", {
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
   appointmentId: uuid("appointment_id").references(() => appointments.id).notNull(),
   provider: text("provider").notNull().default("stripe"),
+  stripeAccountId: text("stripe_account_id"),
+  checkoutUrl: text("checkout_url"),
+  purpose: text("purpose").notNull().default("DEPOSIT"),
   providerCheckoutSessionId: text("provider_checkout_session_id"),
   providerCheckoutLinkId: text("provider_checkout_link_id"),
   providerPaymentIntentId: text("provider_payment_intent_id"),
+  refundedCents: integer("refunded_cents").notNull().default(0),
+  providerRefundId: text("provider_refund_id"),
+  refundRequestedByUserId: uuid("refund_requested_by_user_id").references(() => users.id),
+  refundRequestedAt: timestamp("refund_requested_at", { withTimezone: true }),
   amountCents: integer("amount_cents").notNull(),
   status: text("status").notNull().default("PENDING"),
   currency: text("currency").notNull().default("usd"),
@@ -587,6 +594,8 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 }, table => ({
+  refundAmountCheck: check("payments_refund_amount_check", sql`${table.refundedCents} >= 0 AND ${table.refundedCents} <= ${table.amountCents}`),
+  tenantRefundUserReference: foreignKey({ name: "payments_refund_user_tenant_fk", columns: [table.refundRequestedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
   tenantAppointmentIdReference: foreignKey({ name: "payments_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
   tenantConfirmedByUserIdReference: foreignKey({ name: "payments_confirmed_by_user_id_tenant_fk", columns: [table.confirmedByUserId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
   confirmationMethodCheck: check("payments_confirmation_method_check", sql`${table.confirmationMethod} IS NULL OR ${table.confirmationMethod} IN ('SQUARE_WEBHOOK', 'STRIPE_WEBHOOK', 'MANUAL')`),
@@ -1054,3 +1063,26 @@ export const twilioAccountCreationIntents = pgTable('twilio_account_creation_int
   foreignKey({name:'account_creation_account_tenant_fk',columns:[table.twilioAccountId,table.organizationId],foreignColumns:[twilioAccounts.id,twilioAccounts.organizationId]}),
   check('account_creation_state_check',sql`(${table.status} = 'INTENT' AND ${table.twilioAccountId} IS NULL AND ${table.completedAt} IS NULL) OR (${table.status} = 'COMPLETED' AND ${table.twilioAccountId} IS NOT NULL AND ${table.completedAt} IS NOT NULL)`)
 ]);
+
+export const calendarTimeOff = pgTable('calendar_time_off', {
+ id:uuid('id').defaultRandom().primaryKey(),
+ organizationId:uuid('organization_id').references(()=>organizations.id).notNull(),
+ artistId:uuid('artist_id').notNull(),
+ startsAt:timestamp('starts_at').notNull(),
+ endsAt:timestamp('ends_at').notNull(),
+ label:text('label').notNull().default('Time off'),
+ createdAt:timestamp('created_at').defaultNow().notNull(),
+},table=>({
+ artist:foreignKey({name:'calendar_time_off_artist_tenant_fk',columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+ range:check('calendar_time_off_range_check',sql`${table.endsAt}>${table.startsAt}`),
+ lookup:index('calendar_time_off_artist_range_idx').on(table.organizationId,table.artistId,table.startsAt),
+}));
+
+export const studioPaymentAccounts=pgTable('studio_payment_accounts',{
+ organizationId:uuid('organization_id').references(()=>organizations.id).primaryKey(),
+ stripeAccountId:text('stripe_account_id').notNull().unique(),
+ chargesEnabled:boolean('charges_enabled').default(false).notNull(),
+ payoutsEnabled:boolean('payouts_enabled').default(false).notNull(),
+ detailsSubmitted:boolean('details_submitted').default(false).notNull(),
+ updatedAt:timestamp('updated_at').defaultNow().notNull(),
+});

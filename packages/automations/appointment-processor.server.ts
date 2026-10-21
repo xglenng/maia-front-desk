@@ -1,6 +1,6 @@
 import 'server-only';
 import crypto from 'node:crypto';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, artists, automationJobs, clients, conversations, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, messages, organizations, services, studioAftercare, studioLocations, waiverSubmissions, waiverTemplates } from '@db/schema';
 import { sendStudioSms } from '@integrations/studio-sms';
@@ -106,6 +106,19 @@ async function loadAppointment(job: ClaimedAutomationJob) {
 
 function formatAppointmentTime(value: Date, timeZone: string) {
   return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(value);
+}
+
+async function processPaymentConfirmation(job:ClaimedAutomationJob,payload:Record<string,unknown>){
+ const guard=async()=>{
+  const row=await loadAppointment(job);
+  if(!row||row.appointment.status!=='CONFIRMED'||row.appointment.depositStatus!=='PAID'||row.appointment.scheduleRevision!==payload.scheduleRevision||!row.client.phone||!row.client.smsOptIn||row.client.smsConsentStatus==='OPTED_OUT')return false;
+  const active=await db.select({aiEnabled:conversations.aiEnabled,status:conversations.status}).from(conversations).where(and(eq(conversations.organizationId,job.organizationId),eq(conversations.artistId,job.artistId),eq(conversations.clientId,job.clientId),eq(conversations.channel,'SMS'),ne(conversations.status,'CLOSED')));
+  return !active.some(c=>!c.aiEnabled||c.status==='HUMAN_TAKEOVER');
+ };
+ const row=await loadAppointment(job);
+ if(!row||!await guard())return cancel(job,'PAYMENT_CONFIRMATION_NOT_ELIGIBLE');
+ const body=`${row.organization.name}: Your $${((row.appointment.depositCents||0)/100).toFixed(2)} deposit has been received. Your ${row.service?.name||'appointment'} is confirmed for ${formatAppointmentTime(row.appointment.startsAt,row.timezone)}.`;
+ return sendAppointmentMessage(job,row.appointment,row.client,body,{automationType:job.type,appointmentId:row.appointment.id},guard);
 }
 
 async function processAppointmentReminder(job: ClaimedAutomationJob, payload: Record<string, unknown>) {
@@ -246,6 +259,7 @@ async function processCompletionFollowup(job: ClaimedAutomationJob, payload: Rec
 export async function processAppointmentAutomationJob(job: ClaimedAutomationJob) {
   const payload = objectPayload(job);
   try {
+    if (job.type === 'APPOINTMENT_CONFIRMATION') return await processPaymentConfirmation(job,payload);
     if (job.type === 'APPOINTMENT_REMINDER') return await processAppointmentReminder(job, payload);
     if (job.type === 'APPOINTMENT_WAIVER_SEND') return await processAppointmentWaiver(job, payload);
     if (job.type === 'AFTERCARE_FOLLOWUP' || job.type === 'REVIEW_FOLLOWUP') return await processCompletionFollowup(job, payload, job.type);

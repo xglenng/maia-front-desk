@@ -9,3 +9,6 @@ node_modules
 # Private synthetic staging database configuration
 .env.staging.local
 .env.staging-square.local
+
+# Private Stripe sandbox credentials
+.env.staging-stripe.local

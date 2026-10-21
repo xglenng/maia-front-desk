@@ -228,7 +228,7 @@ export async function processClaimedAutomationJob(job: ClaimedAutomationJob) {
   try {
     if (job.type === 'WAIVER_REMINDER') return await processWaiverReminder(job, payload);
     if (job.type === 'AI_RESPONSE') return await processAiResponse(job, payload);
-    if (['APPOINTMENT_REMINDER', 'APPOINTMENT_WAIVER_SEND', 'AFTERCARE_FOLLOWUP', 'REVIEW_FOLLOWUP'].includes(job.type)) return await processAppointmentAutomationJob(job);
+    if (['APPOINTMENT_CONFIRMATION', 'APPOINTMENT_REMINDER', 'APPOINTMENT_WAIVER_SEND', 'AFTERCARE_FOLLOWUP', 'REVIEW_FOLLOWUP'].includes(job.type)) return await processAppointmentAutomationJob(job);
     await completeJob(job, 'CANCELLED', 'UNSUPPORTED_JOB_TYPE');
     return { id: job.id, status: 'CANCELLED' };
   } catch (error) {
