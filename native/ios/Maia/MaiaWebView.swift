@@ -37,6 +37,20 @@ struct MaiaWebView: UIViewRepresentable {
             payments.webError = "Maia could not finish loading. Check the connection, then retry."
         }
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if navigationAction.navigationType == .linkActivated,
+               let url = navigationAction.request.url, url.scheme == "https", url.host == "pay.stripe.com",
+               url.port == nil, url.user == nil, url.password == nil, url.path.hasPrefix("/receipts/"),
+               navigationAction.targetFrame == nil || navigationAction.targetFrame?.isMainFrame == true {
+                UIApplication.shared.open(url)
+                decisionHandler(.cancel); return
+            }
+            // Embedded Checkout hosts card fields in Stripe-owned child frames.
+            // This never permits an external top-level page or bridge message.
+            if let target = navigationAction.targetFrame, !target.isMainFrame,
+               let url = navigationAction.request.url, url.scheme == "https",
+               let host = url.host, host == "stripe.com" || host.hasSuffix(".stripe.com") || host == "stripe.network" || host.hasSuffix(".stripe.network") {
+                decisionHandler(.allow); return
+            }
             guard let url = navigationAction.request.url,
                   url.scheme == payments.api.baseURL.scheme, url.host == payments.api.baseURL.host,
                   (url.port ?? 443) == (payments.api.baseURL.port ?? 443) else { decisionHandler(.cancel); return }

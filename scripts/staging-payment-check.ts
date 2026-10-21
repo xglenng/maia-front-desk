@@ -6,6 +6,7 @@ import {pool} from '../packages/db/src';
 import {studioRefund,reconcileStudioRefund} from '../packages/booking/src/studio-refund.server';
 import {studioTerminalToken,studioTerminalIntent,reconcileTerminalIntent} from '../packages/booking/src/studio-terminal.server';
 import {POST as terminalTokenRoute} from '../app/api/payments/terminal/token/route';
+import {studioReceipt} from '../packages/booking/src/studio-receipt.server';
 import {studioCheckout} from '../packages/booking/src/studio-checkout.server';
 import {GET as paymentStatusRoute} from '../app/api/payments/connect/route';
 import {POST as refundRoute} from '../app/api/payments/connect/refund/route';
@@ -31,7 +32,7 @@ async function main(){
  }finally{await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[tokenHash]);}
  const owner=randomUUID();await pool.query("INSERT INTO users(id,organization_id,email,name,role) VALUES($1,$2,$3,'Synthetic Owner','OWNER')",[owner,org,owner+'@example.invalid']);
  const sessions=new Map<string,any>();let creates=0;let failCreate=false;const checkoutKeys:string[]=[];
- const stripe={accounts:{retrieve:async(id:string)=>{assert.equal(id,account);return{charges_enabled:true,payouts_enabled:true,details_submitted:true};}},checkout:{sessions:{create:async(input:any,options:any)=>{assert.equal(options.stripeAccount,account);assert.match(options.idempotencyKey,/^studio-checkout:/);checkoutKeys.push(options.idempotencyKey);if(failCreate){failCreate=false;throw Error('Synthetic network timeout');}creates++;const s={id:'cs_test_'+randomUUID(),url:'https://checkout.stripe.com/synthetic',status:'open',payment_status:'unpaid',amount_total:input.line_items[0].price_data.unit_amount,currency:'usd',metadata:input.metadata,payment_intent:'pi_synthetic_'+creates};sessions.set(s.id,s);return s;},retrieve:async(id:string,options:any)=>{assert.equal(options.stripeAccount,account);return sessions.get(id);}}}} as unknown as Stripe;
+ const stripe={accounts:{retrieve:async(id:string)=>{assert.equal(id,account);return{charges_enabled:true,payouts_enabled:true,details_submitted:true};}},checkout:{sessions:{create:async(input:any,options:any)=>{assert.equal(options.stripeAccount,account);assert.match(options.idempotencyKey,/^studio-checkout:/);checkoutKeys.push(options.idempotencyKey);if(failCreate){failCreate=false;throw Error('Synthetic network timeout');}creates++;const s={id:'cs_test_'+randomUUID(),url:input.ui_mode==='embedded'?null:'https://checkout.stripe.com/synthetic',ui_mode:input.ui_mode||'hosted',client_secret:input.ui_mode==='embedded'?'cs_test_synthetic_secret':null,status:'open',payment_status:'unpaid',amount_total:input.line_items[0].price_data.unit_amount,currency:'usd',metadata:input.metadata,payment_intent:'pi_synthetic_'+creates};sessions.set(s.id,s);return s;},retrieve:async(id:string,options:any)=>{assert.equal(options.stripeAccount,account);return sessions.get(id);}}}} as unknown as Stripe;
  await assert.rejects(studioCheckout(foreign,appointment,'DEPOSIT',stripe),/not found/);
  await pool.query("INSERT INTO scheduling_connections(organization_id,artist_id,provider,status,external_account_id,access_token_encrypted) VALUES($1,$2,'SQUARE','CONNECTED','synthetic','synthetic-test-only')",[org,artist]);
  await assert.rejects(studioCheckout(org,appointment,'DEPOSIT',stripe),/connected calendar/);
@@ -157,6 +158,35 @@ async function main(){
  await reconcileTerminalIntent(account,'pi_terminal_canceled',canceledStripe);await reconcileTerminalIntent(account,'pi_terminal_canceled',canceledStripe);
  assert.equal((await pool.query('SELECT status FROM payments WHERE id=$1',[canceledPayment])).rows[0].status,'EXPIRED');
  assert.equal((await pool.query('SELECT status FROM appointments WHERE id=$1',[terminalAppointment])).rows[0].status,'CONFIRMED');
+ // Embedded card entry shares the same ledger and cannot replace an open hosted session.
+ delete process.env.STRIPE_PUBLISHABLE_KEY;
+ await assert.rejects(studioCheckout(org,terminalAppointment,'BALANCE',stripe,'embedded'),/not configured/);
+ process.env.STRIPE_PUBLISHABLE_KEY='pk_live_synthetic';
+ await assert.rejects(studioCheckout(org,terminalAppointment,'BALANCE',stripe,'embedded'),/not configured/);
+ process.env.STRIPE_PUBLISHABLE_KEY='pk_test_synthetic';
+ await assert.rejects(studioCheckout(foreign,terminalAppointment,'BALANCE',stripe,'embedded'),/not found/);
+ const cardAppointment=randomUUID();
+ await pool.query("INSERT INTO appointments(id,organization_id,artist_id,client_id,service_id,starts_at,ends_at,status,price_cents,deposit_cents,deposit_status,payment_provider,scheduling_provider) VALUES($1,$2,$3,$4,$5,'2035-01-16 16:00:00','2035-01-16 17:00:00','CONFIRMED',400,0,'NOT_REQUIRED','STRIPE','INTERNAL')",[cardAppointment,org,artist,client,service]);
+ const card=await studioCheckout(org,cardAppointment,'BALANCE',stripe,'embedded');
+ assert.equal(card.amountCents,400);assert.equal(card.checkoutUrl,'');assert.equal(card.stripeAccountId,account);assert.equal(card.clientSecret,'cs_test_synthetic_secret');
+ assert.equal((await studioCheckout(org,cardAppointment,'BALANCE',stripe,'embedded')).sessionId,card.sessionId);
+ await assert.rejects(studioCheckout(org,cardAppointment,'BALANCE',stripe),/different checkout/);
+ await assert.rejects(studioTerminalIntent(org,cardAppointment,terminalStripe),/existing payment/);
+ assert.equal((await event({...sessions.get(card.sessionId),payment_status:'paid'})).status,200);
+ assert.equal((await event({...sessions.get(card.sessionId),payment_status:'paid'})).status,200);
+ assert.equal((await pool.query("SELECT count(*)::int AS n FROM payments WHERE appointment_id=$1 AND status='PAID'",[cardAppointment])).rows[0].n,1);
+ const cardPayment=(await pool.query('SELECT id,provider_payment_intent_id FROM payments WHERE appointment_id=$1',[cardAppointment])).rows[0];
+ let receiptCalls=0;const receiptCharge={livemode:false,paid:true,amount:400,amount_refunded:0,currency:'usd',payment_intent:cardPayment.provider_payment_intent_id,receipt_url:'https://pay.stripe.com/receipts/payment/synthetic'};
+ const receiptStripe={paymentIntents:{retrieve:async(id:string,input:any,options:any)=>{receiptCalls++;assert.equal(id,cardPayment.provider_payment_intent_id);assert.equal(options.stripeAccount,account);assert.deepEqual(input.expand,['latest_charge']);return{id,livemode:false,status:'succeeded',amount:400,amount_received:400,currency:'usd',latest_charge:receiptCharge};}}} as unknown as Stripe;
+ await assert.rejects(studioReceipt(org,cardAppointment,cardPayment.id,artistUser,receiptStripe),/Owner access/);
+ await assert.rejects(studioReceipt(foreign,cardAppointment,cardPayment.id,owner,receiptStripe),/Owner access/);
+ await assert.rejects(studioReceipt(org,appointment,cardPayment.id,owner,receiptStripe),/Settled payment/);assert.equal(receiptCalls,0);
+ assert.equal((await studioReceipt(org,cardAppointment,cardPayment.id,owner,receiptStripe)).receiptUrl,receiptCharge.receipt_url);
+ receiptCharge.amount=401;await assert.rejects(studioReceipt(org,cardAppointment,cardPayment.id,owner,receiptStripe),/verified/);receiptCharge.amount=400;
+ receiptCharge.receipt_url='https://pay.stripe.com.evil.invalid/receipts/payment/test';await assert.rejects(studioReceipt(org,cardAppointment,cardPayment.id,owner,receiptStripe),/verified/);
+ receiptCharge.receipt_url='https://pay.stripe.com/receipts/payment/synthetic';receiptCharge.amount_refunded=400;
+ await pool.query("UPDATE payments SET status='REFUNDED',refunded_cents=400 WHERE id=$1",[cardPayment.id]);
+ assert.equal((await studioReceipt(org,cardAppointment,cardPayment.id,owner,receiptStripe)).refundedCents,400);
  process.env.MAIA_STRIPE_TERMINAL_ENABLED='false';await assert.rejects(studioTerminalToken(org,terminalStripe),/disabled/);
  console.log('PASS: mocked Stripe with real synthetic database: tenant/account isolation, deposit holds, duplicate checkout/webhook, invalid signatures, mismatched amounts, remaining balance, owner-only full refunds, refund retry/pending/failure/partial/replay cases, cancellation and deduplicated confirmation jobs. No provider requests or messages.');
 }

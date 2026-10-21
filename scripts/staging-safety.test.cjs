@@ -45,6 +45,8 @@ test('preloaded guard refuses HTTP, fetch, TLS and raw sockets before network ac
 test('Stripe sandbox configuration rejects live keys and unrelated credentials',()=>{
  const {stripeSandboxConfig}=require('./staging-config.cjs');
  assert.equal(stripeSandboxConfig('STRIPE_SECRET_KEY=sk_test_fake').MAIA_STRIPE_CONNECT_ENABLED,'true');
+ assert.equal(stripeSandboxConfig('STRIPE_SECRET_KEY=sk_test_fake\nSTRIPE_PUBLISHABLE_KEY=pk_test_fake').STRIPE_PUBLISHABLE_KEY,'pk_test_fake');
+ assert.throws(()=>stripeSandboxConfig('STRIPE_SECRET_KEY=sk_test_fake\nSTRIPE_PUBLISHABLE_KEY=pk_live_fake'));
  for(const contents of ['STRIPE_SECRET_KEY=sk_live_fake','STRIPE_SECRET_KEY=sk_test_fake\nTWILIO_AUTH_TOKEN=fake','STRIPE_SECRET_KEY=sk_test_fake\nSTRIPE_SECRET_KEY=sk_test_duplicate'])assert.throws(()=>stripeSandboxConfig(contents));
 });
 test('Stripe sandbox permits only Stripe TLS and requires a test key',()=>{
