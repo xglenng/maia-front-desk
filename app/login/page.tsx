@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
+import PasswordInput from '@/components/password-input';
 
 export default function Login() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -64,29 +64,18 @@ export default function Login() {
             style={{
               display: 'block',
               width: '100%',
-              padding: 10
+              padding: 10,
+              boxSizing: 'border-box',
+              minHeight: 48,
+              marginTop: 6,
+              border: '1px solid #cfd2d5',
+              borderRadius: 10
             }}
           />
         </label>
 
-        <label>
-          Password
-          <input
-            name="password"
-            type={showPassword ? "text" : "password"}
-            autoComplete="current-password"
-            required
-            style={{
-              display: 'block',
-              width: '100%',
-              padding: 10
-            }}
-          />
-        </label>
+        <PasswordInput label="Password" name="password" autoComplete="current-password" required />
 
-        <button type="button" aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>
-          {showPassword ? 'Hide password' : 'Show password'}
-        </button>
         <a href="/forgot-password">Forgot password?</a>
 
         <button

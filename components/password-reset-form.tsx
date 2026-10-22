@@ -1,9 +1,9 @@
 'use client';
 import { FormEvent, useEffect, useState } from 'react';
+import PasswordInput from './password-input';
 
 export function PasswordResetForm({ complete = false }: { complete?: boolean }) {
   const [token, setToken] = useState('');
-  const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -32,9 +32,8 @@ export function PasswordResetForm({ complete = false }: { complete?: boolean }) 
     <p>{complete ? 'Use 10–128 characters for your new password.' : 'Enter your account email and we’ll send you a reset link.'}</p>
     {!message && <form onSubmit={submit} style={{ display: 'grid', gap: 16 }}>
       {complete ? <>
-        <label>New password<input name="password" type={visible ? 'text' : 'password'} autoComplete="new-password" minLength={10} maxLength={128} required style={inputStyle} /></label>
-        <label>Confirm password<input name="confirm" type={visible ? 'text' : 'password'} autoComplete="new-password" minLength={10} maxLength={128} required style={inputStyle} /></label>
-        <button type="button" aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? 'Hide passwords' : 'Show passwords'}</button>
+        <PasswordInput label="New password" name="password" autoComplete="new-password" minLength={10} maxLength={128} required />
+        <PasswordInput label="Confirm password" name="confirm" autoComplete="new-password" minLength={10} maxLength={128} required />
       </> : <label>Email<input name="email" type="email" autoComplete="email" maxLength={254} required style={inputStyle} /></label>}
       <button disabled={busy || (complete && !token)}>{busy ? 'Please wait…' : complete ? 'Save new password' : 'Send reset link'}</button>
       {complete && !token && <p>Open the link from your reset email, or <a href="/forgot-password">request a new one</a>.</p>}
