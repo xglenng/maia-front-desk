@@ -1,11 +1,11 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {Pool}=require('pg');
-const {verifyTarget,initialize}=require('./render-staging-init.cjs');
+const {verifyTarget,initialize}=require('./render-evaluation-init.cjs');
 test('Render bootstrap refuses production and mismatched endpoints before opening a database',t=>{
  const keys=['DATABASE_URL','RENDER_SERVICE_ID','MAIA_STAGING_ISOLATED'];
  const old=keys.map(k=>process.env[k]);t.after(()=>keys.forEach((k,i)=>{if(old[i]===undefined)delete process.env[k];else process.env[k]=old[i]}));
- Object.assign(process.env,{DATABASE_URL:'postgres://test:test@dpg-dbd3gkm7bikc73ae96hg-a/maia_render_staging',RENDER_SERVICE_ID:'srv-dbd3h6m7bikc73aeau40',MAIA_STAGING_ISOLATED:'1'});
+ Object.assign(process.env,{DATABASE_URL:'postgres://test:test@dpg-dbd69j7b9u1s73dgmev0-a/maia_render_production',RENDER_SERVICE_ID:'srv-dbd4k6qvcj2c73es2n30',MAIA_STAGING_ISOLATED:'1'});
  assert.doesNotThrow(verifyTarget);
  for(const [key,bad] of [['DATABASE_URL','postgres://test:test@production.example/maia_render_staging'],['RENDER_SERVICE_ID','production'],['MAIA_STAGING_ISOLATED','0']]) {const previous=process.env[key];process.env[key]=bad;assert.throws(verifyTarget);process.env[key]=previous;}
 });

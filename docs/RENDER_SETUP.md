@@ -11,7 +11,7 @@ The web service and database use Free compute plans. The web app sleeps after 15
 1. Connect Render to only the Maia GitHub repository. Review and approve repository permissions in GitHub.
 2. Push the reviewed configuration and required application changes to the feature branch. Create a Blueprint using `deploy/render/staging.yaml`; review the charges before creation.
 3. Set `NEXT_PUBLIC_APP_URL` to the exact assigned HTTPS service URL and redeploy (also used during the build).
-4. Free web services have no shell access. The start command runs `scripts/render-staging-init.cjs`, which is pinned to this exact isolated Render service and database. It refuses an unmarked nonempty database, initializes the historical baseline in an empty database, and applies the Drizzle journal. Never use this script for production. Verify successful initialization in the deployment log before signup.
+4. Free web services have no shell access. The start command runs `scripts/render-evaluation-init.cjs`, which is pinned to this exact isolated Render service and database. It refuses an unmarked nonempty database, initializes the historical baseline in an empty database, and applies the Drizzle journal. Never use this script for production. Verify successful initialization in the deployment log before signup.
 5. Use the normal signup page to create a synthetic studio with a unique test password. Validate login, tenant isolation, team, calendar, inbox and error behavior. Never reuse production passwords.
 
 Provider actions and automations are blocked by the existing isolated-staging middleware. No OpenAI, Twilio, Meta, Square, Stripe, Google or Jotform credentials are required for this first rehearsal. This validates hosting and application behavior only; it does not validate provider integrations. Do not assume local staging scripts can target Render: their database endpoint allowlist is intentionally unchanged.
@@ -34,3 +34,14 @@ The app uses the tested feature branch, manual deployments, Node 20.20.2, `npm c
 No database URL, provider secrets, cron service, or customer data were added. Isolated middleware and mock provider settings remain enabled; Stripe Connect and Terminal are disabled. Login/signup cannot operate until a separate database is provisioned and initialized. Never connect this app to the staging database as a shortcut.
 
 Render permits only one Free Postgres instance per workspace, already used by staging. The user explicitly chose to leave this app's database pending rather than add charges. No real production cutover, production database migration, provider activation, or paid resource creation is authorized by this placeholder setup. Railway remains the live production host.
+
+
+## Fresh Render database supersedes the placeholder (2026-10-22)
+
+The user explicitly approved permanently deleting the original free test database and starting fresh. The old instance `dpg-dbd3gkm7bikc73ae96hg-a` was deleted; none of its accounts or data are retained. Railway production was not accessed or changed.
+
+Replacement: `maia-render-production-db`, ID `dpg-dbd69j7b9u1s73dgmev0-a`, database `maia_render_production`, PostgreSQL 17, Free, Oregon. It is assigned to the existing Production environment. The existing Blueprint manages both web apps and this replacement database. Only `maia-production-preview` receives the private database connection reference. `maia-render-staging` now uses a deliberately disconnected local endpoint and a plain Next.js start command.
+
+The Production preview initializer is pinned to its exact service and database identity and requires isolated mode. It installs the baseline only in an empty unmarked database and applies exactly the reviewed migration files, protected by a source fingerprint. New schema changes require explicit review rather than automatic startup migration. It logs aggregate record counts to verify the fresh state without logging credentials or customer details.
+
+The database remains a 30-day free evaluation resource. Do not treat it as durable live hosting. AI and messaging remain mock/isolated; Connect and Terminal remain disabled. Relocating or initializing the database does not enable live integrations. A later transition to actual production still requires durable database hosting, secure provider credentials, callback verification, and explicit live cutover approval.
