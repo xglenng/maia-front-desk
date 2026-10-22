@@ -1,6 +1,6 @@
 # Render migration rehearsal
 
-Status: prepared locally; resources have not been provisioned or provider-tested.
+Status: free rehearsal app and database are provisioned. Database initialization and login error handling were verified on Render. Provider delivery remains unvalidated.
 
 Use `deploy/render/staging.yaml` as the Blueprint path on the feature branch. This creates an isolated Next.js web service and a fresh PostgreSQL database in Oregon, with manual deploys. The app is publicly reachable but existing authentication protects tenant screens. Database external access is disabled. The login health check checks HTTP availability, not database readiness.
 
@@ -23,3 +23,14 @@ Do not create an active scheduler against the production database during rehears
 Production requires a separately approved backup/restore and maintenance plan: validate restore, exact migration journal, encryption keys and stored provider tokens, custom domain, OAuth callbacks, webhook signatures and retry behavior, one active scheduler, and rollback. Keep the database's PostgreSQL version compatible with the source. Never overwrite encryption keys or bulk-copy potentially exposed credentials as a shortcut.
 
 Before cutover, validate representative provider flows using sandbox credentials and explicitly approved live checks. If the rehearsal fails, Railway continues unchanged; remove test resources only after reviewing any data and billing implications.
+
+
+## Production environment placeholder (2026-10-22)
+
+Created project `Maia Front Desk` (`prj-dbd49rbl550s73ajd8h0`) and environment `Production` (`evm-dbd49rbl550s73ajd8hg`). At the user’s request, added a Free web service named `maia-production-preview` (`srv-dbd4k6qvcj2c73es2n30`). This is a temporary app placeholder, not the live production system.
+
+The app uses the tested feature branch, manual deployments, Node 20.20.2, `npm ci --include=dev && npm run build`, and plain `npm run start` bound to Render’s port. It does not run the staging database initializer. Its `/login` HTTP health check does not establish database readiness.
+
+No database URL, provider secrets, cron service, or customer data were added. Isolated middleware and mock provider settings remain enabled; Stripe Connect and Terminal are disabled. Login/signup cannot operate until a separate database is provisioned and initialized. Never connect this app to the staging database as a shortcut.
+
+Render permits only one Free Postgres instance per workspace, already used by staging. The user explicitly chose to leave this app's database pending rather than add charges. No real production cutover, production database migration, provider activation, or paid resource creation is authorized by this placeholder setup. Railway remains the live production host.
