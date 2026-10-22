@@ -4,7 +4,7 @@ services:
     name: maia-render-staging
     runtime: node
     region: oregon
-    plan: 0.5c-512mb
+    plan: free
     branch: codex/pr1-production-readiness
     autoDeployTrigger: "off"
     buildCommand: npm ci && npm run build
@@ -49,8 +49,7 @@ services:
 databases:
   - name: maia-render-staging-db
     region: oregon
-    plan: 0.1c-256mb
-    diskSizeGB: 1
+    plan: free
     postgresMajorVersion: '17'
     databaseName: maia_render_staging
     ipAllowList: []

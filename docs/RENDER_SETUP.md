@@ -4,14 +4,14 @@ Status: prepared locally; resources have not been provisioned or provider-tested
 
 Use `deploy/render/staging.yaml` as the Blueprint path on the feature branch. This creates an isolated Next.js web service and a fresh PostgreSQL database in Oregon, with manual deploys. The app is publicly reachable but existing authentication protects tenant screens. Database external access is disabled. The login health check checks HTTP availability, not database readiness.
 
-The smallest paid web/database plans were selected for the rehearsal, not established production capacity. Confirm the dashboard's recurring price before provisioning. No paid workspace upgrade is required by this file. No production secrets or existing customer data should be imported into this rehearsal.
+The web service and database use Free compute plans. The web app sleeps after 15 idle minutes; the database expires after 30 days and has no managed backups. No paid scheduler or workspace upgrade is included. Do not add a payment method or upgrade resources for this evaluation without approval. No production secrets or existing customer data should be imported into this rehearsal.
 
 ## Setup
 
 1. Connect Render to only the Maia GitHub repository. Review and approve repository permissions in GitHub.
 2. Push the reviewed configuration and required application changes to the feature branch. Create a Blueprint using `deploy/render/staging.yaml`; review the charges before creation.
 3. Set `NEXT_PUBLIC_APP_URL` to the exact assigned HTTPS service URL and redeploy (also used during the build).
-4. In the new service shell, verify `DATABASE_URL` resolves to the newly created Render database before running `npm run db:migrate`. This is initialization of a new synthetic database, not authorization to migrate production.
+4. Free web services have no shell access. Before initializing the schema, arrange a separate, endpoint-verified migration to the new synthetic database (with temporary narrow database access if needed). Do not run migration commands against Railway production. The login health check alone does not mean database initialization is complete.
 5. Use the normal signup page to create a synthetic studio with a unique test password. Validate login, tenant isolation, team, calendar, inbox and error behavior. Never reuse production passwords.
 
 Provider actions and automations are blocked by the existing isolated-staging middleware. No OpenAI, Twilio, Meta, Square, Stripe, Google or Jotform credentials are required for this first rehearsal. This validates hosting and application behavior only; it does not validate provider integrations. Do not assume local staging scripts can target Render: their database endpoint allowlist is intentionally unchanged.
