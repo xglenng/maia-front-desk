@@ -1,4 +1,4 @@
-# Render evaluation services. Existing database is assigned to Production.
+# Render evaluation services. Production uses a fresh, separate free database.
 # These remain free temporary resources; Railway is still the live production host.
 services:
   - type: web
@@ -63,7 +63,7 @@ services:
         value: '1'
       - key: DATABASE_URL
         fromDatabase:
-          name: maia-render-staging-db
+          name: maia-render-production-db
           property: connectionString
       - key: NEXT_PUBLIC_APP_URL
         value: https://maia-production-preview.onrender.com
@@ -91,9 +91,9 @@ services:
         value: 'false'
 
 databases:
-  - name: maia-render-staging-db
+  - name: maia-render-production-db
     region: oregon
     plan: free
     postgresMajorVersion: '17'
-    databaseName: maia_render_staging
+    databaseName: maia_render_production
     ipAllowList: []
