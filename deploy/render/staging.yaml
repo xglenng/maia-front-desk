@@ -1,5 +1,6 @@
-# Render evaluation services. Production uses a fresh, separate free database.
-# These remain free temporary resources; Railway is still the live production host.
+# Render services. Production accepts configured live integrations; staging remains isolated.
+# Free compute and the expiring free database are retained at the owner's request.
+# Railway callback cutover and scheduler retirement are separate operator steps.
 services:
   - type: web
     name: maia-render-staging
@@ -52,7 +53,7 @@ services:
     branch: codex/pr1-production-readiness
     autoDeployTrigger: "off"
     buildCommand: npm ci --include=dev && npm run build
-    startCommand: node scripts/render-evaluation-init.cjs && npm run start -- --hostname 0.0.0.0 --port $PORT
+    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
     healthCheckPath: /login
     envVars:
       - key: NODE_VERSION
@@ -68,11 +69,11 @@ services:
       - key: NEXT_PUBLIC_APP_URL
         value: https://maia-production-preview.onrender.com
       - key: MAIA_STAGING_ISOLATED
-        value: '1'
+        value: '0'
       - key: AI_PROVIDER
-        value: mock
+        value: openai
       - key: NEXT_PUBLIC_AI_PROVIDER
-        value: mock
+        value: openai
       - key: TWILIO_PROVISION_MODE
         value: mock
       - key: TWILIO_PORT_MODE
@@ -82,9 +83,19 @@ services:
       - key: TWILIO_ACCOUNT_CREATION_ENABLED
         value: 'false'
       - key: META_MESSAGING_MODE
-        value: mock
+        value: live
       - key: SQUARE_ENVIRONMENT
-        value: sandbox
+        value: production
+      - key: TWILIO_VALIDATE_SIGNATURE
+        value: 'true'
+      - key: TWILIO_WEBHOOK_BASE_URL
+        value: https://maia-production-preview.onrender.com
+      - key: META_REDIRECT_URI
+        value: https://maia-production-preview.onrender.com/api/integrations/meta/callback
+      - key: GOOGLE_REDIRECT_URI
+        value: https://maia-production-preview.onrender.com/api/integrations/google/callback
+      - key: SQUARE_REDIRECT_URI
+        value: https://maia-production-preview.onrender.com/api/integrations/square/callback
       - key: MAIA_STRIPE_CONNECT_ENABLED
         value: 'false'
       - key: MAIA_STRIPE_TERMINAL_ENABLED
