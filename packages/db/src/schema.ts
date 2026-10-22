@@ -36,6 +36,11 @@ export const authSessions = pgTable('auth_sessions', {
   tokenHash:text('token_hash').primaryKey(),userId:uuid('user_id').notNull().references(()=>users.id,{onDelete:'cascade'}),
   expiresAt:timestamp('expires_at',{withTimezone:true}).notNull()
 });
+export const authPasswordResets = pgTable('auth_password_resets', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
+});
 export const authLoginAttempts=pgTable('auth_login_attempts',{
   key:text('key').primaryKey(),attempts:integer('attempts').notNull().default(0),resetAt:timestamp('reset_at',{withTimezone:true}).notNull()
 });

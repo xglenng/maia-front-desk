@@ -18,3 +18,8 @@ CREATE TABLE IF NOT EXISTS auth_login_attempts (
  attempts integer NOT NULL DEFAULT 0,
  reset_at timestamptz NOT NULL
 );
+CREATE TABLE IF NOT EXISTS auth_password_resets (
+ user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ token_hash text NOT NULL UNIQUE,
+ expires_at timestamptz NOT NULL
+);

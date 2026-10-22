@@ -12,6 +12,8 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const path = usePathname();
   const publicPage =
   path === '/login' ||
+  path === '/forgot-password' ||
+  path === '/reset-password' ||
   path === '/signup' ||
   path === '/join' ||
   path === '/install' ||

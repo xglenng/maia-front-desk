@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 365efc7217e7daba732b44084b8f1cc68e9f959b6de7778fcb93af1e5494453d
+-- schema-source-sha256: a763a153e815599f624499b2267778262634dcc11ac4fa5bdeb1ecfaa4a82de3
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -151,6 +151,13 @@ CREATE TABLE "auth_oauth_states" (
 	"organization_id" uuid NOT NULL,
 	"artist_id" uuid NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "auth_password_resets" (
+	"user_id" uuid PRIMARY KEY NOT NULL,
+	"token_hash" text NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "auth_password_resets_token_hash_unique" UNIQUE("token_hash")
 );
 --> statement-breakpoint
 CREATE TABLE "auth_sessions" (
@@ -1051,6 +1058,8 @@ ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_artist_id_arti
 ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "auth_password_resets" ADD CONSTRAINT "auth_password_resets_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "auth_sessions" ADD CONSTRAINT "auth_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint

@@ -5,6 +5,7 @@ import { useState, FormEvent } from 'react';
 export default function Login() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -72,7 +73,7 @@ export default function Login() {
           Password
           <input
             name="password"
-            type="password"
+            type={showPassword ? "text" : "password"}
             autoComplete="current-password"
             required
             style={{
@@ -82,6 +83,11 @@ export default function Login() {
             }}
           />
         </label>
+
+        <button type="button" aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>
+          {showPassword ? 'Hide password' : 'Show password'}
+        </button>
+        <a href="/forgot-password">Forgot password?</a>
 
         <button
           disabled={busy}

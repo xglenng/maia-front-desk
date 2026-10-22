@@ -1,0 +1,42 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { Pool } from 'pg';
+import { pool } from '../../db/src';
+import { digest, hashPassword, verifyPassword } from '../crypto';
+import { completePasswordReset } from '../password-reset';
+const socket = process.env.MAIA_RESET_TEST_SOCKET;
+test('real database enforces expiry, active accounts, one use, rollback and user-scoped session revocation', { skip: !socket }, async t => {
+  assert.match(socket!, /^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
+  const schema = 'reset_' + randomUUID().replaceAll('-', '');
+  const db = new Pool({ host: socket, port: 55439, database: 'maia_tenant_test', user: process.env.USER, options: `-c search_path=${schema}` });
+  try {
+    assert.equal((await db.query('SHOW data_directory')).rows[0].data_directory, `${socket}/data`);
+    await db.query(`CREATE SCHEMA ${schema}`);
+    await db.query(readFileSync('packages/db/staging/schema.sql', 'utf8').replaceAll('"public".', `"${schema}".`));
+    t.mock.method(pool, 'query', db.query.bind(db));
+    t.mock.method(pool, 'connect', db.connect.bind(db));
+    const orgA = randomUUID(), orgB = randomUUID(), userA = randomUUID(), userB = randomUUID();
+    await db.query("INSERT INTO organizations(id,name,slug) VALUES($1::uuid,'Test A',$1::text),($2::uuid,'Test B',$2::text)", [orgA, orgB]);
+    await db.query("INSERT INTO users(id,organization_id,email,name) VALUES($1,$2,'a@example.test','A'),($3,$4,'b@example.test','B')", [userA, orgA, userB, orgB]);
+    const old = hashPassword('original-test-password');
+    await db.query('INSERT INTO auth_credentials(user_id,password_hash) VALUES($1,$3),($2,$3)', [userA,userB,old]);
+    await db.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES('a',$1,now()+interval '1 day'),('b',$2,now()+interval '1 day')",[userA,userB]);
+    const raw = 'a'.repeat(64);
+    await db.query("INSERT INTO auth_password_resets VALUES($1,$2,now()-interval '1 second')", [userA,digest(raw)]);
+    assert.equal(await completePasswordReset(raw,'updated-test-password'),false);
+    await db.query("UPDATE auth_password_resets SET expires_at=now()+interval '30 minutes'");
+    await db.query('UPDATE auth_credentials SET active=false WHERE user_id=$1',[userA]);
+    assert.equal(await completePasswordReset(raw,'updated-test-password'),false);
+    assert.equal((await db.query('SELECT count(*) FROM auth_sessions')).rows[0].count,'2');
+    await db.query('UPDATE auth_credentials SET active=true WHERE user_id=$1',[userA]);
+    const outcomes = await Promise.all([completePasswordReset(raw,'updated-test-password'),completePasswordReset(raw,'updated-test-password')]);
+    assert.deepEqual(outcomes.sort(),[false,true]);
+    assert.equal(await completePasswordReset(raw,'another-test-password'),false);
+    const credentials = await db.query('SELECT user_id,password_hash FROM auth_credentials');
+    assert.ok(verifyPassword('updated-test-password', credentials.rows.find(r=>r.user_id===userA).password_hash));
+    assert.equal(credentials.rows.find(r=>r.user_id===userB).password_hash,old);
+    assert.deepEqual((await db.query('SELECT user_id FROM auth_sessions')).rows.map(r=>r.user_id),[userB]);
+  } finally { await db.end(); }
+});

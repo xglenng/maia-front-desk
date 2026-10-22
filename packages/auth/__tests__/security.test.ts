@@ -14,8 +14,15 @@ const other='22222222-2222-4222-8222-222222222222';
 const configuredOrigin=()=>new URL(process.env.NEXT_PUBLIC_APP_URL||'http://localhost').origin;
 test('every browser API export is guarded',()=>{
   function walk(p:string):string[]{return readdirSync(p,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(p,e.name)):[join(p,e.name)]);}
-  const exempt=['app/api/payments/connect/webhook/route.ts','app/api/auth/invitations/route.ts','app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
+  const exempt=['app/api/auth/password-reset/route.ts','app/api/payments/connect/webhook/route.ts','app/api/auth/invitations/route.ts','app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
   for(const p of walk('app/api').filter(p=>p.endsWith('/route.ts')&&!exempt.includes(p))){const s=readFileSync(p,'utf8');if(p==='app/api/usage/route.ts'){assert.ok(s.includes('await identity(request)'));assert.ok(s.includes('platform && !isAdmin'));assert.ok(s.includes('platformAdmin(user.id)'));continue;}assert.ok(s.includes('protectedRoute('),p);assert.equal(/export async function (GET|POST|PUT|DELETE|PATCH)/.test(s),false,p);}
+  const resetRoute=readFileSync('app/api/auth/password-reset/route.ts','utf8');
+  assert.ok(resetRoute.includes('sameOrigin(request)'));
+  assert.ok(resetRoute.includes('requestPasswordReset(email)'));
+  assert.ok(resetRoute.includes('completePasswordReset(body.token, body.password)'));
+  const sessionGate=readFileSync('components/session-gate.tsx','utf8');
+  assert.ok(sessionGate.includes("path === '/forgot-password'"));
+  assert.ok(sessionGate.includes("path === '/reset-password'"));
   const connectWebhook=readFileSync('app/api/payments/connect/webhook/route.ts','utf8');
   for(const guard of ['constructEvent','event.account','event.livemode','paymentMatchesSession','stripeAccountId','connection.organizationId'])assert.ok(connectWebhook.includes(guard));
   // Invitation acceptance is public, protected by its scoped one-use token rather than a login.

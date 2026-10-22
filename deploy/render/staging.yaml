@@ -8,7 +8,7 @@ services:
     branch: codex/pr1-production-readiness
     autoDeployTrigger: "off"
     buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
+    startCommand: node scripts/render-staging-init.cjs && npm run start -- --hostname 0.0.0.0 --port $PORT
     healthCheckPath: /login
     envVars:
       - key: NODE_VERSION

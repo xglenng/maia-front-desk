@@ -106,11 +106,11 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (error) {
-  console.error('LOGIN ERROR:', error);
+  console.error('Sign-in database operation failed');
 
   return NextResponse.json(
-    { error: 'Unable to sign in' },
-    { status: 400 }
+    { error: 'Sign-in is temporarily unavailable. Please try again later.' },
+    { status: 503 }
   );
 }
 }
