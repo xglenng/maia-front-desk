@@ -1,4 +1,5 @@
-# Isolated migration rehearsal. Does not replace Railway production.
+# Render evaluation services. Existing database is assigned to Production.
+# These remain free temporary resources; Railway is still the live production host.
 services:
   - type: web
     name: maia-render-staging
@@ -8,7 +9,50 @@ services:
     branch: codex/pr1-production-readiness
     autoDeployTrigger: "off"
     buildCommand: npm ci --include=dev && npm run build
-    startCommand: node scripts/render-staging-init.cjs && npm run start -- --hostname 0.0.0.0 --port $PORT
+    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: '1'
+      - key: DATABASE_URL
+        value: postgresql://127.0.0.1:1/maia_disconnected
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: MAIA_STAGING_ISOLATED
+        value: '1'
+      - key: AI_PROVIDER
+        value: mock
+      - key: NEXT_PUBLIC_AI_PROVIDER
+        value: mock
+      - key: TWILIO_PROVISION_MODE
+        value: mock
+      - key: TWILIO_PORT_MODE
+        value: mock
+      - key: TWILIO_COMPLIANCE_MODE
+        value: mock
+      - key: TWILIO_ACCOUNT_CREATION_ENABLED
+        value: 'false'
+      - key: META_MESSAGING_MODE
+        value: mock
+      - key: SQUARE_ENVIRONMENT
+        value: sandbox
+      - key: MAIA_STRIPE_CONNECT_ENABLED
+        value: 'false'
+      - key: MAIA_STRIPE_TERMINAL_ENABLED
+        value: 'false'
+  - type: web
+    name: maia-production-preview
+    runtime: node
+    region: oregon
+    plan: free
+    branch: codex/pr1-production-readiness
+    autoDeployTrigger: "off"
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
     healthCheckPath: /login
     envVars:
       - key: NODE_VERSION
@@ -22,7 +66,7 @@ services:
           name: maia-render-staging-db
           property: connectionString
       - key: NEXT_PUBLIC_APP_URL
-        sync: false
+        value: https://maia-production-preview.onrender.com
       - key: MAIA_STAGING_ISOLATED
         value: '1'
       - key: AI_PROVIDER
