@@ -113,11 +113,17 @@ export async function sendSms(input: { to: string; body: string; from?: string; 
   });
 }
 
-export function validateTwilioSignature(input: { signature: string; url: string; params: Record<string, string>; authToken?: string }) {
+export function validateTwilioSignature(input: { signature: string; url: string; params: Record<string, string>; authToken?: string; accountSid?: string }) {
   const token = input.authToken || process.env.TWILIO_AUTH_TOKEN;
   if (!token) return false;
+  // Only server-resolved parent accounts may use the temporary rotation token.
+  const secondary = input.accountSid && input.accountSid === process.env.TWILIO_ACCOUNT_SID
+    ? process.env.TWILIO_AUTH_TOKEN_SECONDARY : undefined;
   const data = input.url + Object.keys(input.params).sort().map(k => k + input.params[k]).join('');
-  const digest = crypto.createHmac('sha1', token).update(data).digest('base64');
-  const a = Buffer.from(digest); const b = Buffer.from(input.signature);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  const signature = Buffer.from(input.signature);
+  return [token, secondary].some(candidate => {
+    if (!candidate) return false;
+    const digest = Buffer.from(crypto.createHmac('sha1', candidate).update(data).digest('base64'));
+    return digest.length === signature.length && crypto.timingSafeEqual(digest, signature);
+  });
 }

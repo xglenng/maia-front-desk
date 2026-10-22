@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const signature = request.headers.get("x-twilio-signature");
     const base = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
     const publicUrl = `${base?.replace(/\/$/, "")}/api/twilio/voice`;
-    if (!signature || !base || !validateTwilioSignature({ signature, url: publicUrl, params, authToken })) return new NextResponse("Invalid Twilio signature", { status: 403 });
+    if (!signature || !base || !validateTwilioSignature({ signature, url: publicUrl, params, authToken, accountSid: account.accountSid })) return new NextResponse("Invalid Twilio signature", { status: 403 });
   }
   const [port] = await db.select().from(phoneNumberPortRequests).where(and(eq(phoneNumberPortRequests.organizationId, number.organizationId), eq(phoneNumberPortRequests.artistId, number.artistId), eq(phoneNumberPortRequests.phoneNumber, number.phoneNumber), eq(phoneNumberPortRequests.status, "COMPLETED"))).limit(1);
   const destination = port?.voiceForwardTo;

@@ -43,7 +43,7 @@ test('every browser API export is guarded',()=>{
   const squareWebhook=readFileSync('app/api/payments/square/webhook/route.ts','utf8');
   assert.ok(squareWebhook.includes('verifySquareSignature(body, signature, signatureKey)'));
   const twilioMessageStatus=readFileSync('app/api/twilio/message-status/route.ts','utf8');
-  assert.ok(twilioMessageStatus.includes('validateTwilioSignature({ signature, url: callbackUrl, params, authToken })'));
+  assert.ok(twilioMessageStatus.includes('validateTwilioSignature({ signature, url: callbackUrl, params, authToken, accountSid })'));
 });
 test('signup rate limit uses the trusted Railway proxy hop and fixed threshold',async(t)=>{
   const previousRailwayId=process.env.RAILWAY_ENVIRONMENT_ID;

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     ? decryptSecret(account.authTokenEncrypted)
     : isParentAccount ? process.env.TWILIO_AUTH_TOKEN : undefined;
   const signature = request.headers.get("x-twilio-signature");
-  if (!signature || !authToken || !validateTwilioSignature({ signature, url: callbackUrl, params, authToken })) {
+  if (!signature || !authToken || !validateTwilioSignature({ signature, url: callbackUrl, params, authToken, accountSid })) {
     console.warn(JSON.stringify({ event: "twilio_message_status_rejected", reason: "invalid_signature", messageSid: maskedSid(messageSid), accountSid: maskedSid(accountSid) }));
     return NextResponse.json({ error: "Invalid Twilio signature." }, { status: 403 });
   }

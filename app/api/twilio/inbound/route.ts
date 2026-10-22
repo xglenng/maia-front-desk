@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
     const signature = request.headers.get('x-twilio-signature');
     const publicUrl = process.env.TWILIO_WEBHOOK_BASE_URL ? `${process.env.TWILIO_WEBHOOK_BASE_URL.replace(/\/$/, '')}/api/twilio/inbound` : (process.env.TWILIO_WEBHOOK_URL || `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/inbound`);
     const signaturePresent = Boolean(signature);
-    const signatureValid = Boolean(signature && validateTwilioSignature({ signature, url: publicUrl, params, authToken }));
+    const signatureValid = Boolean(signature && validateTwilioSignature({ signature, url: publicUrl, params, authToken, accountSid: account?.accountSid || process.env.TWILIO_ACCOUNT_SID }));
     logInbound('signature_validation', {
       signaturePresent,
       signatureValid,
