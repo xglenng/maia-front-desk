@@ -31,7 +31,7 @@ export default function TeamPage() {
       const response = await fetch('/api/studio/invitations', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(existingId ? { artistId:existingId,email:existingEmail } : { name,email,memberType }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      setInviteUrl(data.inviteUrl); setNotice('Invitation created. Copy the link below and share it privately with the invited team member.');
+      setInviteUrl(data.inviteUrl); setNotice(data.emailDelivery === 'ACCEPTED' ? 'Invitation email submitted for delivery. If it does not arrive, check spam or share the private link below.' : data.emailDelivery === 'NOT_CONFIGURED' ? 'Invitation created, but email delivery is not configured. Ask your Maia administrator to configure Resend. You can share the private link below.' : 'Invitation created, but the email could not be sent. Share the private link below, or create a new invitation to retry.');
       if (existingId) {setInvitingId('');setExistingEmail('');} else {setName('');setEmail('');}
       await load();
     } catch (error) { setError(error instanceof Error ? error.message : 'Unable to create invitation.'); }
@@ -65,8 +65,8 @@ export default function TeamPage() {
       <label>Email<input required type="email" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} style={field}/></label>
       <label>Role<select value={memberType} onChange={event => setMemberType(event.target.value)} style={field}><option value="ARTIST">Artist</option><option value="APPRENTICE">Apprentice · owner approval required</option></select></label>
       {memberType === 'APPRENTICE' && <small>Replies require owner approval. Direct booking is disabled for this new profile.</small>}
-      <button className="team-primary" disabled={busy}>{busy ? 'Working…' : 'Add & create invite link'}</button>
-      <small>Creates their profile and a private invite link together. Share the link so they can set their own password. Links expire in 72 hours; no email is sent automatically.</small>
+      <button className="team-primary" disabled={busy}>{busy ? 'Working…' : 'Add & send invitation'}</button>
+      <small>Creates their profile and invites them to set their own password. A private link is also provided as a fallback. An invitation email is sent when email delivery is configured. Links expire in 72 hours.</small>
     </form>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     {inviteUrl && <section style={{ marginTop:16, padding:20, background:'#f0ebfa', borderRadius:12 }}><label>Private invitation link<input readOnly value={inviteUrl} style={field} onFocus={event => event.target.select()}/></label><button type="button" onClick={async () => {try {await navigator.clipboard.writeText(inviteUrl);setNotice('Invitation link copied.');} catch {setNotice('Select the link above and copy it.');}}}>Copy link</button><p>This secret link is shown only now. If it is lost, create a new invitation.</p></section>}
@@ -78,7 +78,7 @@ export default function TeamPage() {
         {invitingId === artist.id ? <form onSubmit={event => void create(event,artist.id)} style={{display:'grid',gap:10}}>
           <label>Invite email for {artist.display_name}<input type="email" maxLength={254} required autoFocus value={existingEmail} onChange={event => setExistingEmail(event.target.value)} style={field}/></label>
           <small>Creates a login invitation for this existing profile. A replacement link revokes its previous link.</small>
-          <button disabled={busy}>{busy ? 'Working…' : 'Create invite link'}</button>
+          <button disabled={busy}>{busy ? 'Working…' : 'Send invitation'}</button>
           <button type="button" disabled={busy} onClick={() => setInvitingId('')}>Cancel</button>
         </form> : <button type="button" disabled={busy} onClick={() => {setInvitingId(artist.id);setExistingEmail(artist.invitation_email || '');}}>{artist.invitation_id ? 'Create new invite' : 'Invite'}</button>}
       </div>}

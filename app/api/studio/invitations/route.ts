@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sendInvitationEmail } from '@/packages/auth/invitation-email';
 import { artistColor, availableArtistColor, validArtistColor } from '@/packages/studio/artist-colors';
 import { NextRequest, NextResponse } from 'next/server';
 import { identity, protectedRoute } from '@/packages/auth/server';
@@ -59,7 +60,9 @@ async function post(request: NextRequest) {
     await tx.query('COMMIT');
     // Fragment keeps the invitation secret out of server request URLs/referrers.
     url.hash = raw;
-    return NextResponse.json({ artistId, invitation: invite, inviteUrl: url.toString() }, { status: 201 });
+    const inviteUrl = url.toString();
+    const emailDelivery = await sendInvitationEmail({ email, inviteUrl, invitationId: invite.id });
+    return NextResponse.json({ artistId, invitation: invite, inviteUrl, emailDelivery }, { status: 201 });
   } catch { await tx.query('ROLLBACK'); return NextResponse.json({ error: 'Unable to create invitation.' }, { status: 500 }); }
   finally { tx.release(); }
 }

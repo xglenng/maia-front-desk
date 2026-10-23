@@ -2,7 +2,7 @@
 
 Owners use Settings → Team & invitations → Add team member to enter a name, email and Artist/Apprentice selection. This creates a profile and invitation in one transaction. New apprentices require owner approval and start with booking disabled. Existing profiles without logins have an Invite/Create new invite button, which links the login without duplicating or changing the profile.
 
-Create invitation link returns a private link once. The owner shares it privately; no email integration or automatic delivery is implemented. Duplicate names and pending invitation emails within the studio are rejected with guidance to use the existing row. An organization lock serializes duplicate submissions; a failed invitation leaves no new profile.
+Send invitation returns a private link once and submits an invitation email through Resend after the database transaction commits. The UI distinguishes provider acceptance (not guaranteed inbox delivery), missing configuration, and delivery failure. The private link remains available as a fallback; a mail failure does not roll back the saved profile or invitation. Reissuing creates a new token and revokes the old invitation. Duplicate names and pending invitation emails within the studio are rejected with guidance to use the existing row. An organization lock serializes duplicate submissions; a failed invitation leaves no new profile.
 
 Links expire in 72 hours. Issuing a replacement for the same profile revokes prior pending links; Revoke invitation invalidates pending invitations, not existing logins. The list shows linked logins and the latest invitation status. Invitation hashes alone are stored in PostgreSQL. The secret is a URL fragment, removed from the address bar on the Join page and submitted only in the acceptance POST body.
 
@@ -12,7 +12,7 @@ Recipients enter their invited email and a 10–128 character password. Acceptan
 
 Creation, listing, and revocation require owner access and same-origin writes. Every artist lookup is scoped to the authenticated tenant. The table has composite tenant foreign keys to artist and inviter. Acceptance checks token hash, email, expiry, revocation, and consumption inside a transaction; artist locks serialize acceptance against owner reissue/revoke and concurrent acceptance. It uses the same normalized-email advisory lock as signup and the existing unique email index. Tokens cannot grant owner roles or change supervision. The public endpoint uses an independent invitation namespace with the existing database-backed signup IP rate limiter (10/hour, trusted Railway proxy hop). No invitation secrets or passwords are logged by application code.
 
-The link is bearer access: share it only with the invited artist. It is not a second email-verification flow. No separate email delivery service has been configured.
+The link is bearer access: share it only with the invited artist. It is not a second email-verification flow. Email requires RESEND_API_KEY, AUTH_EMAIL_FROM (a verified Resend sender), and an HTTPS NEXT_PUBLIC_APP_URL in the deployment environment. No real email is sent by unit tests. The Resend request has a 10-second timeout and an invitation-specific idempotency key. Provider bodies, tokens, and recipient addresses are not logged.
 
 ## Migration and rollout
 
