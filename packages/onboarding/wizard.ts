@@ -5,7 +5,7 @@ export const setupStages = [
   { id: 'calendar', title: 'Team & calendar', description: 'Set up artists and apprentices, then choose their working hours. Maia’s calendar works without Square.', checks: ['artist', 'scheduling'] },
   { id: 'payments', title: 'Payments & waivers', description: 'Connect payment collection and prepare waiver forms if needed. Deposit amounts and rules are already saved with your services.', checks: ['payments', 'waivers'] },
   { id: 'messaging', title: 'Messaging', description: 'Connect Instagram or Facebook, or set up SMS. Choose the channels your studio uses.', checks: ['social', 'sms'] },
-  { id: 'review', title: 'Review & test', description: 'Review your receptionist settings and test Maia before enabling automatic replies.', checks: ['receptionist', 'test', 'go_live'] },
+  { id: 'review', title: 'Review & test', description: 'Review your receptionist settings and feature availability. You can optionally preview Maia’s replies.', checks: ['receptionist', 'test', 'go_live'] },
 ] as const;
 
 export function wizardStage(value: string | null) {

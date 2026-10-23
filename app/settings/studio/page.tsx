@@ -280,7 +280,7 @@ export default function StudioSettingsPage() {
         </div>)}
       </details>
 
-      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>Artist permissions &amp; Maia preferences</summary>
+      <details id="receptionist" style={{...panel,scrollMarginTop:100}} ref={node=>{if(node && window.location.hash==='#receptionist'){node.open=true;node.scrollIntoView();}}}><summary style={{fontWeight:700,cursor:'pointer'}}>Artist permissions &amp; Maia preferences</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Artist &amp; AI receptionist</h2><p style={{ color: '#706b66' }}>Artist ownership and receptionist settings remain artist-scoped.</p></div><button type="button" onClick={() => setAddingArtist(value => !value)} style={secondary}>{addingArtist ? 'Cancel' : 'Add artist'}</button></div>
         {addingArtist && <form onSubmit={createArtist} style={{ ...panel, padding: 14 }}><div style={grid}><label style={label}>Artist display name<input required minLength={2} maxLength={120} value={newArtistName} onChange={event => setNewArtistName(event.target.value)} style={field} /></label><label style={label}>Public bio<textarea maxLength={1200} rows={2} value={newArtistBio} onChange={event => setNewArtistBio(event.target.value)} style={field} /></label></div><button type="submit" disabled={saving} style={{ ...button, marginTop: 10 }}>{saving ? 'Creating…' : 'Create artist'}</button></form>}
         <label style={label}>Artist profile

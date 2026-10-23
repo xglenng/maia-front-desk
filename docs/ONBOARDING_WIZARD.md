@@ -23,3 +23,5 @@ Validation: wizard navigation/readiness unit coverage, native calendar without S
 readiness coverage, repository unit suite, type check, and production build.
 
 Social channel setup uses the existing authenticated Meta OAuth flow. Facebook and Instagram have separate black connection controls and share Meta sign-in, followed by explicit channel selection. Local preview data is not copied into production.
+
+Reply previews are optional and do not block core readiness. The final setup summary checks actual core configuration; booking, SMS, and social readiness remain separate. Missing core settings expose fix links. This does not activate any messaging mode or bypass carrier/payment requirements.

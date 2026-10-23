@@ -68,7 +68,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
       <a href="/?view=Clients" aria-current={path==='/'&&dashboardView==='Clients'?'page':undefined}><UiIcon name="clients"/>Clients</a>
       {user.role==='OWNER'&&<a href="/settings" aria-current={path.startsWith('/settings')?'page':undefined}><UiIcon name="settings"/>Settings</a>}
     </nav>
-    <SetupReturn path={path} />
     {children}
+    <SetupReturn path={path} />
   </SessionContext.Provider>;
 }

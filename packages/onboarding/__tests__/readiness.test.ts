@@ -183,10 +183,10 @@ test('core readiness blocks when the platform AI runtime is unavailable without 
   assert.equal(JSON.stringify(readiness).includes('OPENAI_API_KEY'), false);
 });
 
-test('Test Maia completion comes from successful run state, not a client completion flag', () => {
-  assert.equal(buildOnboardingReadiness(tenantB).steps.find(step => step.id === 'test')?.status, 'IN_PROGRESS');
+test('reply preview is optional while completion still comes from a successful run', () => {
+  assert.equal(buildOnboardingReadiness(tenantB).steps.find(step => step.id === 'test')?.status, 'OPTIONAL');
   assert.equal(buildOnboardingReadiness(tenantB).readyForCoreMaia, true);
-  assert.equal(buildOnboardingReadiness(tenantB).readyForCoreGoLive, false);
+  assert.equal(buildOnboardingReadiness(tenantB).readyForCoreGoLive, true);
   const tested = buildOnboardingReadiness({ ...tenantB, agentTestSucceeded: true });
   assert.equal(tested.steps.find(step => step.id === 'test')?.status, 'COMPLETE');
   assert.equal(tested.readyForCoreGoLive, true);
