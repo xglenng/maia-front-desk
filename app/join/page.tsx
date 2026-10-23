@@ -28,9 +28,9 @@ export default function JoinStudioPage() {
     } catch (error) { setError(error instanceof Error ? error.message : 'Unable to join the studio.'); }
     finally { setBusy(false); }
   }
-  return <main style={{ maxWidth:440,margin:'60px auto',padding:24 }}><h1>Join your studio</h1><p>Enter the email your owner invited and choose your own password. This joins their existing studio.</p>
+  return <main style={{ maxWidth:440,margin:'60px auto',padding:24 }}><h1>Join your studio</h1><p>Use your own email address—the one that received this invitation—and choose your own password. Your login will join the studio that invited you.</p>
     <form onSubmit={accept} style={{ display:'grid',gap:16 }}>
-      <label>Invited email<input name="email" type="email" maxLength={254} autoComplete="username" required style={field}/></label>
+      <label>Your email address<input name="email" type="email" maxLength={254} autoComplete="username" required style={field}/></label>
       <label>Password<input name="password" type="password" minLength={10} maxLength={128} autoComplete="new-password" required style={field}/></label>
       <label>Confirm password<input name="confirmPassword" type="password" minLength={10} maxLength={128} autoComplete="new-password" required style={field}/></label>
       <button disabled={busy || !inviteToken}>{busy ? 'Joining…' : 'Join studio'}</button>

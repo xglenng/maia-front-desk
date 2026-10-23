@@ -24,6 +24,8 @@ test('invitation email validates configuration, sends the private link, and repo
     const body = JSON.parse(init?.body as string);
     assert.deepEqual(body.to, ['staff@example.test']);
     assert.ok(body.text.includes(input.inviteUrl));
+    assert.ok(body.text.includes('your own email address: staff@example.test'));
+    assert.ok(body.text.includes('Do not use the studio owner’s email or password.'));
     assert.ok(body.text.includes('72 hours'));
     return new Response('{}', { status: 200 });
   };

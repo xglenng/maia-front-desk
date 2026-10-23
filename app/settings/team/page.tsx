@@ -62,7 +62,7 @@ export default function TeamPage() {
     <form onSubmit={event => void create(event)} className="team-add">
       <h2 style={{margin:0}}>Add team member</h2>
       <label>Name<input required minLength={2} maxLength={120} value={name} onChange={event => setName(event.target.value)} style={field}/></label>
-      <label>Email<input required type="email" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} style={field}/></label>
+      <label>Team member’s email<input required type="email" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} style={field}/></label>
       <label>Role<select value={memberType} onChange={event => setMemberType(event.target.value)} style={field}><option value="ARTIST">Artist</option><option value="APPRENTICE">Apprentice · owner approval required</option></select></label>
       {memberType === 'APPRENTICE' && <small>Replies require owner approval. Direct booking is disabled for this new profile.</small>}
       <button className="team-primary" disabled={busy}>{busy ? 'Working…' : 'Add & send invitation'}</button>
@@ -76,7 +76,7 @@ export default function TeamPage() {
       <fieldset className="team-colors"><legend>Color for {artist.display_name}</legend>{ARTIST_COLORS.map(color=><button key={color.value} type="button" className="color-swatch" style={{'--swatch':color.value} as CSSProperties} aria-label={`${color.name} for ${artist.display_name}`} aria-pressed={artist.calendar_color===color.value} disabled={busy} onClick={()=>void saveColor(artist.id,color.value)}>{artist.calendar_color===color.value&&<UiIcon name="check" width="18" height="18"/>}</button>)}</fieldset>
       {!artist.login_email && <div style={{marginTop:12}}>
         {invitingId === artist.id ? <form onSubmit={event => void create(event,artist.id)} style={{display:'grid',gap:10}}>
-          <label>Invite email for {artist.display_name}<input type="email" maxLength={254} required autoFocus value={existingEmail} onChange={event => setExistingEmail(event.target.value)} style={field}/></label>
+          <label>{artist.display_name}’s own email<input type="email" maxLength={254} required autoFocus value={existingEmail} onChange={event => setExistingEmail(event.target.value)} style={field}/></label>
           <small>Creates a login invitation for this existing profile. A replacement link revokes its previous link.</small>
           <button disabled={busy}>{busy ? 'Working…' : 'Send invitation'}</button>
           <button type="button" disabled={busy} onClick={() => setInvitingId('')}>Cancel</button>
