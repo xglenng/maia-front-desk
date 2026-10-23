@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import ServiceImport from './service-import';
 import { useSession } from '@/components/session-gate';
 
 type Artist = { id: string; displayName: string };
@@ -126,6 +127,7 @@ export default function ServicesSettingsPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [importRevision, setImportRevision] = useState(0);
 
   useEffect(() => {
     if (!editorOpen) return;
@@ -167,7 +169,7 @@ export default function ServicesSettingsPage() {
       .catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Unable to load services.'); })
       .finally(() => { if (current) setLoadingServices(false); });
     return () => { current = false; };
-  }, [organizationId, artistId]);
+  }, [organizationId, artistId, importRevision]);
 
   function startNew() {
     setEditingId(null);
@@ -296,6 +298,8 @@ export default function ServicesSettingsPage() {
       </label>
     </section>
 
+    <ServiceImport key={artistId} organizationId={organizationId} artistId={artistId} onManual={startNew} onImported={() => setImportRevision(value => value + 1)} />
+
     {error && <p role="alert" style={alert}>{error}</p>}
     {notice && <p role="status" style={noticeStyle}>{notice}</p>}
 
@@ -328,9 +332,10 @@ export default function ServicesSettingsPage() {
         </label>
         {draft.depositType !== 'NONE' && <label style={labelStyle}>Deposit payment provider
           <select value={draft.paymentProvider} onChange={event => setDraft({ ...draft, paymentProvider: event.target.value as PaymentProvider })} style={field}>
-            <option value="SQUARE">Square</option><option value="STRIPE">Stripe checkout</option><option value="VENMO_MANUAL">Venmo (manual confirmation)</option>
+            <option value="SQUARE">Square</option><option value="STRIPE">Maia Payments</option><option value="VENMO_MANUAL">Venmo (manual confirmation)</option>
           </select>
         </label>}
+        {draft.depositType !== 'NONE' && draft.paymentProvider === 'STRIPE' && <p style={{ color: '#706b66', fontSize: 13 }}>Maia Payments is powered by Stripe. Sandbox testing only; live card payments are not available yet.</p>}
         {draft.depositType === 'FIXED' && <label style={labelStyle}>Deposit amount (USD)
           <input type="number" min="0.01" step="0.01" inputMode="decimal" value={draft.depositAmount} onChange={event => setDraft({ ...draft, depositAmount: event.target.value })} style={field} />
         </label>}

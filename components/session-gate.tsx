@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import UiIcon from './ui-icon';
+import SetupReturn from './setup-return';
 import './session-gate.css';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; role: 'OWNER' | 'ARTIST' };
@@ -67,6 +68,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
       <a href="/?view=Clients" aria-current={path==='/'&&dashboardView==='Clients'?'page':undefined}><UiIcon name="clients"/>Clients</a>
       {user.role==='OWNER'&&<a href="/settings" aria-current={path.startsWith('/settings')?'page':undefined}><UiIcon name="settings"/>Settings</a>}
     </nav>
+    <SetupReturn path={path} />
     {children}
   </SessionContext.Provider>;
 }

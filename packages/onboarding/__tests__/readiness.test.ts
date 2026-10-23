@@ -191,3 +191,21 @@ test('Test Maia completion comes from successful run state, not a client complet
   assert.equal(tested.steps.find(step => step.id === 'test')?.status, 'COMPLETE');
   assert.equal(tested.readyForCoreGoLive, true);
 });
+
+test('native calendar with artist hours is booking-ready without Square or payment connections', () => {
+  const native = structuredClone(tenantB);
+  native.availabilityRules = [{ artistId: artistB, active: true }];
+  const readiness = buildOnboardingReadiness(native);
+  assert.equal(readiness.readyForBooking, true);
+  assert.equal(readiness.readyForPayments, true);
+  assert.equal(readiness.booking.status, 'READY');
+  assert.equal(readiness.booking.blockers.length, 0);
+});
+
+test('multiple deposit services show each payment blocker only once', () => {
+  const facts = structuredClone(tenantA);
+  facts.services = [0, 1].map(index => ({ ...facts.services[0], id: `stripe-${index}`, paymentProvider: 'STRIPE' }));
+  const readiness = buildOnboardingReadiness(facts);
+  assert.equal(readiness.payments.blockers.length, 1);
+  assert.equal(readiness.steps.find(step => step.id === 'payments')?.blockers.length, 1);
+});

@@ -40,6 +40,7 @@ export default function OnboardingPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [artistId, setArtistId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [smsOpen, setSmsOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [testClientId, setTestClientId] = useState("");
   const activation = data?.activation;
@@ -88,11 +89,14 @@ export default function OnboardingPage() {
   return <main style={{ maxWidth: 980, margin: "0 auto", padding: "38px 20px 80px", color: "#181716", fontFamily: "Arial, sans-serif" }}>
     <p><a href="/settings" style={{ color: "#8f2f22" }}>← Owner settings</a></p>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <div><p style={{ margin: 0, color: "#8f2f22", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Studio setup</p><h1 style={{ margin: "7px 0" }}>Get Maia ready</h1><p style={{ maxWidth: 650, color: "#6f6b66", lineHeight: 1.55 }}>Configure core studio knowledge first. Booking, deposits, SMS, waivers, and social channels have separate readiness and are required only for the features you use.</p></div>
+      <div><p style={{ margin: 0, color: "#8f2f22", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Studio setup</p><h1 style={{ margin: "7px 0" }}>Get Maia ready</h1><p style={{ maxWidth: 650, color: "#6f6b66", lineHeight: 1.55 }}>Follow the guided steps to set up your studio. Use Maia’s calendar, connect the channels you need, and test your receptionist. You can return to any step later.</p></div>
       {activation?.status === "LIVE" && <span style={{ padding: "9px 13px", borderRadius: 20, background: "#e6f2ea", color: "#2f7651", fontWeight: 800 }}>● SMS LIVE</span>}
     </div>
 
-    <ReadinessPanel />
+    <ReadinessPanel onSmsSetup={() => setSmsOpen(true)} />
+
+    <details id="sms-setup" open={smsOpen} onToggle={event => setSmsOpen(event.currentTarget.open)} style={{ marginTop: 24 }}>
+      <summary style={{ cursor: "pointer", fontWeight: 700, padding: 18 }}>Optional SMS setup and activation</summary>
 
     <section style={{ ...card, marginTop: 22 }}>
       <label style={{ display: "block", fontSize: 13, fontWeight: 700 }}>Artist
@@ -143,6 +147,7 @@ export default function OnboardingPage() {
     </>}
 
     {!activation && !busy && data?.artists.length === 0 && <section style={{ ...card, marginTop: 16 }}>No artist profile exists yet. Create the first artist from Studio Configuration to continue.</section>}
+    </details>
     {busy && <p style={{ color: "#6f6b66" }}>Updating activation status…</p>}
     {message && <div style={{ ...card, marginTop: 16, borderColor: "#c9ada4" }}>{message}</div>}
   </main>;

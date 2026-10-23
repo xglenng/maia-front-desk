@@ -202,8 +202,8 @@ export default function SchedulingSettingsPage() {
     {notice && <p role="status" style={noticeStyle}>{notice}</p>}
     {loading && <p>Loading scheduling settings…</p>}
     {data && data.provider === 'MAIA' && <section style={panel}>
-      <div style={providerHead}><div><strong>Maia scheduling</strong><p style={muted}>Internal availability rules and appointments remain the active fallback.</p></div><span style={pill}>Active</span></div>
-      <a href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`} style={buttonLink}>Connect Square</a>
+      <div style={providerHead}><div><strong>Maia scheduling</strong><p style={muted}>Use Maia’s native calendar and artist availability. No external calendar account is required.</p></div><span style={pill}>Active</span></div>
+      <a href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`} style={buttonLink}>Connect Square (optional)</a>
     </section>}
     {data && data.provider === 'SQUARE' && !connected && <section style={panel}>
       <div style={providerHead}><div><strong>Square connection needs attention</strong><p style={muted}>Availability will not fall back to Maia scheduling while an external provider connection is in an error state.</p></div><span style={{ ...pill, background: '#fff0f0', color: '#8b1e1e' }}>Action required</span></div>

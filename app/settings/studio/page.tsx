@@ -239,7 +239,7 @@ export default function StudioSettingsPage() {
         </div>
       </details>
 
-      <section style={panel}>
+      <section id="knowledge" style={{ ...panel, scrollMarginTop: 100 }}>
         <h2 style={{ marginTop: 0 }}>Studio knowledge</h2><p>Tell Maia how you work, in your own words. No separate setup is needed for every question. Prices, deposits, hours, and booking permissions stay in their dedicated settings.</p>
         <label style={label}>Knowledge for artist<select value={selectedArtist} onChange={event=>setSelectedArtist(event.target.value)} style={field}>{config.artists.map(artist=><option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select></label>
         {config.rules.map((rule,index)=>rule.artistId===selectedArtist&&rule.visibility==='CLIENT_VISIBLE'?<div key={rule.id||`note-${index}`} style={{marginTop:14}}><textarea aria-label="Studio knowledge note" rows={3} maxLength={1200} value={rule.rule} onChange={event=>patchConfig({rules:config.rules.map((item,i)=>i===index?{...item,rule:event.target.value}:item)})} style={field}/><label><input type="checkbox" checked={rule.active} onChange={event=>patchConfig({rules:config.rules.map((item,i)=>i===index?{...item,active:event.target.checked}:item)})}/> Use this note in future replies</label></div>:null)}
