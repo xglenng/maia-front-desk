@@ -1,4 +1,5 @@
 'use client';
+import {selectedArtistId as resolveArtistSelection} from '@/packages/studio/artist-selection';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import ServiceImport from './service-import';
@@ -148,12 +149,19 @@ export default function ServicesSettingsPage() {
         if (!current) return;
         const loaded = data.artists as Artist[];
         setArtists(loaded);
-        setArtistId(existing => loaded.some(artist => artist.id === existing) ? existing : loaded[0]?.id || '');
+        setArtistId(existing => resolveArtistSelection(loaded, new URLSearchParams(window.location.search).get('artistId'), existing));
       })
       .catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Unable to load artists.'); })
       .finally(() => { if (current) setLoadingArtists(false); });
     return () => { current = false; };
   }, [organizationId]);
+
+  useEffect(() => {
+    if (!artistId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('artistId', artistId);
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  }, [artistId]);
 
   useEffect(() => {
     if (!organizationId || !artistId) {

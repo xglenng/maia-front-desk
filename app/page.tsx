@@ -23,10 +23,12 @@ export default function Home() {
   const user = useSession();
   const [view, setCurrentView] = useState<"Overview" | "Calendar" | "Inbox" | "Clients">("Overview");
   function setView(next: "Overview" | "Calendar" | "Inbox" | "Clients") {
-    setCurrentView(next); window.history.replaceState(null,'',next==='Overview'?'/':`/?view=${next}`); window.dispatchEvent(new Event('maia-view'));
+    setCurrentView(next); const url=new URL(window.location.href); if(next==='Overview')url.searchParams.delete('view');else url.searchParams.set('view',next); window.history.replaceState(null,'',url.pathname+url.search); window.dispatchEvent(new Event('maia-view'));
   }
   useEffect(()=>{const next=new URLSearchParams(window.location.search).get('view');if(next==='Calendar'||next==='Clients')setCurrentView(next);},[]);
   const [selectedArtistId, setSelectedArtistId] = useState('');
+  useEffect(()=>{const id=new URLSearchParams(window.location.search).get('artistId');if(id)setSelectedArtistId(id);},[]);
+  useEffect(()=>{if(!selectedArtistId)return;const url=new URL(window.location.href);url.searchParams.set('artistId',selectedArtistId);window.history.replaceState(null,'',url.pathname+url.search);},[selectedArtistId]);
   const [artistOptions, setArtistOptions] = useState<DashboardData['artists']>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [selectedDay, setSelectedDay] = useState(() => {
