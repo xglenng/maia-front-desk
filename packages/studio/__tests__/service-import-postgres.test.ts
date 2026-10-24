@@ -30,7 +30,9 @@ test('service import enforces owner/tenant scope, preview-only behavior and conc
     assert.equal((await POST(request('IMPORT', { organizationId: otherOrg }), undefined)).status, 403);
     assert.equal((await POST(request('IMPORT', { artistId: foreignArtist }), undefined)).status, 404);
     await local.query("UPDATE users SET role='ARTIST' WHERE id=$1", [owner]);
-    assert.equal((await POST(request('IMPORT'), undefined)).status, 403);
+    assert.equal((await POST(request('IMPORT'), undefined)).status, 404);
+    await local.query('UPDATE artists SET user_id=$1 WHERE id=$2',[owner,artist]);
+    assert.equal((await POST(request('PREVIEW'), undefined)).status, 200);
     await local.query("UPDATE users SET role='OWNER' WHERE id=$1", [owner]);
     assert.equal((await POST(request('PREVIEW'), undefined)).status, 200);
     assert.equal((await local.query('SELECT count(*)::int AS n FROM services')).rows[0].n, 0);

@@ -22,7 +22,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path.startsWith('/legal/') ||
   path.startsWith('/a/') ||
   path.startsWith('/book/');
-  const ownerPage = path === '/settings' || path === '/settings/team' || path === '/settings/services' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
+  const ownerPage = path === '/settings' || path === '/settings/team' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
   const [dashboardView,setDashboardView]=useState('Overview');
   useEffect(()=>{const update=()=>setDashboardView(new URLSearchParams(window.location.search).get('view')||'Overview');update();window.addEventListener('maia-view',update);return()=>window.removeEventListener('maia-view',update);},[path]);
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -62,11 +62,11 @@ export default function SessionGate({ children }: { children: ReactNode }) {
       </nav>
     </header>
     <nav className="mobile-nav" aria-label="Main navigation">
-      <a href="/" aria-current={path==='/'&&dashboardView==='Overview'?'page':undefined}><UiIcon name="dashboard"/>Home</a>
       <a href="/?view=Calendar" aria-current={path==='/'&&dashboardView==='Calendar'?'page':undefined}><UiIcon name="calendar"/>Calendar</a>
+      <a href="/checkout" aria-current={path==='/checkout'?'page':undefined}><UiIcon name="checkout"/>Checkout</a>
       <a href="/inbox" aria-current={path==='/inbox'?'page':undefined}><UiIcon name="inbox"/>Inbox</a>
       <a href="/?view=Clients" aria-current={path==='/'&&dashboardView==='Clients'?'page':undefined}><UiIcon name="clients"/>Clients</a>
-      {user.role==='OWNER'&&<a href="/settings" aria-current={path.startsWith('/settings')?'page':undefined}><UiIcon name="settings"/>Settings</a>}
+      <a href="/more" aria-current={path==='/more'||path==='/items'||path.startsWith('/settings')?'page':undefined}><UiIcon name="more"/>More</a>
     </nav>
     {children}
     <SetupReturn path={path} />

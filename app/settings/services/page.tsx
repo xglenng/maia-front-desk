@@ -283,7 +283,7 @@ export default function ServicesSettingsPage() {
     }
   }
 
-  if (!user || user.role !== 'OWNER') return null;
+  if (!user || !['OWNER','ARTIST'].includes(user.role)) return null;
   const groups = new Map<string, Service[]>();
   for (const service of services) {
     const key = `${service.serviceType}\u0000${service.category || ''}`;
@@ -291,7 +291,7 @@ export default function ServicesSettingsPage() {
   }
 
   return <main style={{ maxWidth: 1060, margin: '0 auto', padding: '36px 20px 80px', color: '#181716' }}>
-    <a href="/settings">← Owner settings</a>
+    <a href={`/items?artistId=${artistId}`}>← Items & services</a>
     <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', flexWrap: 'wrap', margin: '14px 0 22px' }}>
       <div><h1 style={{ margin: 0 }}>Services &amp; Pricing</h1><p style={{ color: '#706b66', margin: '7px 0 0' }}>Manage the active services and pricing Maia can share with clients.</p></div>
       <button type="button" onClick={startNew} disabled={!artistId || loadingArtists} style={primaryButton}>+ Add service</button>

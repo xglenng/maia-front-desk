@@ -1,4 +1,4 @@
-import { protectedRoute } from "@/packages/auth/server";
+import { identity, protectedRoute } from "@/packages/auth/server";
 import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -14,9 +14,10 @@ const updateSchema = z.object({
 async function handleGET(request: NextRequest) {
   const organizationId = request.nextUrl.searchParams.get("organizationId");
   if (!organizationId) return NextResponse.json({ error: "organizationId is required" }, { status: 400 });
+  const user=(await identity(request))!;
   const artistRows = await db.select({ id: artists.id, displayName: artists.displayName, responseLength: artists.responseLength, aiMode: artists.aiMode, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled })
     .from(artists)
-    .where(eq(artists.organizationId, organizationId))
+    .where(and(eq(artists.organizationId, organizationId),...(user.role==='OWNER'?[]:[eq(artists.userId,user.id)])))
     .orderBy(asc(artists.displayName));
   return NextResponse.json({ artists: artistRows });
 }
@@ -33,5 +34,5 @@ async function handlePUT(request: NextRequest) {
   return NextResponse.json({ artist });
 }
 
-export const GET = protectedRoute(handleGET, true);
+export const GET = protectedRoute(handleGET);
 export const PUT = protectedRoute(handlePUT, true);

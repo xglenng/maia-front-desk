@@ -1093,3 +1093,19 @@ export const studioPaymentAccounts=pgTable('studio_payment_accounts',{
  detailsSubmitted:boolean('details_submitted').default(false).notNull(),
  updatedAt:timestamp('updated_at').defaultNow().notNull(),
 });
+
+// Merchandise and checkout sales are scoped to an artist within a studio.
+export const retailItems = pgTable('retail_items', {
+  artistId:uuid('artist_id').notNull().references(()=>artists.id),
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(()=>organizations.id),
+  name:text('name').notNull(),category:text('category'),sku:text('sku'),
+  priceCents:integer('price_cents'),taxBasisPoints:integer('tax_basis_points').notNull().default(0),
+  active:boolean('active').notNull().default(true),
+  createdAt:timestamp('created_at').notNull().defaultNow(),updatedAt:timestamp('updated_at').notNull().defaultNow(),
+},table=>[foreignKey({columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),index('retail_items_org_idx').on(table.organizationId,table.artistId),check('retail_items_price_check',sql`${table.priceCents} BETWEEN 1 AND 100000000`),check('retail_items_tax_check',sql`${table.taxBasisPoints} BETWEEN 0 AND 10000`)]);
+export const checkoutSales = pgTable('checkout_sales', {
+ id:uuid('id').defaultRandom().primaryKey(),organizationId:uuid('organization_id').notNull().references(()=>organizations.id),
+ artistId:uuid('artist_id').notNull().references(()=>artists.id),createdByUserId:uuid('created_by_user_id').notNull().references(()=>users.id),requestId:uuid('request_id').notNull(),
+ lines:jsonb('lines').notNull(),subtotalCents:integer('subtotal_cents').notNull(),taxCents:integer('tax_cents').notNull(),tipCents:integer('tip_cents').notNull(),totalCents:integer('total_cents').notNull(),tender:text('tender').notNull(),note:text('note').notNull().default(''),createdAt:timestamp('created_at').notNull().defaultNow(),
+},table=>[foreignKey({columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),check('checkout_sales_subtotal_check',sql`${table.subtotalCents} >= 0`),check('checkout_sales_tax_check',sql`${table.taxCents} >= 0`),check('checkout_sales_tip_check',sql`${table.tipCents} >= 0`),check('checkout_sales_total_check',sql`${table.totalCents} = ${table.subtotalCents} + ${table.taxCents} + ${table.tipCents} AND ${table.totalCents} BETWEEN 1 AND 100000000`),check('checkout_sales_tender_check',sql`${table.tender} IN ('CASH','EXTERNAL')`),uniqueIndex('checkout_sales_request_idx').on(table.organizationId,table.requestId),index('checkout_sales_artist_idx').on(table.organizationId,table.artistId)]);

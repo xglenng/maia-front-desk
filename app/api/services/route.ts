@@ -63,5 +63,5 @@ async function handlePOST(request: NextRequest) {
   return NextResponse.json({ service }, { status: 201 });
 }
 
-export const GET = protectedRoute(handleGET, true);
-export const POST = protectedRoute(handlePOST, true);
+export const GET = protectedRoute(handleGET);
+export const POST = protectedRoute(handlePOST);

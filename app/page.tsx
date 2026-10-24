@@ -109,6 +109,8 @@ export default function Home() {
           )}
         </nav>
         <div className="sidebar-bottom">
+          <a href={`/checkout?artistId=${encodeURIComponent(selectedArtistId||data?.artist.id||'')}`} className="nav-item" style={{textDecoration:'none'}}><span className="nav-icon"><UiIcon name="checkout"/></span><span className="nav-label">Checkout</span></a>
+          <a href={`/items?artistId=${encodeURIComponent(selectedArtistId||data?.artist.id||'')}`} className="nav-item" style={{textDecoration:'none'}}><span className="nav-icon"><UiIcon name="more"/></span><span className="nav-label">Items & services</span></a>
           {user?.role === 'OWNER' && <a href="/onboarding" aria-label="Activation" title="Activation" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon"><UiIcon name="check" /></span><span className="nav-label">Activation</span></a>}
           {user?.role === 'OWNER' && <a href="/settings" aria-label="Settings" title="Settings" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon"><UiIcon name="settings" /></span><span className="nav-label">Settings</span></a>}
           <div className="ai-status"><span className={aiEnabled ? "status-dot" : "status-dot off"}></span><div><strong>AI receptionist</strong><span>{aiEnabled ? "Active · Assisted mode" : "Paused"}</span></div><button onClick={() => setAiEnabled(!aiEnabled)}>{aiEnabled ? "ON" : "OFF"}</button></div>

@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: a763a153e815599f624499b2267778262634dcc11ac4fa5bdeb1ecfaa4a82de3
+-- schema-source-sha256: c0e5e8b46171cb44f885b06ed23f412c3cfb040f45e88215685b5882669c2665
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -272,6 +272,27 @@ CREATE TABLE "channel_connections" (
 	"last_error" text,
 	"connected_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "checkout_sales" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"created_by_user_id" uuid NOT NULL,
+	"request_id" uuid NOT NULL,
+	"lines" jsonb NOT NULL,
+	"subtotal_cents" integer NOT NULL,
+	"tax_cents" integer NOT NULL,
+	"tip_cents" integer NOT NULL,
+	"total_cents" integer NOT NULL,
+	"tender" text NOT NULL,
+	"note" text DEFAULT '' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "checkout_sales_subtotal_check" CHECK ("checkout_sales"."subtotal_cents" >= 0),
+	CONSTRAINT "checkout_sales_tax_check" CHECK ("checkout_sales"."tax_cents" >= 0),
+	CONSTRAINT "checkout_sales_tip_check" CHECK ("checkout_sales"."tip_cents" >= 0),
+	CONSTRAINT "checkout_sales_total_check" CHECK ("checkout_sales"."total_cents" = "checkout_sales"."subtotal_cents" + "checkout_sales"."tax_cents" + "checkout_sales"."tip_cents" AND "checkout_sales"."total_cents" BETWEEN 1 AND 100000000),
+	CONSTRAINT "checkout_sales_tender_check" CHECK ("checkout_sales"."tender" IN ('CASH','EXTERNAL'))
 );
 --> statement-breakpoint
 CREATE TABLE "client_channel_identities" (
@@ -631,6 +652,22 @@ CREATE TABLE "phone_numbers" (
 	CONSTRAINT "phone_numbers_twilio_phone_number_sid_unique" UNIQUE("twilio_phone_number_sid")
 );
 --> statement-breakpoint
+CREATE TABLE "retail_items" (
+	"artist_id" uuid NOT NULL,
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"name" text NOT NULL,
+	"category" text,
+	"sku" text,
+	"price_cents" integer,
+	"tax_basis_points" integer DEFAULT 0 NOT NULL,
+	"active" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "retail_items_price_check" CHECK ("retail_items"."price_cents" BETWEEN 1 AND 100000000),
+	CONSTRAINT "retail_items_tax_check" CHECK ("retail_items"."tax_basis_points" BETWEEN 0 AND 10000)
+);
+--> statement-breakpoint
 CREATE TABLE "scheduling_connections" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -951,6 +988,10 @@ CREATE UNIQUE INDEX "channel_connections_id_organization_uidx" ON "channel_conne
 --> statement-breakpoint
 CREATE UNIQUE INDEX "channel_connections_provider_account_uidx" ON "channel_connections" USING btree ("provider","external_account_id");
 --> statement-breakpoint
+CREATE UNIQUE INDEX "checkout_sales_request_idx" ON "checkout_sales" USING btree ("organization_id","request_id");
+--> statement-breakpoint
+CREATE INDEX "checkout_sales_artist_idx" ON "checkout_sales" USING btree ("organization_id","artist_id");
+--> statement-breakpoint
 CREATE UNIQUE INDEX "clients_id_organization_uidx" ON "clients" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "conversations_id_organization_uidx" ON "conversations" USING btree ("id","organization_id");
@@ -962,6 +1003,8 @@ CREATE UNIQUE INDEX "external_waiver_forms_id_organization_uidx" ON "external_wa
 CREATE UNIQUE INDEX "legal_customers_id_organization_uidx" ON "legal_customers" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "phone_numbers_id_organization_uidx" ON "phone_numbers" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE INDEX "retail_items_org_idx" ON "retail_items" USING btree ("organization_id","artist_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "scheduling_connections_id_organization_uidx" ON "scheduling_connections" USING btree ("id","organization_id");
 --> statement-breakpoint
@@ -1129,6 +1172,14 @@ ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_artist_id_
 --> statement-breakpoint
 ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
+ALTER TABLE "checkout_sales" ADD CONSTRAINT "checkout_sales_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "checkout_sales" ADD CONSTRAINT "checkout_sales_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "checkout_sales" ADD CONSTRAINT "checkout_sales_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "checkout_sales" ADD CONSTRAINT "checkout_sales_artist_id_organization_id_artists_id_organization_id_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
 ALTER TABLE "client_channel_identities" ADD CONSTRAINT "client_channel_identities_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "client_channel_identities" ADD CONSTRAINT "client_channel_identities_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;
@@ -1276,6 +1327,12 @@ ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_twilio_account_id_twil
 ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_twilio_account_id_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "retail_items" ADD CONSTRAINT "retail_items_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "retail_items" ADD CONSTRAINT "retail_items_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "retail_items" ADD CONSTRAINT "retail_items_artist_id_organization_id_artists_id_organization_id_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "scheduling_connections" ADD CONSTRAINT "scheduling_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

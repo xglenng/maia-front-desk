@@ -60,4 +60,4 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
   return NextResponse.json({ service });
 }
 
-export const PATCH = protectedRoute(handlePATCH, true);
+export const PATCH = protectedRoute(handlePATCH);

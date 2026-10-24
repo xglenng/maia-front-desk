@@ -1,7 +1,8 @@
 import type { SVGProps } from 'react';
 
-export type IconName = 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off';
+export type IconName = 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off';
 const paths: Record<IconName, React.ReactNode> = {
+  checkout: <><path d="M4 8h16v13H4Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2M8 13h8"/></>,
   dashboard: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
   settings: <><path d="m9 4 1-2h4l1 2 2 1 2-.2 2 3-1 2v4l1 2-2 3-2-.2-2 1-1 2h-4l-1-2-2-1-2 .2-2-3 1-2v-4l-1-2 2-3L7 5Z"/><circle cx="12" cy="12" r="3"/></>,
   calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></>,

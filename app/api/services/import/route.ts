@@ -33,4 +33,4 @@ async function handlePOST(request: NextRequest) {
   });
   return result ? NextResponse.json(result) : NextResponse.json({ error: 'Artist not found.' }, { status: 404 });
 }
-export const POST = protectedRoute(handlePOST, true);
+export const POST = protectedRoute(handlePOST);

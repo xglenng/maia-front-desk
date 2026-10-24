@@ -82,6 +82,8 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
       const references = [...Object.entries(body), ...url.searchParams.entries()];
       const pathId = url.pathname.match(/^\/api\/appointments\/([^/]+)(?:\/deposit)?$/)?.[1];
       if (pathId) references.push(['appointmentId',pathId]);
+      const servicePathId = url.pathname.match(/^\/api\/services\/([^/]+)$/)?.[1];
+      if (servicePathId && servicePathId !== 'import') references.push(['serviceId',servicePathId]);
       for (const [key,id] of references) {
         if (!tables[key] || id == null || id === '') continue;
         if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id)) return NextResponse.json({error:'Invalid record ID'}, {status:400});

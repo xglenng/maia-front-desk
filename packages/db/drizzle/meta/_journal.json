@@ -134,6 +134,13 @@
       "when": 1792886400000,
       "tag": "0018_password_resets",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792972800000,
+      "tag": "0019_retail_checkout",
+      "breakpoints": true
     }
   ]
 }
