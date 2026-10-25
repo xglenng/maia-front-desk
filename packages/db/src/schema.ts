@@ -1086,6 +1086,7 @@ export const calendarTimeOff = pgTable('calendar_time_off', {
 }));
 
 export const studioPaymentAccounts=pgTable('studio_payment_accounts',{
+ livemode:boolean('livemode').notNull().default(false),
  organizationId:uuid('organization_id').references(()=>organizations.id).primaryKey(),
  stripeAccountId:text('stripe_account_id').notNull().unique(),
  chargesEnabled:boolean('charges_enabled').default(false).notNull(),
@@ -1108,4 +1109,23 @@ export const checkoutSales = pgTable('checkout_sales', {
  id:uuid('id').defaultRandom().primaryKey(),organizationId:uuid('organization_id').notNull().references(()=>organizations.id),
  artistId:uuid('artist_id').notNull().references(()=>artists.id),createdByUserId:uuid('created_by_user_id').notNull().references(()=>users.id),requestId:uuid('request_id').notNull(),
  lines:jsonb('lines').notNull(),subtotalCents:integer('subtotal_cents').notNull(),taxCents:integer('tax_cents').notNull(),tipCents:integer('tip_cents').notNull(),totalCents:integer('total_cents').notNull(),tender:text('tender').notNull(),note:text('note').notNull().default(''),createdAt:timestamp('created_at').notNull().defaultNow(),
-},table=>[foreignKey({columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),check('checkout_sales_subtotal_check',sql`${table.subtotalCents} >= 0`),check('checkout_sales_tax_check',sql`${table.taxCents} >= 0`),check('checkout_sales_tip_check',sql`${table.tipCents} >= 0`),check('checkout_sales_total_check',sql`${table.totalCents} = ${table.subtotalCents} + ${table.taxCents} + ${table.tipCents} AND ${table.totalCents} BETWEEN 1 AND 100000000`),check('checkout_sales_tender_check',sql`${table.tender} IN ('CASH','EXTERNAL')`),uniqueIndex('checkout_sales_request_idx').on(table.organizationId,table.requestId),index('checkout_sales_artist_idx').on(table.organizationId,table.artistId)]);
+},table=>[foreignKey({columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),check('checkout_sales_subtotal_check',sql`${table.subtotalCents} >= 0`),check('checkout_sales_tax_check',sql`${table.taxCents} >= 0`),check('checkout_sales_tip_check',sql`${table.tipCents} >= 0`),check('checkout_sales_total_check',sql`${table.totalCents} = ${table.subtotalCents} + ${table.taxCents} + ${table.tipCents} AND ${table.totalCents} BETWEEN 1 AND 100000000`),check('checkout_sales_tender_check',sql`${table.tender} IN ('CASH','EXTERNAL','CARD')`),uniqueIndex('checkout_sales_request_idx').on(table.organizationId,table.requestId),index('checkout_sales_artist_idx').on(table.organizationId,table.artistId)]);
+
+export const checkoutCardAttempts = pgTable('checkout_card_attempts', {
+ id:uuid('id').defaultRandom().primaryKey(),
+ organizationId:uuid('organization_id').notNull().references(()=>organizations.id),
+ artistId:uuid('artist_id').notNull().references(()=>artists.id),
+ createdByUserId:uuid('created_by_user_id').notNull().references(()=>users.id),
+ requestId:uuid('request_id').notNull(),cartHash:text('cart_hash').notNull(),
+ stripeAccountId:text('stripe_account_id').notNull(),livemode:boolean('livemode').notNull(),
+ sessionId:text('session_id'),paymentIntentId:text('payment_intent_id'),
+ lines:jsonb('lines').notNull(),subtotalCents:integer('subtotal_cents').notNull(),taxCents:integer('tax_cents').notNull(),tipCents:integer('tip_cents').notNull(),totalCents:integer('total_cents').notNull(),
+ note:text('note').notNull().default(''),status:text('status').notNull().default('PENDING'),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},table=>[
+ foreignKey({columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+ uniqueIndex('checkout_card_request_idx').on(table.organizationId,table.requestId),
+ uniqueIndex('checkout_card_session_idx').on(table.sessionId),
+ check('checkout_card_status_check',sql`${table.status} IN ('PENDING','PAID','EXPIRED')`),
+ check('checkout_card_amount_check',sql`${table.subtotalCents} >= 0 AND ${table.taxCents} >= 0 AND ${table.tipCents} >= 0 AND ${table.totalCents} = ${table.subtotalCents}+${table.taxCents}+${table.tipCents} AND ${table.totalCents} BETWEEN 1 AND 100000000`),
+]);

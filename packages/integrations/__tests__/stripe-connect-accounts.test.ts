@@ -27,3 +27,11 @@ test('live responses and unexpected onboarding destinations are rejected',async(
  const foreign={rawRequest:async()=>({livemode:false,url:'https://evil.test'})} as unknown as Stripe;
  await assert.rejects(createStudioOnboardingLink(foreign,'acct_test','http://localhost'));
 });
+test('explicit live studio setup validates live responses and separates account idempotency keys',async()=>{
+ const stripe={rawRequest:async(_method:string,path:string,_body:any,options:any)=>{
+  if(path==='/v2/core/accounts'){assert.equal(options.idempotencyKey,'studio-connect-v2:tenant:live');return {id:'acct_studio',livemode:true};}
+  return {url:'https://connect.stripe.com/onboard',livemode:true};
+ }} as unknown as Stripe;
+ assert.equal((await createStudioStripeAccount(stripe,'tenant','Studio',true)).id,'acct_studio');
+ assert.match((await createStudioOnboardingLink(stripe,'acct_studio','https://maia.example',true)).url,/connect.stripe.com/);
+});

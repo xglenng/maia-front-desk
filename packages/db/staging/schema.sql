@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: c0e5e8b46171cb44f885b06ed23f412c3cfb040f45e88215685b5882669c2665
+-- schema-source-sha256: 2f842d57a053343507e2e650663bce4329dfdc168cff0a1083e8de8e32b918fe
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -274,6 +274,30 @@ CREATE TABLE "channel_connections" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "checkout_card_attempts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"created_by_user_id" uuid NOT NULL,
+	"request_id" uuid NOT NULL,
+	"cart_hash" text NOT NULL,
+	"stripe_account_id" text NOT NULL,
+	"livemode" boolean NOT NULL,
+	"session_id" text,
+	"payment_intent_id" text,
+	"lines" jsonb NOT NULL,
+	"subtotal_cents" integer NOT NULL,
+	"tax_cents" integer NOT NULL,
+	"tip_cents" integer NOT NULL,
+	"total_cents" integer NOT NULL,
+	"note" text DEFAULT '' NOT NULL,
+	"status" text DEFAULT 'PENDING' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "checkout_card_status_check" CHECK ("checkout_card_attempts"."status" IN ('PENDING','PAID','EXPIRED')),
+	CONSTRAINT "checkout_card_amount_check" CHECK ("checkout_card_attempts"."subtotal_cents" >= 0 AND "checkout_card_attempts"."tax_cents" >= 0 AND "checkout_card_attempts"."tip_cents" >= 0 AND "checkout_card_attempts"."total_cents" = "checkout_card_attempts"."subtotal_cents"+"checkout_card_attempts"."tax_cents"+"checkout_card_attempts"."tip_cents" AND "checkout_card_attempts"."total_cents" BETWEEN 1 AND 100000000)
+);
+--> statement-breakpoint
 CREATE TABLE "checkout_sales" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -292,7 +316,7 @@ CREATE TABLE "checkout_sales" (
 	CONSTRAINT "checkout_sales_tax_check" CHECK ("checkout_sales"."tax_cents" >= 0),
 	CONSTRAINT "checkout_sales_tip_check" CHECK ("checkout_sales"."tip_cents" >= 0),
 	CONSTRAINT "checkout_sales_total_check" CHECK ("checkout_sales"."total_cents" = "checkout_sales"."subtotal_cents" + "checkout_sales"."tax_cents" + "checkout_sales"."tip_cents" AND "checkout_sales"."total_cents" BETWEEN 1 AND 100000000),
-	CONSTRAINT "checkout_sales_tender_check" CHECK ("checkout_sales"."tender" IN ('CASH','EXTERNAL'))
+	CONSTRAINT "checkout_sales_tender_check" CHECK ("checkout_sales"."tender" IN ('CASH','EXTERNAL','CARD'))
 );
 --> statement-breakpoint
 CREATE TABLE "client_channel_identities" (
@@ -852,6 +876,7 @@ CREATE TABLE "studio_locations" (
 );
 --> statement-breakpoint
 CREATE TABLE "studio_payment_accounts" (
+	"livemode" boolean DEFAULT false NOT NULL,
 	"organization_id" uuid PRIMARY KEY NOT NULL,
 	"stripe_account_id" text NOT NULL,
 	"charges_enabled" boolean DEFAULT false NOT NULL,
@@ -987,6 +1012,10 @@ CREATE INDEX "calendar_time_off_artist_range_idx" ON "calendar_time_off" USING b
 CREATE UNIQUE INDEX "channel_connections_id_organization_uidx" ON "channel_connections" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "channel_connections_provider_account_uidx" ON "channel_connections" USING btree ("provider","external_account_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "checkout_card_request_idx" ON "checkout_card_attempts" USING btree ("organization_id","request_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "checkout_card_session_idx" ON "checkout_card_attempts" USING btree ("session_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "checkout_sales_request_idx" ON "checkout_sales" USING btree ("organization_id","request_id");
 --> statement-breakpoint
@@ -1171,6 +1200,14 @@ ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_organizati
 ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "channel_connections" ADD CONSTRAINT "channel_connections_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "checkout_card_attempts" ADD CONSTRAINT "checkout_card_attempts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "checkout_card_attempts" ADD CONSTRAINT "checkout_card_attempts_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "checkout_card_attempts" ADD CONSTRAINT "checkout_card_attempts_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "checkout_card_attempts" ADD CONSTRAINT "checkout_card_attempts_artist_id_organization_id_artists_id_organization_id_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "checkout_sales" ADD CONSTRAINT "checkout_sales_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

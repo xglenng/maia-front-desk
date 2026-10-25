@@ -16,6 +16,7 @@ test('checkout migration and routes isolate artists, enforce catalog prices, and
  assert.match(socket!,/^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
  const schema='checkout_'+randomUUID().replaceAll('-','');
  const local=new Pool({host:socket,port:55439,database:'maia_tenant_test',user:process.env.USER,max:8,options:`-c search_path=${schema}`});
+ const cardEnv=['MAIA_COUNTER_CARD_ENABLED','MAIA_COUNTER_CARD_LIVE','STRIPE_SECRET_KEY','STRIPE_COUNTER_WEBHOOK_SECRET'];const oldCardEnv=cardEnv.map(key=>process.env[key]);
  const oldOrigin=process.env.NEXT_PUBLIC_APP_URL;process.env.NEXT_PUBLIC_APP_URL='http://localhost';
  try{
   assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,`${socket}/data`);
@@ -23,6 +24,8 @@ test('checkout migration and routes isolate artists, enforce catalog prices, and
   await local.query(readFileSync('packages/db/staging/schema.sql','utf8').replaceAll('"public".',`"${schema}".`));
   await local.query('DROP TABLE checkout_sales,retail_items');
   await local.query(readFileSync('packages/db/drizzle/0019_retail_checkout.sql','utf8'));
+  // The new card-attempt table comes from the staging snapshot; upgrade the prior sales ledger.
+  await local.query("ALTER TABLE checkout_sales DROP CONSTRAINT checkout_sales_tender_check; ALTER TABLE checkout_sales ADD CONSTRAINT checkout_sales_tender_check CHECK(tender IN ('CASH','EXTERNAL','CARD'))");
   t.mock.method(pool,'query',local.query.bind(local));t.mock.method(pool,'connect',local.connect.bind(local));
   const org=randomUUID(),otherOrg=randomUUID(),user=randomUUID(),artist=randomUUID(),peer=randomUUID(),foreign=randomUUID();
   await local.query("INSERT INTO organizations(id,name,slug) VALUES($1::uuid,'Checkout',$1::text),($2::uuid,'Other',$2::text)",[org,otherOrg]);
@@ -57,11 +60,52 @@ test('checkout migration and routes isolate artists, enforce catalog prices, and
   assert.deepEqual(responses.map(r=>r.status).sort(),[200,201]);
   const saved=await Promise.all(responses.map(r=>r.json()));assert.equal(saved[0].sale.id,saved[1].sale.id);assert.equal(saved[0].sale.totalCents,2200);
   assert.equal((await local.query('SELECT count(*)::int AS n FROM checkout_sales')).rows[0].n,1);
+  const {reconcileCardAttempt}=await import('../../checkout/card-reconcile.server');
+  const cardRequest=randomUUID(),attemptId=randomUUID();
+  await local.query("INSERT INTO checkout_card_attempts(id,organization_id,artist_id,created_by_user_id,request_id,cart_hash,stripe_account_id,livemode,session_id,lines,subtotal_cents,tax_cents,tip_cents,total_cents) VALUES($1,$2,$3,$4,$5,'synthetic','acct_fixture',false,'cs_fixture','[]',1000,0,0,1000)",[attemptId,org,artist,user,cardRequest]);
+  assert.equal((await sale(req('/api/checkout/sales',{...body,requestId:cardRequest}),undefined)).status,409);
+  let paid=false,amount=1000;
+  const stripe={checkout:{sessions:{retrieve:async(id:string,options:{stripeAccount:string})=>{assert.equal(id,'cs_fixture');assert.equal(options.stripeAccount,'acct_fixture');return {id,mode:'payment',status:paid?'complete':'open',payment_status:paid?'paid':'unpaid',payment_intent:paid?'pi_fixture':null,livemode:false,currency:'usd',amount_total:amount,metadata:{checkoutAttemptId:attemptId,organizationId:org}};}}}} as unknown as import('stripe').default;
+  assert.equal((await reconcileCardAttempt(attemptId,'acct_fixture',stripe)).status,'PENDING');
+  await assert.rejects(reconcileCardAttempt(attemptId,'acct_other',stripe),/prepared/);
+  amount=1;await assert.rejects(reconcileCardAttempt(attemptId,'acct_fixture',stripe),/do not match/);amount=1000;paid=true;
+  const confirmed=await Promise.all([reconcileCardAttempt(attemptId,'acct_fixture',stripe),reconcileCardAttempt(attemptId,'acct_fixture',stripe)]);
+  assert.ok(confirmed.every(result=>result.status==='PAID'));
+  assert.equal((await local.query("SELECT count(*)::int AS n FROM checkout_sales WHERE request_id=$1 AND tender='CARD'",[cardRequest])).rows[0].n,1);
+  const {startCardCheckout,cancelCardCheckout}=await import('../../checkout/card.server');
+  const {cartSchema}=await import('../../checkout/cart');
+  Object.assign(process.env,{MAIA_COUNTER_CARD_ENABLED:'true',MAIA_COUNTER_CARD_LIVE:'false',STRIPE_SECRET_KEY:'sk_test_fixture',STRIPE_COUNTER_WEBHOOK_SECRET:'whsec_fixture'});
+  await local.query("INSERT INTO studio_payment_accounts(organization_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted,livemode) VALUES($1,'acct_studio',true,true,true,false)",[org]);
+  const sessions=new Map<string,any>();let creations=0;
+  const cardStripe={accounts:{retrieve:async(id:string)=>{assert.equal(id,'acct_studio');return {charges_enabled:true,payouts_enabled:true,details_submitted:true};}},checkout:{sessions:{
+   create:async(parameters:any,options:any)=>{assert.equal(options.stripeAccount,'acct_studio');assert.equal(parameters.line_items[0].price_data.unit_amount,2200);assert.equal(parameters.metadata.organizationId,org);creations++;const id='cs_'+parameters.metadata.checkoutAttemptId;const session={id,livemode:false,mode:'payment',currency:'usd',amount_total:2200,metadata:parameters.metadata,status:'open',payment_status:'unpaid',url:'https://checkout.stripe.com/'+id};sessions.set(id,session);return session;},
+   retrieve:async(id:string,options:any)=>{assert.equal(options.stripeAccount,'acct_studio');return sessions.get(id);},
+   expire:async(id:string)=>{sessions.get(id).status='expired';return sessions.get(id);},
+  }}} as unknown as import('stripe').default;
+  const cardInput=cartSchema.parse({...body,requestId:randomUUID()});
+  const identity={id:user,organization_id:org,role:'ARTIST',name:'Fixture',email:'artist@example.test'};
+  const opened=await startCardCheckout(identity,cardInput,cardStripe);assert.match(opened.checkoutUrl,/checkout.stripe.com/);
+  assert.equal((await startCardCheckout(identity,cardInput,cardStripe)).checkoutUrl,opened.checkoutUrl);assert.equal(creations,1);
+  await assert.rejects(startCardCheckout(identity,{...cardInput,tipCents:999},cardStripe),/different sale/);
+  const createdAttempt=(await local.query('SELECT * FROM checkout_card_attempts WHERE request_id=$1',[cardInput.requestId])).rows[0];assert.equal(createdAttempt.stripe_account_id,'acct_studio');
+  const {checkoutCardAttempts}=await import('../../db/src/schema');const {db}=await import('../../db/src');const {eq}=await import('drizzle-orm');
+  const [storedAttempt]=await db.select().from(checkoutCardAttempts).where(eq(checkoutCardAttempts.id,createdAttempt.id));
+  assert.equal((await cancelCardCheckout(storedAttempt,cardStripe)).status,'EXPIRED');
+  assert.equal((await sale(req('/api/checkout/sales',cardInput),undefined)).status,201);
+  const {POST:cardPost}=await import('../../../app/api/checkout/card/route');
+  assert.equal((await cardPost(req('/api/checkout/card',{...body,artistId:peer}),undefined)).status,404);
+  assert.equal((await cardPost(req('/api/checkout/card',{...body,organizationId:otherOrg}),undefined)).status,403);
+  const {POST:webhook}=await import('../../../app/api/checkout/card/webhook/route');
+  const {getStripe}=await import('../../integrations/payments');const provider=getStripe();
+  function hook(event:object,valid=true){const payload=JSON.stringify(event);return new NextRequest('http://localhost/api/checkout/card/webhook',{method:'POST',headers:{'stripe-signature':valid?provider.webhooks.generateTestHeaderString({payload,secret:'whsec_fixture'}):'invalid'},body:payload});}
+  assert.equal((await webhook(hook({type:'checkout.session.completed',livemode:false,account:'acct_studio',data:{object:{metadata:{flow:'OTHER'}}}},false))).status,400);
+  assert.equal((await webhook(hook({type:'checkout.session.completed',livemode:true,account:'acct_studio',data:{object:{}}}))).status,400);
+  assert.equal((await webhook(hook({type:'checkout.session.completed',livemode:false,account:'acct_studio',data:{object:{metadata:{flow:'OTHER'}}}}))).status,200);
   await local.query('UPDATE artists SET requires_supervisor_approval=true WHERE id=$1',[artist]);
   assert.equal((await saveItem(req('/api/items',itemBody),undefined)).status,403);
   assert.equal((await sale(req('/api/checkout/sales',{...body,requestId:randomUUID()}),undefined)).status,403);
   await local.query("UPDATE users SET role='OWNER' WHERE id=$1",[user]);
   assert.equal((await saveItem(req('/api/items',{...itemBody,artistId:peer}),undefined)).status,200);
   await assert.rejects(local.query("INSERT INTO retail_items(organization_id,artist_id,name) VALUES($1,$2,'Invalid')",[org,foreign]),/foreign key/);
- }finally{if(oldOrigin===undefined)delete process.env.NEXT_PUBLIC_APP_URL;else process.env.NEXT_PUBLIC_APP_URL=oldOrigin;await local.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await local.end();}
+ }finally{cardEnv.forEach((key,index)=>{if(oldCardEnv[index]===undefined)delete process.env[key];else process.env[key]=oldCardEnv[index];});if(oldOrigin===undefined)delete process.env.NEXT_PUBLIC_APP_URL;else process.env.NEXT_PUBLIC_APP_URL=oldOrigin;await local.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await local.end();}
 });
