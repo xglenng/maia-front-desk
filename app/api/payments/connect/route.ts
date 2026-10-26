@@ -13,11 +13,11 @@ async function get(request:NextRequest){
  const user=(await identity(request))!;
  const [stored]=await db.select().from(studioPaymentAccounts).where(eq(studioPaymentAccounts.organizationId,user.organization_id));
  const reviewPayments=await db.select({id:payments.id,appointmentId:payments.appointmentId,status:payments.status,appointmentStatus:appointments.status,amountCents:payments.amountCents,updatedAt:payments.updatedAt}).from(payments).innerJoin(appointments,and(eq(appointments.id,payments.appointmentId),eq(appointments.organizationId,payments.organizationId))).where(and(eq(payments.organizationId,user.organization_id),or(inArray(payments.status,['REFUND_PENDING','REFUND_REVIEW']),and(eq(appointments.status,'PAYMENT_RECEIVED_SLOT_UNAVAILABLE'),eq(payments.status,'PAID'))))).orderBy(desc(payments.updatedAt)).limit(50);
- let enabled=false,livemode=false;try{livemode=configuration().livemode;enabled=true;}catch{}
+ let enabled=false,livemode=false,configurationError='';try{livemode=configuration().livemode;enabled=true;}catch(error){configurationError=error instanceof Error?error.message:'Stripe onboarding configuration is unavailable.';}
  const modeMismatch=Boolean(stored&&stored.livemode!==livemode);
  let checkoutEnabled=false;try{checkoutEnabled=counterCardConfiguration().livemode===livemode;}catch{}
  const canConnectLive=Boolean(enabled&&stored&&canReplaceSandboxAccount(stored.livemode,livemode,process.env));
- return NextResponse.json({reviewPayments,checkoutEnabled,canConnectLive,previousAccountId:canConnectLive?stored?.stripeAccountId:undefined,enabled:enabled&&!modeMismatch,connected:Boolean(stored),ready:Boolean(enabled&&stored&&!modeMismatch&&stripeAccountReady({charges_enabled:stored.chargesEnabled,payouts_enabled:stored.payoutsEnabled,details_submitted:stored.detailsSubmitted})),testMode:!livemode,modeMismatch});
+ return NextResponse.json({configurationError,reviewPayments,checkoutEnabled,canConnectLive,previousAccountId:canConnectLive?stored?.stripeAccountId:undefined,enabled:enabled&&!modeMismatch,connected:Boolean(stored),ready:Boolean(enabled&&stored&&!modeMismatch&&stripeAccountReady({charges_enabled:stored.chargesEnabled,payouts_enabled:stored.payoutsEnabled,details_submitted:stored.detailsSubmitted})),testMode:!livemode,modeMismatch});
 }
 async function post(request:NextRequest){
  let livemode:boolean;try{livemode=configuration().livemode;}catch{return NextResponse.json({error:'Stripe payment configuration is required before connecting studio payments.'},{status:503});}

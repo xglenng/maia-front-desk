@@ -28,3 +28,16 @@ test('live onboarding works while live charging stays disabled',async()=>{
  assert.throws(()=>studioOnboardingMode({...env,NEXT_PUBLIC_APP_URL:'http://localhost'}));
  assert.throws(()=>studioOnboardingMode({...env,STRIPE_SECRET_KEY:''}));
 });
+test('onboarding diagnostics name settings without disclosing their values',async()=>{
+ const {studioOnboardingMode}=await import('../stripe-connect-policy');
+ const cases=[
+  [{},'MAIA_COUNTER_CARD_ENABLED'],
+  [{MAIA_COUNTER_CARD_ENABLED:'true',STRIPE_SECRET_KEY:'private-wrong-value'},'STRIPE_SECRET_KEY'],
+  [{MAIA_COUNTER_CARD_ENABLED:'true',STRIPE_SECRET_KEY:'sk_live_private',NEXT_PUBLIC_APP_URL:'private-invalid-url'},'NEXT_PUBLIC_APP_URL'],
+ ] as const;
+ for(const [env,setting] of cases){
+  assert.throws(()=>studioOnboardingMode(env),error=>{
+   assert.ok(error instanceof Error);assert.match(error.message,new RegExp(setting));assert.doesNotMatch(error.message,/private/);return true;
+  });
+ }
+});
