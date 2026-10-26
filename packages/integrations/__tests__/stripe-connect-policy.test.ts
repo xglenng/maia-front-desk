@@ -15,3 +15,16 @@ test('only verified full matching amounts are accepted',()=>{
  assert.equal(paymentMatchesSession(p,s),true);
  for(const change of [{payment_status:'unpaid'},{amount_total:62},{currency:'eur'},{amount_total:null}])assert.equal(paymentMatchesSession(p,{...s,...change}),false);
 });
+
+test('live onboarding works while live charging stays disabled',async()=>{
+ const {studioOnboardingMode,canReplaceSandboxAccount}=await import('../stripe-connect-policy');
+ const {cardMode}=await import('../../checkout/card-policy');
+ const env={MAIA_COUNTER_CARD_ENABLED:'true',STRIPE_SECRET_KEY:'sk_live_fake',NEXT_PUBLIC_APP_URL:'https://maia.example',MAIA_COUNTER_CARD_LIVE:'false'};
+ assert.equal(studioOnboardingMode(env),true);assert.throws(()=>cardMode(env));
+ assert.equal(canReplaceSandboxAccount(false,true,env),true);
+ assert.equal(canReplaceSandboxAccount(true,false,env),false);
+ assert.equal(canReplaceSandboxAccount(true,true,env),false);
+ assert.equal(canReplaceSandboxAccount(false,true,{...env,MAIA_COUNTER_CARD_LIVE:'true'}),false);
+ assert.throws(()=>studioOnboardingMode({...env,NEXT_PUBLIC_APP_URL:'http://localhost'}));
+ assert.throws(()=>studioOnboardingMode({...env,STRIPE_SECRET_KEY:''}));
+});
