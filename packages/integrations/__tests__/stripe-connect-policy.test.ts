@@ -41,3 +41,21 @@ test('onboarding diagnostics name settings without disclosing their values',asyn
   });
  }
 });
+test('restricted keys preserve mode boundaries and explicit live checkout approval',async()=>{
+ const {studioOnboardingMode}=await import('../stripe-connect-policy');
+ const {cardMode}=await import('../../checkout/card-policy');
+ const base={MAIA_COUNTER_CARD_ENABLED:'true',NEXT_PUBLIC_APP_URL:'https://maia.example'};
+ for(const prefix of ['sk','rk']){
+  const live={...base,STRIPE_SECRET_KEY:`${prefix}_live_synthetic`};
+  assert.equal(studioOnboardingMode(live),true);
+  assert.throws(()=>cardMode(live));
+  assert.equal(cardMode({...live,MAIA_COUNTER_CARD_LIVE:'true'}),true);
+  assert.throws(()=>assertConnectTestMode({...live,MAIA_STRIPE_CONNECT_ENABLED:'true'}));
+  const sandbox={...base,STRIPE_SECRET_KEY:`${prefix}_test_synthetic`};
+  assert.equal(studioOnboardingMode(sandbox),false);assert.equal(cardMode(sandbox),false);
+ }
+ for(const key of ['pk_live_synthetic','pk_test_synthetic','invalid']){
+  assert.throws(()=>studioOnboardingMode({...base,STRIPE_SECRET_KEY:key}));
+  assert.throws(()=>cardMode({...base,STRIPE_SECRET_KEY:key,MAIA_COUNTER_CARD_LIVE:'true'}));
+ }
+});
