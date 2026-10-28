@@ -24,3 +24,13 @@ Local verification uses a disposable PostgreSQL cluster with `MAIA_WAIVER_SCHEDU
 Build: `node --check scripts/run-render-automations.cjs`. Command: `node scripts/run-render-automations.cjs`. The command logs aggregate job statuses only, refuses redirects, times out after four minutes, and reports an unsuccessful endpoint response as a failed cron run. It does not retry within a run; the queue and the next scheduled invocation control retries.
 
 Scheduler code check: `node --test scripts/run-render-automations.test.cjs`. Deployment and migration `ea95c1e` were verified live. Both Garrett Glenn and Val had consent sending saved at 60 minutes. The old Railway services were confirmed offline; no duplicate Railway scheduler was activated.
+
+### Verified activation (2026-10-28)
+
+- Render scheduler: `maia-automations`, service `crn-dbh46sd9el5s73ao6hg0`.
+- Independent Blueprint: `exs-dbh3vfui0phs73cp02eg`, path `deploy/render/automations.yaml`, branch `codex/pr1-production-readiness`.
+- Scheduler source: `3d8053da87fe99c8f56d4cfab4f82ce1ab1c5448`; web release: `ea95c1e288cfeda05b512b584bd59060ff6bf91a`.
+- Five-minute schedule verified in Render. Manual run succeeded at 12:49 MDT; scheduled run succeeded at 12:50 MDT. The first response reported `processed: 0`; this verifies endpoint authentication/processing, not live SMS delivery.
+- Blueprint Auto Sync is **No**, and cron auto-deploy is off. Future scheduler changes require explicit deployment/sync.
+- The secret was wired by Render using `fromService`; no secret was copied into source, a local file, or the clipboard.
+- Billing was added directly by the owner. The approved smallest cron plan is `0.5c-512mb` ($1/month minimum plus runtime).
