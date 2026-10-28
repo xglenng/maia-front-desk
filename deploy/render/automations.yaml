@@ -1,0 +1,21 @@
+# Independent scheduler Blueprint: leaves the web app and its provider settings untouched.
+services:
+  - type: cron
+    name: maia-automations
+    runtime: node
+    region: oregon
+    plan: 0.5c-512mb
+    repo: https://github.com/xglenng/maia-front-desk
+    branch: codex/pr1-production-readiness
+    autoDeployTrigger: "off"
+    buildCommand: node --check scripts/run-render-automations.cjs
+    startCommand: node scripts/run-render-automations.cjs
+    schedule: "*/5 * * * *"
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
+      - key: AUTOMATION_CRON_SECRET
+        fromService:
+          name: maia-production-preview
+          type: web
+          envVarKey: AUTOMATION_CRON_SECRET
