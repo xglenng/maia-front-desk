@@ -4,10 +4,10 @@ import { canAccessArtist } from "@/packages/inbox/state";
 import { ageOn, assignedFormUrl, selectWaiverForm } from "@waivers/selection";
 import { sendStudioSms } from "@integrations/studio-sms";
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
-import { appointments, artists, automationJobs, clients, conversations, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, messages, organizations, services } from "@db/schema";
+import { appointments, artists, automationJobs, clients, conversations, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, messages, organizations, services, waiverIdentityDocuments } from "@db/schema";
 
 const sendSchema = z.object({ action:z.enum(["SEND","CREATE_LINK"]).default("SEND"), appointmentId: z.string().uuid(), externalWaiverFormId: z.string().uuid().optional() });
 
@@ -33,7 +33,7 @@ async function handleGET(request: NextRequest) {
     .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(appointments.organizationId, services.organizationId)))
     .where(and(...conditions)).orderBy(asc(appointments.startsAt));
   const appointmentIds = rows.map(row => row.appointment.id);
-  const assignmentRows = appointmentIds.length ? await db.select({ assignment: externalWaiverAssignments, formName: externalWaiverForms.name, provider: externalWaiverForms.provider }).from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id)).where(inArray(externalWaiverAssignments.appointmentId, appointmentIds)).orderBy(desc(externalWaiverAssignments.createdAt)) : [];
+  const assignmentRows = appointmentIds.length ? await db.select({ assignment: externalWaiverAssignments, formName: externalWaiverForms.name, provider: externalWaiverForms.provider, hasPhotoId:sql<boolean>`EXISTS (SELECT 1 FROM ${waiverIdentityDocuments} WHERE ${waiverIdentityDocuments.assignmentId} = ${externalWaiverAssignments.id} AND ${waiverIdentityDocuments.organizationId} = ${externalWaiverAssignments.organizationId})` }).from(externalWaiverAssignments).innerJoin(externalWaiverForms, and(eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id),eq(externalWaiverAssignments.organizationId,externalWaiverForms.organizationId))).where(and(eq(externalWaiverAssignments.organizationId,user.organization_id),inArray(externalWaiverAssignments.appointmentId, appointmentIds))).orderBy(desc(externalWaiverAssignments.createdAt)) : [];
   const byAppointment = new Map<string, typeof assignmentRows>();
   for (const assignment of assignmentRows) byAppointment.set(assignment.assignment.appointmentId, [...(byAppointment.get(assignment.assignment.appointmentId) ?? []), assignment]);
   return NextResponse.json({ appointments: rows.map(row => ({ ...row, clientName: `${row.clientName}${row.clientLastName ? ` ${row.clientLastName}` : ""}`, assignments: byAppointment.get(row.appointment.id) ?? [] })) });

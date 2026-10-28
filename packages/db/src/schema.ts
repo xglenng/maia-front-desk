@@ -634,6 +634,7 @@ export const waiverSubmissions = pgTable("waiver_submissions", {
   userAgent: text("user_agent"),
   documentHash: text("document_hash").notNull()
 }, table => ({
+  tenantIdentityUnique: uniqueIndex("waiver_submissions_id_organization_uidx").on(table.id, table.organizationId),
   tenantAppointmentIdReference: foreignKey({ name: "waiver_submissions_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
   tenantClientIdReference: foreignKey({ name: "waiver_submissions_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
   tenantWaiverTemplateIdReference: foreignKey({ name: "waiver_submissions_waiver_template_id_tenant_fk", columns: [table.waiverTemplateId, table.organizationId], foreignColumns: [waiverTemplates.id, waiverTemplates.organizationId] }),
@@ -705,6 +706,27 @@ export const externalWaiverAssignments = pgTable("external_waiver_assignments", 
   tenantWaiverFormIdReference: foreignKey({ name: "external_waiver_assignments_waiver_form_id_tenant_fk", columns: [table.waiverFormId, table.organizationId], foreignColumns: [externalWaiverForms.id, externalWaiverForms.organizationId] }),
   tenantAppointmentIdReference: foreignKey({ name: "external_waiver_assignments_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),
   tenantClientIdReference: foreignKey({ name: "external_waiver_assignments_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
+}));
+
+// Private identity images are encrypted separately from immutable signed form evidence.
+export const waiverIdentityDocuments = pgTable('waiver_identity_documents', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').references(() => organizations.id).notNull(),
+  assignmentId: uuid('assignment_id').notNull(),
+  submissionId: uuid('submission_id').notNull(),
+  fieldId: text('field_id').notNull(),
+  contentType: text('content_type').notNull(),
+  byteLength: integer('byte_length').notNull(),
+  sha256: text('sha256').notNull(),
+  encryptedImage: text('encrypted_image').notNull(),
+  createdAt: timestamp('created_at', {withTimezone:true}).defaultNow().notNull(),
+}, table => ({
+  assignmentUnique: uniqueIndex('waiver_identity_documents_assignment_uidx').on(table.assignmentId),
+  tenantAssignmentReference: foreignKey({name:'waiver_identity_documents_assignment_tenant_fk',columns:[table.assignmentId,table.organizationId],foreignColumns:[externalWaiverAssignments.id,externalWaiverAssignments.organizationId]}),
+  tenantSubmissionReference: foreignKey({name:'waiver_identity_documents_submission_tenant_fk',columns:[table.submissionId,table.organizationId],foreignColumns:[waiverSubmissions.id,waiverSubmissions.organizationId]}),
+  imageSizeCheck: check('waiver_identity_documents_size_check',sql`${table.byteLength} > 0 AND ${table.byteLength} <= 2097152`),
+  imageTypeCheck: check('waiver_identity_documents_type_check',sql`${table.contentType} = 'image/jpeg'`),
+  imageHashCheck: check('waiver_identity_documents_hash_check',sql`${table.sha256} ~ '^[a-f0-9]{64}$'`),
 }));
 
 export const externalWaiverEvents = pgTable("external_waiver_events", {

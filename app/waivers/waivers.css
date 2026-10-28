@@ -124,3 +124,12 @@
 .waiver-admin .element-options button {flex-shrink:0;min-height:62px;}
 .waiver-admin .live-form .native-question-list fieldset label {flex-direction:row;justify-content:flex-start;font-weight:400;}
 .waiver-admin .live-form .native-question-list fieldset input {flex-shrink:0;}
+.waiver-admin .consent-starter {margin:24px 0;padding:24px;border:1px solid #dedede;border-radius:12px;background:#fafafa;}
+.waiver-admin .consent-starter h3 {margin:0 0 8px;font-size:20px;}
+.waiver-admin .starter-inputs {display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.waiver-admin .consent-starter .starter-load {margin:12px 0;}
+.waiver-admin .consent-starter details {margin-top:16px;}
+.waiver-admin .consent-starter summary {cursor:pointer;font-weight:600;}
+.waiver-admin .starter-replace {padding:16px;margin:12px 0;border:1px solid #ccc;border-radius:8px;background:white;}
+.waiver-admin .starter-replace button {margin:0 12px 0 0;}
+@media(max-width:700px){.waiver-admin .starter-inputs {grid-template-columns:1fr;}.waiver-admin .consent-starter {padding:16px;}}

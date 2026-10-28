@@ -3,6 +3,7 @@ export const publicFormUrl=z.string().url().max(2000).refine(value=>{try{const u
 const fieldBase={id:z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),label:z.string().trim().min(1).max(300),required:z.boolean()};
 const choices=z.array(z.string().trim().min(1).max(200)).min(2).max(20).refine(items=>new Set(items).size===items.length,'Choices must be unique.');
 const question=z.discriminatedUnion('type',[
+ z.object({...fieldBase,type:z.literal('PHOTO_ID')}),
  z.object({...fieldBase,type:z.literal('TEXT')}),
  z.object({...fieldBase,type:z.literal('LONG_TEXT')}),
  z.object({...fieldBase,type:z.literal('ACKNOWLEDGMENT')}),
@@ -19,7 +20,7 @@ const question=z.discriminatedUnion('type',[
  z.object({...fieldBase,type:z.literal('PARAGRAPH')}),
  z.object({...fieldBase,type:z.literal('DIVIDER')}),
 ]);
-export const nativeDefinition=z.object({body:z.string().trim().min(1).max(30000),fields:z.array(question).max(40).optional()}).refine(value=>new Set(value.fields?.map(field=>field.id)).size===(value.fields?.length||0),'Question IDs must be unique.');
+export const nativeDefinition=z.object({body:z.string().trim().min(1).max(30000),fields:z.array(question).max(40).optional()}).refine(value=>new Set(value.fields?.map(field=>field.id)).size===(value.fields?.length||0),'Question IDs must be unique.').refine(value=>(value.fields||[]).filter(field=>field.type==='PHOTO_ID').length<=1,'Use at most one photo ID upload per form.');
 export type NativeField=z.infer<typeof question>;
 export const nativeAnswers=z.record(z.union([z.string().max(5000),z.boolean(),z.array(z.string().max(200)).max(20)])).refine(value=>Object.keys(value).length<=40);
 export type NativeAnswers=z.infer<typeof nativeAnswers>;
@@ -33,6 +34,10 @@ export function validateNativeAnswers(definition:NativeDefinition,input:unknown)
   const value=parsed.data[field.id];
   if(['HEADING','PARAGRAPH','DIVIDER'].includes(field.type)){
    if(value!==undefined)return {success:false,error:'Display elements do not accept answers.'};
+   continue;
+  }
+  if(field.type==='PHOTO_ID'){
+   if(value!==undefined)return {success:false,error:'Photo ID must be uploaded as an image.'};
    continue;
   }
   if(field.type==='MULTI_CHOICE'){

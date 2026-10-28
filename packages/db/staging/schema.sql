@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: d51fcf95fff98c0ab098826d18484119819ce2aa4fccd630c44c224be90ea4bc
+-- schema-source-sha256: d44b7fb7db565e5a0a708aaaecd1d50a81d9034e5fb93dd40e27c35fcdee5fed
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -952,6 +952,22 @@ CREATE TABLE "users" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "waiver_identity_documents" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"assignment_id" uuid NOT NULL,
+	"submission_id" uuid NOT NULL,
+	"field_id" text NOT NULL,
+	"content_type" text NOT NULL,
+	"byte_length" integer NOT NULL,
+	"sha256" text NOT NULL,
+	"encrypted_image" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "waiver_identity_documents_size_check" CHECK ("waiver_identity_documents"."byte_length" > 0 AND "waiver_identity_documents"."byte_length" <= 2097152),
+	CONSTRAINT "waiver_identity_documents_type_check" CHECK ("waiver_identity_documents"."content_type" = 'image/jpeg'),
+	CONSTRAINT "waiver_identity_documents_hash_check" CHECK ("waiver_identity_documents"."sha256" ~ '^[a-f0-9]{64}$')
+);
+--> statement-breakpoint
 CREATE TABLE "waiver_provider_connections" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -1071,7 +1087,11 @@ CREATE UNIQUE INDEX "users_id_organization_uidx" ON "users" USING btree ("id","o
 --> statement-breakpoint
 CREATE UNIQUE INDEX "users_normalized_email_uidx" ON "users" USING btree (lower(btrim("email")));
 --> statement-breakpoint
+CREATE UNIQUE INDEX "waiver_identity_documents_assignment_uidx" ON "waiver_identity_documents" USING btree ("assignment_id");
+--> statement-breakpoint
 CREATE UNIQUE INDEX "waiver_provider_connections_id_organization_uidx" ON "waiver_provider_connections" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "waiver_submissions_id_organization_uidx" ON "waiver_submissions" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "waiver_templates_id_organization_uidx" ON "waiver_templates" USING btree ("id","organization_id");
 --> statement-breakpoint
@@ -1484,6 +1504,12 @@ ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_opera
 ALTER TABLE "twilio_provision_operations" ADD CONSTRAINT "twilio_provision_operations_reviewer_tenant_fk" FOREIGN KEY ("reviewed_by_user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "waiver_identity_documents" ADD CONSTRAINT "waiver_identity_documents_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "waiver_identity_documents" ADD CONSTRAINT "waiver_identity_documents_assignment_tenant_fk" FOREIGN KEY ("assignment_id","organization_id") REFERENCES "public"."external_waiver_assignments"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "waiver_identity_documents" ADD CONSTRAINT "waiver_identity_documents_submission_tenant_fk" FOREIGN KEY ("submission_id","organization_id") REFERENCES "public"."waiver_submissions"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "waiver_provider_connections" ADD CONSTRAINT "waiver_provider_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

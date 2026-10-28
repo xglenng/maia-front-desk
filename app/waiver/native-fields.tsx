@@ -1,10 +1,11 @@
 'use client';
 import type {NativeAnswers,NativeField} from '@/packages/waivers/forms';
-export default function NativeFields({fields,answers,onChange,disabled=false}:{fields:NativeField[];answers:NativeAnswers;onChange:(answers:NativeAnswers)=>void;disabled?:boolean}){
+export default function NativeFields({fields,answers,onChange,disabled=false,onPhotoIdChange}:{fields:NativeField[];answers:NativeAnswers;onChange:(answers:NativeAnswers)=>void;disabled?:boolean;onPhotoIdChange?:(file:File|null)=>void}){
  return <div className="native-question-list">{fields.map(field=>{
   if(field.type==='HEADING')return <h2 key={field.id} style={{fontSize:22,margin:'28px 0 12px'}}>{field.label}</h2>;
   if(field.type==='PARAGRAPH')return <p key={field.id} style={{whiteSpace:'pre-wrap',lineHeight:1.7}}>{field.label}</p>;
   if(field.type==='DIVIDER')return <hr key={field.id} style={{border:0,borderTop:'1px solid #e2e2e2',margin:'28px 0'}}/>;
+  if(field.type==='PHOTO_ID')return <label key={field.id} style={{display:'block',margin:'24px 0'}}>{field.label}{field.required?' *':''}<input type="file" accept="image/jpeg,image/png" capture="environment" required={field.required} disabled={disabled} onChange={event=>onPhotoIdChange?.(event.target.files?.[0]||null)} style={control}/><small>Upload or take a clear JPEG or PNG photo, up to 5 MB. Saved privately with your signed form. The studio still needs to verify your identity.</small></label>;
   const value=typeof answers[field.id]==='string'?answers[field.id] as string:'';
   const change=(text:string)=>onChange({...answers,[field.id]:text});
   if(field.type==='RADIO'||field.type==='MULTI_CHOICE')return <fieldset key={field.id} style={{border:0,padding:0,margin:'24px 0'}}><legend style={{fontSize:14,marginBottom:10}}>{field.label}{field.required?' *':''}</legend>{field.options.map(option=><label key={option} style={{display:'flex',gap:8,alignItems:'center',margin:'10px 0',fontSize:14}}><input type={field.type==='RADIO'?'radio':'checkbox'} name={`question-${field.id}`} disabled={disabled} required={field.type==='RADIO'&&field.required} checked={field.type==='RADIO'?value===option:Array.isArray(answers[field.id])&&(answers[field.id] as string[]).includes(option)} onChange={event=>{if(field.type==='RADIO')change(option);else{const previous=Array.isArray(answers[field.id])?answers[field.id] as string[]:[];onChange({...answers,[field.id]:event.target.checked?[...previous,option]:previous.filter(item=>item!==option)});}}}/>{option}</label>)}</fieldset>;
