@@ -22,7 +22,7 @@ export default function SettingsPage() {
       <a href="/settings/scheduling" style={card}><strong>Scheduling</strong><p>Use Maia’s native calendar and availability, or optionally connect an existing Square account.</p></a>
       <a href="/compliance/registration" style={card}><strong>SMS campaign registration</strong><p>Campaign use case, opt-in flow, sample messages, and registration readiness.</p></a>
       <a href="/twilio" style={card}><strong>Twilio phone setup and porting</strong><p>Provision a temporary number or move an artist&apos;s existing business number into the app.</p></a>
-      <a href="/waivers" style={card}><strong>Waiver providers and delivery</strong><p>Connect Jotform or another provider, map consent forms, and send the correct waiver to clients.</p></a>
+      <a href="/waivers" style={card}><strong>Consent forms & waivers</strong><p>Create Maia consent forms, bring an existing provider, and manage appointment signatures.</p></a>
       <a href="/channels" style={card}><strong>Instagram and Facebook</strong><p>Connect studio social accounts and route direct messages into the unified inbox.</p></a>
     </div>
 

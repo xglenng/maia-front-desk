@@ -4,7 +4,7 @@ import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, artists, automationJobs, clients, conversations, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, messages, organizations, services, studioAftercare, studioLocations, waiverSubmissions, waiverTemplates } from '@db/schema';
 import { sendStudioSms } from '@integrations/studio-sms';
-import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
+import { ageOn, assignedFormUrl, selectWaiverForm } from '@waivers/selection';
 import { signWaiver } from '@/packages/auth/waiver-token';
 import { classifyAutomationFailure, retryDelaySeconds, retryState } from './policy';
 import { isGoogleReviewUrl, selectAppointmentAftercare } from './lifecycle-policy';
@@ -163,7 +163,7 @@ async function processAppointmentWaiver(job: ClaimedAutomationJob, payload: Reco
     const now = new Date();
     const externalToken = externalForm ? crypto.randomBytes(24).toString('hex') : null;
     const link = externalForm
-      ? appendTrackingToken(externalForm.formUrl, externalToken!)
+      ? externalForm.provider==='MAIA'&&!process.env.NEXT_PUBLIC_APP_URL?'':assignedFormUrl(externalForm,externalToken!,process.env.NEXT_PUBLIC_APP_URL||'')
       : process.env.NEXT_PUBLIC_APP_URL
         ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/waiver?organizationId=${encodeURIComponent(job.organizationId)}&appointmentId=${encodeURIComponent(row.appointment.id)}&clientId=${encodeURIComponent(job.clientId)}&waiverTemplateId=${encodeURIComponent(template!.id)}&access=${encodeURIComponent(signWaiver({ organizationId: job.organizationId, appointmentId: row.appointment.id, clientId: job.clientId, waiverTemplateId: template!.id, expires: now.getTime() + 7 * 86_400_000 }))}`
         : '';

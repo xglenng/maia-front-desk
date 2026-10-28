@@ -37,3 +37,9 @@ export function appendTrackingToken(formUrl: string, token: string) {
 export function providerSupportsAutomaticCompletion(provider: string) {
   return provider === "JOTFORM";
 }
+
+// Hosted forms reuse the existing assignment token; never send an external URL for them.
+export function assignedFormUrl(form:{provider:string;formUrl:string},token:string,baseUrl:string){
+ if(form.provider==='MAIA')return new URL('/waiver?'+new URLSearchParams({waiverToken:token}),baseUrl).toString();
+ return appendTrackingToken(form.formUrl,token);
+}

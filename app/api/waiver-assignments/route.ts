@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { protectedRoute, identity } from "@/packages/auth/server";
 import { canAccessArtist } from "@/packages/inbox/state";
-import { ageOn, appendTrackingToken, selectWaiverForm } from "@waivers/selection";
+import { ageOn, assignedFormUrl, selectWaiverForm } from "@waivers/selection";
 import { sendStudioSms } from "@integrations/studio-sms";
 import { NextRequest, NextResponse } from "next/server";
 import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
@@ -9,7 +9,7 @@ import { z } from "zod";
 import { db } from "@db/index";
 import { appointments, artists, automationJobs, clients, conversations, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, messages, organizations, services } from "@db/schema";
 
-const sendSchema = z.object({ appointmentId: z.string().uuid(), externalWaiverFormId: z.string().uuid().optional() });
+const sendSchema = z.object({ action:z.enum(["SEND","CREATE_LINK"]).default("SEND"), appointmentId: z.string().uuid(), externalWaiverFormId: z.string().uuid().optional() });
 
 async function handleGET(request: NextRequest) {
   const user = await identity(request);
@@ -48,19 +48,24 @@ async function handlePOST(request: NextRequest) {
     .from(appointments).innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId))).innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(appointments.organizationId, artists.organizationId))).innerJoin(organizations, eq(appointments.organizationId, organizations.id))
     .where(and(eq(appointments.id, parsed.data.appointmentId), eq(appointments.organizationId, user.organization_id)));
   if (!row || !canAccessArtist(user.role, user.id, row.artist.userId)) return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
-  if (!row.client.phone || !row.client.smsOptIn) return NextResponse.json({ error: "Client is not opted in to SMS or has no phone number." }, { status: 409 });
+  if (parsed.data.action!=="CREATE_LINK" && (!row.client.phone || !row.client.smsOptIn)) return NextResponse.json({ error: "Client is not opted in to SMS or has no phone number." }, { status: 409 });
   const forms = await db.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.organizationId, user.organization_id), eq(externalWaiverForms.active, true)));
   const age = ageOn(row.client.dateOfBirth, row.appointment.startsAt);
   const selected = parsed.data.externalWaiverFormId ? forms.find(form => form.id === parsed.data.externalWaiverFormId) : selectWaiverForm(forms, { artistId: row.artist.id, serviceId: row.appointment.serviceId, isMinor: age == null ? null : age < 18 });
+  if (selected && selected.artistId && selected.artistId !== row.artist.id) return NextResponse.json({error:"This form belongs to another artist."},{status:403});
   if (!selected) return NextResponse.json({ error: age == null ? "No universal waiver matches this appointment. Add the client's birth date or choose a form manually." : "No active waiver form matches this appointment." }, { status: 409 });
   const rawToken = crypto.randomBytes(24).toString("hex");
   const trackingTokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-  const waiverUrl = appendTrackingToken(selected.formUrl, rawToken);
+  const waiverUrl=assignedFormUrl(selected,rawToken,new URL(process.env.NEXT_PUBLIC_APP_URL||request.url).origin);
   const dueAt = new Date(Math.max(Date.now(), row.appointment.startsAt.getTime() - 24 * 60 * 60 * 1000));
   const [assignment] = await db.insert(externalWaiverAssignments).values({ organizationId: user.organization_id, waiverFormId: selected.id, appointmentId: row.appointment.id, clientId: row.client.id, trackingTokenHash, dueAt, status: "PENDING" }).returning();
+  if(parsed.data.action==='CREATE_LINK'){
+    await db.insert(externalWaiverEvents).values({organizationId:user.organization_id,assignmentId:assignment.id,userId:user.id,action:'LINK_CREATED'});
+    return NextResponse.json({assignment,url:waiverUrl},{status:201});
+  }
   const body = `${row.organization.name}: Please complete your ${selected.name} before your appointment: ${waiverUrl} Reply STOP to opt out.`;
   try {
-    const sent = await sendStudioSms({ organizationId: user.organization_id, artistId: row.artist.id, to: row.client.phone, body });
+    const sent = await sendStudioSms({ organizationId: user.organization_id, artistId: row.artist.id, to: row.client.phone!, body });
     const now = new Date();
     await db.update(externalWaiverAssignments).set({ status: "SENT", sentAt: now, updatedAt: now, providerMetadata: { messageSid: sent.sid } }).where(eq(externalWaiverAssignments.id, assignment.id));
     await db.insert(externalWaiverEvents).values({ organizationId: user.organization_id, assignmentId: assignment.id, userId: user.id, action: "SENT", details: { channel: "SMS", messageSid: sent.sid } });

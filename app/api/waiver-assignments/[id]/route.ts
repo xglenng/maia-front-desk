@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
-import { appointments, artists, automationJobs, externalWaiverAssignments, externalWaiverEvents } from "@db/schema";
+import { appointments, artists, automationJobs, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms } from "@db/schema";
 import { cancelAppointmentPreCompletionJobs } from '@/packages/automations/lifecycle.server';
 
 type Context = { params: Promise<{ id: string }> };
@@ -18,6 +18,9 @@ async function handlePATCH(request: NextRequest, { params }: Context) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const [row] = await db.select({ assignment: externalWaiverAssignments, artistUserId: artists.userId }).from(externalWaiverAssignments).innerJoin(appointments, and(eq(externalWaiverAssignments.appointmentId, appointments.id), eq(externalWaiverAssignments.organizationId, appointments.organizationId))).innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(appointments.organizationId, artists.organizationId))).where(and(eq(externalWaiverAssignments.id, id), eq(externalWaiverAssignments.organizationId, user.organization_id)));
   if (!row || !canAccessArtist(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: "Waiver assignment not found" }, { status: 404 });
+  const [form]=await db.select({provider:externalWaiverForms.provider}).from(externalWaiverForms).where(and(eq(externalWaiverForms.id,row.assignment.waiverFormId),eq(externalWaiverForms.organizationId,user.organization_id)));
+  if(form?.provider==='MAIA'&&parsed.data.action==='MARK_COMPLETE')return NextResponse.json({error:'Maia forms are completed only by the client signature.'},{status:409});
+  if(parsed.data.action==='MARK_REVIEWED'&&!['COMPLETED','REVIEWED'].includes(row.assignment.status))return NextResponse.json({error:'Complete the form before reviewing it.'},{status:409});
   const now = new Date();
   const status = parsed.data.action === "VOID" ? "VOID" : parsed.data.action === "MARK_REVIEWED" ? "REVIEWED" : "COMPLETED";
   const [assignment] = await db.update(externalWaiverAssignments).set({ status, ...(status === "COMPLETED" ? { completedAt: now } : {}), ...(status === "REVIEWED" ? { reviewedAt: now } : {}), updatedAt: now }).where(eq(externalWaiverAssignments.id, id)).returning();

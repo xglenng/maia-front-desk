@@ -22,7 +22,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path.startsWith('/legal/') ||
   path.startsWith('/a/') ||
   path.startsWith('/book/');
-  const ownerPage = path === '/settings' || path === '/settings/team' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/waivers' || path === '/channels';
+  const ownerPage = path === '/settings' || path === '/settings/team' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/channels';
   const [dashboardView,setDashboardView]=useState('Overview');
   useEffect(()=>{const update=()=>setDashboardView(new URLSearchParams(window.location.search).get('view')||'Overview');update();window.addEventListener('maia-view',update);return()=>window.removeEventListener('maia-view',update);},[path]);
   const [user, setUser] = useState<SessionUser | null>(null);

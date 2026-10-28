@@ -1,6 +1,7 @@
 'use client';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import NativeWaiver from './native-waiver';
 
 export default function WaiverPage() {
   return <Suspense fallback={<main style={{ maxWidth: 760, margin: '40px auto', padding: 24, fontFamily: 'system-ui' }}>Loading waiver…</main>}><WaiverForm /></Suspense>;
@@ -18,6 +19,7 @@ function WaiverForm() {
   const access = params.get('access') || '';
 
   useEffect(() => {
+    if(params.get('waiverToken'))return;
     const qs = '?' + new URLSearchParams({organizationId,appointmentId,clientId,waiverTemplateId,access});
     fetch(`/api/waivers${qs}`).then(r => r.json()).then(data => {
       const match = (data.waivers || []).find((w: any) => w.id === waiverTemplateId) || data.waivers?.[0];
@@ -34,6 +36,7 @@ function WaiverForm() {
     setStatus(res.ok ? 'Waiver signed successfully.' : (data.error || 'Unable to sign waiver.'));
   }
 
+  if(params.get('waiverToken'))return <NativeWaiver token={params.get('waiverToken')!}/>;
   return <main style={{ maxWidth: 760, margin: '40px auto', padding: 24, fontFamily: 'system-ui' }}>
     <h1>{waiver?.name || 'Tattoo Consent & Waiver'}</h1>
     {status && <p>{status}</p>}
