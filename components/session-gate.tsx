@@ -46,6 +46,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
     <header className="session-bar">
       <a href="/" className="session-brand" aria-label="Maia home"><span aria-hidden="true">✦</span> Maia</a>
       <nav className="session-nav" aria-label="Quick navigation">
+        <a href="/help" className="session-icon" aria-label="Help & support" title="Help & support"><UiIcon name="help" /></a>
         <a href="/" className="session-icon" aria-label="Dashboard" title="Dashboard"><UiIcon name="dashboard" /></a>
         {user.role === 'OWNER' && <a href="/settings" className="session-icon" aria-label="Settings" title="Settings"><UiIcon name="settings" /></a>}
         <details className="session-account" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
@@ -66,7 +67,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
       <a href="/checkout" aria-current={path==='/checkout'?'page':undefined}><UiIcon name="checkout"/>Checkout</a>
       <a href="/inbox" aria-current={path==='/inbox'?'page':undefined}><UiIcon name="inbox"/>Inbox</a>
       <a href="/?view=Clients" aria-current={path==='/'&&dashboardView==='Clients'?'page':undefined}><UiIcon name="clients"/>Clients</a>
-      <a href="/more" aria-current={path==='/more'||path==='/items'||path.startsWith('/settings')?'page':undefined}><UiIcon name="more"/>More</a>
+      <a href="/more" aria-current={path==='/more'||path==='/help'||path==='/items'||path.startsWith('/settings')?'page':undefined}><UiIcon name="more"/>More</a>
     </nav>
     {children}
     <SetupReturn path={path} />

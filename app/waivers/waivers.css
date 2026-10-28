@@ -72,3 +72,55 @@
 .waiver-admin .form-save-feedback {grid-column:1/-1;margin:0;padding:12px 16px;border-radius:10px;font-size:14px;line-height:1.5;}
 .waiver-admin .form-save-feedback.success {background:#e6f2ea;color:#246d48;}
 .waiver-admin .form-save-feedback.error {background:#fff0ee;color:#9b2f20;}
+.waiver-admin .element-workspace {display:grid;grid-template-columns:260px minmax(0,1fr);gap:24px;align-items:start;}
+.waiver-admin .element-palette {border:1px solid #e2e2e2;border-radius:14px;padding:16px;background:#fafafa;position:sticky;top:76px;}
+.waiver-admin .element-palette h4 {font-size:16px;margin:0 0 14px;}
+.waiver-admin .element-palette>input {width:100%;font-size:14px;}
+.waiver-admin .element-options {display:flex;flex-direction:column;gap:6px;max-height:540px;overflow:auto;margin-top:12px;}
+.waiver-admin .element-options button {display:flex;align-items:center;gap:12px;border:1px solid transparent;border-radius:10px;background:white;color:#111;padding:12px 10px;text-align:left;}
+.waiver-admin .element-options button:hover {border-color:#bbb;background:#f1f1f1;}
+.waiver-admin .element-options button>span:nth-child(2) {flex:1;}
+.waiver-admin .element-options strong {display:block;font-size:13px;}
+.waiver-admin .element-options small {display:block;font-weight:400;font-size:11px;color:#706b66;margin-top:4px;}
+.waiver-admin .element-icon {display:flex;width:32px;height:32px;align-items:center;justify-content:center;background:#f2f2f2;border-radius:8px;font-size:18px;flex-shrink:0;}
+.waiver-admin .element-palette>p {font-size:12px;line-height:1.6;color:#706b66;}
+.waiver-admin .element-canvas {min-width:0;}
+.waiver-admin .element-canvas-title {display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:4px 0 16px;}
+.waiver-admin .element-canvas-title span {font-size:12px;color:#706b66;}
+.waiver-admin .element-empty {padding:48px 20px;text-align:center;border:1px dashed #ccc;border-radius:12px;color:#706b66;}
+.waiver-admin .signature-included {border:1px solid #ddd;background:#f7f7f7;padding:20px;border-radius:12px;margin-top:20px;}
+.waiver-admin .signature-included p,.waiver-admin .signature-included small {font-size:12px;color:#706b66;line-height:1.6;}
+@media(max-width:760px){.waiver-admin .element-workspace {grid-template-columns:1fr;}.waiver-admin .element-palette {position:static;}.waiver-admin .element-options {display:grid;grid-template-columns:1fr 1fr;max-height:320px;}.waiver-admin .element-options button {gap:8px;}.waiver-admin .element-options small {display:none;}}
+/* Preview checkboxes and radios keep their native compact size. */
+.waiver-admin .native-preview input[type="checkbox"],
+.waiver-admin .native-preview input[type="radio"] {
+ display:inline-block;width:18px;height:18px;min-height:18px;max-width:18px;
+ padding:0;margin:0 8px 0 0;vertical-align:middle;accent-color:#111;flex-shrink:0;
+}
+.waiver-admin .live-workspace {display:grid;grid-template-columns:180px minmax(0,1fr) 210px;gap:16px;align-items:start;}
+.waiver-admin .live-form.native-preview {margin:0;padding:24px;background:#fff;border:1px solid #ddd;border-radius:12px;min-width:0;}
+.waiver-admin .live-form-label {font-size:11px;color:#706b66;letter-spacing:.3px;margin-bottom:20px;}
+.waiver-admin .live-form .live-form-name {font-size:26px;font-weight:700;letter-spacing:-.6px;border:1px solid transparent;border-radius:6px;padding:10px 4px;margin:0 0 12px;}
+.waiver-admin .live-form .live-consent-text {font-size:14px;font-weight:400;line-height:1.7;border:1px solid transparent;padding:10px 4px;resize:vertical;}
+.waiver-admin .live-form .live-form-name:hover,.waiver-admin .live-form .live-consent-text:hover {border-color:#ddd;}
+.waiver-admin .live-element {position:relative;padding:4px 12px;margin:8px -12px;border:1px solid transparent;border-radius:8px;cursor:pointer;outline-offset:3px;}
+.waiver-admin .live-element:hover {border-color:#bbb;}
+.waiver-admin .live-element.selected {border-color:#6750a4;background:#faf8ff;}
+.waiver-admin .live-element-edit {display:none;position:absolute;right:8px;top:4px;font-size:10px;color:#6750a4;}
+.waiver-admin .live-element:hover .live-element-edit,.waiver-admin .live-element.selected .live-element-edit {display:block;}
+.waiver-admin .live-element-content {pointer-events:none;}
+.waiver-admin .live-element input:disabled,.waiver-admin .live-element select:disabled,.waiver-admin .live-element textarea:disabled,.waiver-admin .live-signature input:disabled {color:#111;opacity:1;-webkit-text-fill-color:#111;}
+.waiver-admin .element-inspector {border:1px solid #ddd;background:#fafafa;padding:16px;border-radius:12px;position:sticky;top:76px;min-width:0;}
+.waiver-admin .element-inspector h4 {margin:0 0 16px;font-size:15px;}
+.waiver-admin .element-inspector p {font-size:13px;line-height:1.6;color:#706b66;}
+.waiver-admin .element-inspector .question-toolbar button {padding:8px 12px;margin:0 0 0 4px;}
+.waiver-admin .element-inspector .remove-element {background:#fff;color:#9b2f20;border:1px solid #ddd;border-radius:999px;padding:10px 14px;width:100%;}
+.waiver-admin .live-signature {border-top:1px solid #e2e2e2;padding-top:20px;margin-top:24px;}
+.waiver-admin .live-fixed-label {font-size:11px;color:#706b66;}
+.waiver-admin .live-signature .live-agreement {font-size:12px;font-weight:400;line-height:1.6;display:block;}
+.waiver-admin .live-submit {display:inline-block;background:#111;color:#fff;border-radius:999px;padding:12px 20px;font-size:14px;}
+@media(max-width:900px){.waiver-admin .live-workspace {grid-template-columns:180px minmax(0,1fr);}.waiver-admin .element-inspector {grid-column:2;position:static;}.waiver-admin .live-builder .element-palette {grid-row:1/3;}}
+@media(max-width:700px){.waiver-admin .live-workspace {grid-template-columns:1fr;}.waiver-admin .live-builder .element-palette {grid-row:auto;}.waiver-admin .element-inspector {grid-column:1;}.waiver-admin .live-form.native-preview {padding:16px;}.waiver-admin .live-builder .element-options {max-height:220px;}}
+.waiver-admin .element-options button {flex-shrink:0;min-height:62px;}
+.waiver-admin .live-form .native-question-list fieldset label {flex-direction:row;justify-content:flex-start;font-weight:400;}
+.waiver-admin .live-form .native-question-list fieldset input {flex-shrink:0;}

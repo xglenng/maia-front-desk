@@ -39,3 +39,11 @@ test('custom responses enforce required acknowledgments, choice allowlists and f
  assert.deepEqual(validateNativeAnswers(definition,{name:' Alex ',choice:'A',ack:true}),{success:true,data:{name:'Alex',choice:'A',ack:true}});
  assert.deepEqual(validateNativeAnswers({body:'Legacy text'},undefined),{success:true,data:{}});
 });
+test('palette fields validate contact, numeric, date and multiple-choice answers',async()=>{
+ const {validateNativeAnswers}=await import('../forms');
+ const fields=[{id:'email',type:'EMAIL',label:'Email',required:true},{id:'phone',type:'PHONE',label:'Phone',required:false},{id:'number',type:'NUMBER',label:'Number',required:true},{id:'date',type:'DATE',label:'Date',required:true},{id:'multi',type:'MULTI_CHOICE',label:'Choices',required:true,options:['A','B']},{id:'heading',type:'HEADING',label:'Details',required:false},{id:'divider',type:'DIVIDER',label:'Divider',required:false}];
+ const definition=nativeDefinition.parse({body:'Consent',fields});
+ const valid={email:'alex@example.test',phone:'+1 (555) 123-4567',number:'23',date:'2026-10-27',multi:['B','A']};
+ const result=validateNativeAnswers(definition,valid);assert.equal(result.success,true);if(result.success)assert.deepEqual(result.data.multi,['A','B']);
+ for(const change of [{email:'bad'},{phone:'invalid'},{number:'Infinity'},{number:'1abc'},{date:'2026-02-30'},{multi:[]},{multi:['C']},{multi:['A','A']},{heading:'injected'}])assert.equal(validateNativeAnswers(definition,{...valid,...change}).success,false);
+});

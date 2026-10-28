@@ -8,6 +8,8 @@ import {pool} from '@/packages/db/src';
 import {POST as assignForm} from '@/app/api/waiver-assignments/route';
 import {GET as library,POST as createForm} from '@/app/api/waiver-integrations/route';
 import {GET as readForm,POST as signForm} from '@/app/api/public/waivers/native/route';
+import {POST as importServices} from '@/app/api/services/import/route';
+import {POST as previewServicePage} from '@/app/api/service-library/preview/route';
 const socket=process.env.MAIA_FORMS_TEST_SOCKET;
 test('artist form library and hosted signatures enforce scope, immutable evidence and replay safety',{skip:!socket},async t=>{
  assert.match(socket!,/^\/private\/tmp\/maia-forms-[A-Za-z0-9]+$/);
@@ -26,7 +28,16 @@ test('artist form library and hosted signatures enforce scope, immutable evidenc
   await local.query("INSERT INTO artists(id,organization_id,user_id,display_name) VALUES($1,$2,$3,'Own artist')",[artist,org,user]);
   await local.query("INSERT INTO artists(id,organization_id,display_name) VALUES($1,$2,'Peer'),($3,$4,'Other tenant')",[peer,org,foreign,otherOrg]);
   const request=(body:unknown)=>new NextRequest('http://localhost/api/waiver-integrations',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${cookie}`,'content-type':'application/json'},body:JSON.stringify(body)});
-  const draft={action:'ADD_NATIVE_FORM',name:'Synthetic consent',artistId:artist,audience:'ADULT',definition:{body:'Studio-reviewed synthetic consent text.',fields:[{id:'design',type:'CHOICE',label:'Design preference',required:true,options:['A','B']},{id:'ack',type:'ACKNOWLEDGMENT',label:'I read the policy',required:true}]}};
+  const serviceRequest=(artistId:string,organizationId=org)=>new NextRequest('http://localhost/api/services/import',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${cookie}`,'content-type':'application/json'},body:JSON.stringify({artistId,organizationId,csv:'Name,Duration Minutes,Price\nSynthetic import,30,50',action:'IMPORT'})});
+  assert.equal((await importServices(serviceRequest(peer),undefined)).status,404);
+  assert.equal((await importServices(serviceRequest(artist,otherOrg),undefined)).status,403);
+  assert.equal((await importServices(serviceRequest(artist),undefined)).status,200);
+  const duplicate=await importServices(serviceRequest(artist),undefined);assert.deepEqual(await duplicate.json(),{imported:0,skipped:1});
+  const pageRequest=(artistId:string)=>new NextRequest('http://localhost/api/service-library/preview',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${cookie}`,'content-type':'application/json'},body:JSON.stringify({artistId,url:'https://studio.example.com/services'})});
+  assert.equal((await previewServicePage(pageRequest(peer),undefined)).status,404);
+  const previousIsolation=process.env.MAIA_STAGING_ISOLATED;process.env.MAIA_STAGING_ISOLATED='1';
+  try{assert.equal((await previewServicePage(pageRequest(artist),undefined)).status,503);}finally{if(previousIsolation===undefined)delete process.env.MAIA_STAGING_ISOLATED;else process.env.MAIA_STAGING_ISOLATED=previousIsolation;}
+  const draft={action:'ADD_NATIVE_FORM',name:'Synthetic consent',artistId:artist,audience:'ADULT',definition:{body:'Studio-reviewed synthetic consent text.',fields:[{id:'design',type:'CHOICE',label:'Design preference',required:true,options:['A','B']},{id:'ack',type:'ACKNOWLEDGMENT',label:'I read the policy',required:true},{id:'contact',type:'EMAIL',label:'Email',required:true},{id:'preferences',type:'MULTI_CHOICE',label:'Preferences',required:true,options:['A','B']}]}};
   assert.equal((await createForm(request({...draft,artistId:peer}),undefined)).status,404);
   assert.equal((await createForm(request({...draft,artistId:foreign}),undefined)).status,404);
   assert.equal((await createForm(request({...draft,artistId:null}),undefined)).status,403);
@@ -46,14 +57,16 @@ test('artist form library and hosted signatures enforce scope, immutable evidenc
   await local.query("INSERT INTO external_waiver_assignments(id,organization_id,waiver_form_id,appointment_id,client_id,tracking_token_hash) VALUES($1,$2,$3,$4,$5,$6)",[assignment,org,form.id,appointment,client,digest(token)]);
   const read=await readForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${token}`));assert.equal(read.status,200);const readBody=await read.json();assert.equal(readBody.definition.body,draft.definition.body);assert.equal(readBody.clientId,undefined);
   assert.equal((await readForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${'c'.repeat(48)}`))).status,404);
-  const sign=(change:Record<string,unknown>={})=>signForm(new NextRequest('http://localhost/api/public/waivers/native',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({token,signedName:'Synthetic Client',agreed:true,answers:{design:'A',ack:true},...change})}));
+  const sign=(change:Record<string,unknown>={})=>signForm(new NextRequest('http://localhost/api/public/waivers/native',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({token,signedName:'Synthetic Client',agreed:true,answers:{design:'A',ack:true,contact:'synthetic@example.test',preferences:['B']},signature:{strokes:[[{x:0.1,y:0.5},{x:0.4,y:0.2},{x:0.8,y:0.6}]]},...change})}));
   assert.equal((await sign({agreed:false})).status,400);
   assert.equal((await sign({signedName:''})).status,400);
   assert.equal((await sign({answers:{design:'C',ack:true}})).status,400);
   assert.equal((await sign({answers:{design:'A',ack:false}})).status,400);
   assert.equal((await sign({answers:{}})).status,400);
+  assert.equal((await sign({signature:null})).status,400);
+  assert.equal((await sign({signature:{strokes:[]}})).status,400);
   const responses=await Promise.all([sign(),sign()]);assert.deepEqual(responses.map(r=>r.status),[200,200]);
-  const evidence=(await local.query('SELECT * FROM waiver_submissions WHERE organization_id=$1',[org])).rows;assert.equal(evidence.length,1);assert.deepEqual(JSON.parse(evidence[0].signature_data).answers,{design:'A',ack:true});assert.match(evidence[0].document_hash,/^[a-f0-9]{64}$/);assert.equal(JSON.parse(evidence[0].signature_data).definition.body,draft.definition.body);
+  const evidence=(await local.query('SELECT * FROM waiver_submissions WHERE organization_id=$1',[org])).rows;assert.equal(evidence.length,1);assert.equal(JSON.parse(evidence[0].signature_data).drawnSignature.strokes[0].length,3);assert.deepEqual(JSON.parse(evidence[0].signature_data).answers,{design:'A',ack:true,contact:'synthetic@example.test',preferences:['B']});assert.match(evidence[0].document_hash,/^[a-f0-9]{64}$/);assert.equal(JSON.parse(evidence[0].signature_data).definition.body,draft.definition.body);
   assert.equal((await local.query('SELECT status FROM external_waiver_assignments WHERE id=$1',[assignment])).rows[0].status,'COMPLETED');
   assert.equal((await local.query("SELECT count(*)::int n FROM external_waiver_events WHERE assignment_id=$1 AND action='SIGNED'",[assignment])).rows[0].n,1);
   const retryToken='d'.repeat(48),retryAssignment=randomUUID();
