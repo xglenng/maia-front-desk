@@ -14,7 +14,7 @@ import { SquareApiClient } from '@/packages/scheduling/square/client';
 import { squareAccessToken } from '@/packages/scheduling/square/credentials';
 import { presentAvailabilitySlot } from '@/packages/scheduling/presentation';
 import { signWaiver } from '@/packages/auth/waiver-token';
-import { ageOn, appendTrackingToken, selectWaiverForm } from '@waivers/selection';
+import { ageOn, assignedFormUrl, selectWaiverForm } from '@waivers/selection';
 import type { MaiaAgentContext } from './context-policy';
 import { resolveContextTimezone } from './read-only-policy';
 import { createDepositCheckout } from '@integrations/payments';
@@ -469,9 +469,11 @@ export async function getWaiverLink(ctx: AgentContext, appointmentId: string) {
   const age = ageOn(client?.dateOfBirth ?? null, appointment.startsAt);
   const external = selectWaiverForm(externalForms, { artistId: ctx.artistId, serviceId: appointment.serviceId, isMinor: age == null ? null : age < 18 });
   if (external) {
+    if (external.provider==='MAIA'&&!process.env.NEXT_PUBLIC_APP_URL) throw new Error('Public form URL is not configured.');
     const token = crypto.randomBytes(24).toString('hex');
+    const waiverUrl=assignedFormUrl(external,token,process.env.NEXT_PUBLIC_APP_URL||'');
     const [assignment] = await db.insert(externalWaiverAssignments).values({ organizationId: ctx.organizationId, waiverFormId: external.id, appointmentId, clientId: ctx.clientId, trackingTokenHash: crypto.createHash('sha256').update(token).digest('hex'), status: 'LINK_CREATED', dueAt: new Date(Math.max(Date.now(), appointment.startsAt.getTime() - 24 * 60 * 60 * 1000)) }).returning();
-    return { waiverUrl: appendTrackingToken(external.formUrl, token), externalWaiverFormId: external.id, assignmentId: assignment.id, provider: external.provider };
+    return { waiverUrl, externalWaiverFormId: external.id, assignmentId: assignment.id, provider: external.provider };
   }
   const [template] = await db.select().from(waiverTemplates).where(and(eq(waiverTemplates.organizationId, ctx.organizationId), eq(waiverTemplates.active, true))).orderBy(desc(waiverTemplates.version)).limit(1);
   if (!template) throw new Error('No active waiver template is configured.');

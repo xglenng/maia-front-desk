@@ -6,6 +6,8 @@ import { db } from '@db/index';
 import { artists } from '@db/schema';
 import { isGoogleReviewUrl, isVenmoPaymentUrl } from '@/packages/automations/lifecycle-policy';
 
+import { syncArtistWaiverJobs } from '@/packages/automations/waiver-schedule.server';
+
 const settingsSchema = z.object({
   artistId: z.string().uuid(),
   smsResponseDelaySeconds: z.number().int().refine(value => [0, 60, 120, 300].includes(value)),
@@ -18,7 +20,7 @@ const settingsSchema = z.object({
   appointmentReminderMinutes: z.number().int().refine(value => [120, 360, 720, 1440, 2880].includes(value)),
   appointmentReminderShortNoticeMode: z.enum(['SKIP', 'SEND_AFTER_DELAY']),
   appointmentWaiverSendEnabled: z.boolean(),
-  appointmentWaiverSendMinutes: z.number().int().refine(value => [120, 240, 360, 720].includes(value)),
+  appointmentWaiverSendMinutes: z.number().int().refine(value => [60, 120, 240, 360, 720].includes(value)),
   aftercareFollowupEnabled: z.boolean(),
   aftercareFollowupHours: z.number().int().refine(value => [12, 24, 48, 72].includes(value)),
   reviewFollowupEnabled: z.boolean(),
@@ -67,44 +69,52 @@ async function handlePUT(request: NextRequest) {
   if (user.role !== 'OWNER') return NextResponse.json({ error: 'Owner access is required.' }, { status: 403 });
   const parsed = settingsSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const [artist] = await db.update(artists).set({
-    smsResponseDelaySeconds: parsed.data.smsResponseDelaySeconds,
-    metaResponseDelaySeconds: parsed.data.metaResponseDelaySeconds,
-    venmoEnabled: parsed.data.venmoEnabled,
-    venmoUsername: parsed.data.venmoUsername || null,
-    venmoPaymentUrl: parsed.data.venmoPaymentUrl || null,
-    venmoPaymentInstructions: parsed.data.venmoPaymentInstructions || null,
-    appointmentReminderEnabled: parsed.data.appointmentReminderEnabled,
-    appointmentReminderMinutes: parsed.data.appointmentReminderMinutes,
-    appointmentReminderShortNoticeMode: parsed.data.appointmentReminderShortNoticeMode,
-    appointmentWaiverSendEnabled: parsed.data.appointmentWaiverSendEnabled,
-    appointmentWaiverSendMinutes: parsed.data.appointmentWaiverSendMinutes,
-    aftercareFollowupEnabled: parsed.data.aftercareFollowupEnabled,
-    aftercareFollowupHours: parsed.data.aftercareFollowupHours,
-    reviewFollowupEnabled: parsed.data.reviewFollowupEnabled,
-    reviewFollowupHours: parsed.data.reviewFollowupHours,
-    googleReviewUrl: parsed.data.googleReviewUrl || null,
-    reviewFollowupMessage: parsed.data.reviewFollowupMessage || null,
-  }).where(and(eq(artists.id, parsed.data.artistId), eq(artists.organizationId, user.organization_id))).returning({
-    id: artists.id,
-    displayName: artists.displayName,
-    smsResponseDelaySeconds: artists.smsResponseDelaySeconds,
-    metaResponseDelaySeconds: artists.metaResponseDelaySeconds,
-    venmoEnabled: artists.venmoEnabled,
-    venmoUsername: artists.venmoUsername,
-    venmoPaymentUrl: artists.venmoPaymentUrl,
-    venmoPaymentInstructions: artists.venmoPaymentInstructions,
-    appointmentReminderEnabled: artists.appointmentReminderEnabled,
-    appointmentReminderMinutes: artists.appointmentReminderMinutes,
-    appointmentReminderShortNoticeMode: artists.appointmentReminderShortNoticeMode,
-    appointmentWaiverSendEnabled: artists.appointmentWaiverSendEnabled,
-    appointmentWaiverSendMinutes: artists.appointmentWaiverSendMinutes,
-    aftercareFollowupEnabled: artists.aftercareFollowupEnabled,
-    aftercareFollowupHours: artists.aftercareFollowupHours,
-    reviewFollowupEnabled: artists.reviewFollowupEnabled,
-    reviewFollowupHours: artists.reviewFollowupHours,
-    googleReviewUrl: artists.googleReviewUrl,
-    reviewFollowupMessage: artists.reviewFollowupMessage,
+  const artist = await db.transaction(async tx => {
+    const [previous] = await tx.select().from(artists).where(and(eq(artists.id, parsed.data.artistId), eq(artists.organizationId, user.organization_id))).for('update');
+    if (!previous) return null;
+    const [updated] = await tx.update(artists).set({
+      smsResponseDelaySeconds: parsed.data.smsResponseDelaySeconds,
+      metaResponseDelaySeconds: parsed.data.metaResponseDelaySeconds,
+      venmoEnabled: parsed.data.venmoEnabled,
+      venmoUsername: parsed.data.venmoUsername || null,
+      venmoPaymentUrl: parsed.data.venmoPaymentUrl || null,
+      venmoPaymentInstructions: parsed.data.venmoPaymentInstructions || null,
+      appointmentReminderEnabled: parsed.data.appointmentReminderEnabled,
+      appointmentReminderMinutes: parsed.data.appointmentReminderMinutes,
+      appointmentReminderShortNoticeMode: parsed.data.appointmentReminderShortNoticeMode,
+      appointmentWaiverSendEnabled: parsed.data.appointmentWaiverSendEnabled,
+      appointmentWaiverSendMinutes: parsed.data.appointmentWaiverSendMinutes,
+      aftercareFollowupEnabled: parsed.data.aftercareFollowupEnabled,
+      aftercareFollowupHours: parsed.data.aftercareFollowupHours,
+      reviewFollowupEnabled: parsed.data.reviewFollowupEnabled,
+      reviewFollowupHours: parsed.data.reviewFollowupHours,
+      googleReviewUrl: parsed.data.googleReviewUrl || null,
+      reviewFollowupMessage: parsed.data.reviewFollowupMessage || null,
+    }).where(and(eq(artists.id, parsed.data.artistId), eq(artists.organizationId, user.organization_id))).returning({
+      id: artists.id,
+      displayName: artists.displayName,
+      smsResponseDelaySeconds: artists.smsResponseDelaySeconds,
+      metaResponseDelaySeconds: artists.metaResponseDelaySeconds,
+      venmoEnabled: artists.venmoEnabled,
+      venmoUsername: artists.venmoUsername,
+      venmoPaymentUrl: artists.venmoPaymentUrl,
+      venmoPaymentInstructions: artists.venmoPaymentInstructions,
+      appointmentReminderEnabled: artists.appointmentReminderEnabled,
+      appointmentReminderMinutes: artists.appointmentReminderMinutes,
+      appointmentReminderShortNoticeMode: artists.appointmentReminderShortNoticeMode,
+      appointmentWaiverSendEnabled: artists.appointmentWaiverSendEnabled,
+      appointmentWaiverSendMinutes: artists.appointmentWaiverSendMinutes,
+      aftercareFollowupEnabled: artists.aftercareFollowupEnabled,
+      aftercareFollowupHours: artists.aftercareFollowupHours,
+      reviewFollowupEnabled: artists.reviewFollowupEnabled,
+      reviewFollowupHours: artists.reviewFollowupHours,
+      googleReviewUrl: artists.googleReviewUrl,
+      reviewFollowupMessage: artists.reviewFollowupMessage,
+    });
+    if (previous.appointmentWaiverSendEnabled !== parsed.data.appointmentWaiverSendEnabled || previous.appointmentWaiverSendMinutes !== parsed.data.appointmentWaiverSendMinutes) {
+      await syncArtistWaiverJobs(tx, {organizationId: user.organization_id, artistId: parsed.data.artistId, enabled: parsed.data.appointmentWaiverSendEnabled, leadMinutes: parsed.data.appointmentWaiverSendMinutes});
+    }
+    return updated;
   });
   if (!artist) return NextResponse.json({ error: 'Artist not found.' }, { status: 404 });
   return NextResponse.json({ artist });

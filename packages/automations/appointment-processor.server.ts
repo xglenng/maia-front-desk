@@ -140,12 +140,26 @@ async function processAppointmentReminder(job: ClaimedAutomationJob, payload: Re
   return sendAppointmentMessage(job, row.appointment, row.client, body, { automationType: job.type, appointmentId: row.appointment.id, scheduleRevision: row.appointment.scheduleRevision }, guard);
 }
 
+async function waiverHumanTakeover(job: ClaimedAutomationJob) {
+  const active = await db.select({aiEnabled: conversations.aiEnabled, status: conversations.status}).from(conversations).where(and(
+    eq(conversations.organizationId, job.organizationId), eq(conversations.artistId, job.artistId),
+    eq(conversations.clientId, job.clientId), eq(conversations.channel, 'SMS'), ne(conversations.status, 'CLOSED'),
+  ));
+  return active.some(conversation => !conversation.aiEnabled || conversation.status === 'HUMAN_TAKEOVER');
+}
+
 async function processAppointmentWaiver(job: ClaimedAutomationJob, payload: Record<string, unknown>) {
   const row = await loadAppointment(job);
   if (!row || row.appointment.status !== 'CONFIRMED' || row.appointment.scheduleRevision !== payload.scheduleRevision) return cancel(job, 'APPOINTMENT_NOT_ELIGIBLE');
   if (row.appointment.startsAt.getTime() <= Date.now()) return cancel(job, 'APPOINTMENT_ALREADY_STARTED');
   if (row.appointment.depositCents && row.appointment.depositStatus !== 'PAID') return cancel(job, 'DEPOSIT_NOT_PAID');
   if (!row.artist.appointmentWaiverSendEnabled) return cancel(job, 'WAIVER_SEND_DISABLED');
+  if (await waiverHumanTakeover(job)) return cancel(job, 'HUMAN_TAKEOVER');
+  const dueAt = new Date(row.appointment.startsAt.getTime() - row.artist.appointmentWaiverSendMinutes * 60_000);
+  if (dueAt.getTime() > Date.now()) {
+    await updateClaimedJob(job, {status: 'RETRY', runAt: dueAt, lockedAt: null, lockExpiresAt: null, lockToken: null, lastErrorCode: 'WAIVER_TIMING_CHANGED'});
+    return {id: job.id, status: 'RETRY', code: 'WAIVER_TIMING_CHANGED'};
+  }
   if (!row.client.phone || !row.client.smsOptIn || row.client.smsConsentStatus === 'OPTED_OUT') return cancel(job, 'SMS_NOT_ELIGIBLE');
   const completed = await db.select({ id: waiverSubmissions.id }).from(waiverSubmissions).where(and(eq(waiverSubmissions.organizationId, job.organizationId), eq(waiverSubmissions.appointmentId, row.appointment.id))).limit(1);
   if (completed.length) return cancel(job, 'WAIVER_ALREADY_COMPLETED');
@@ -198,12 +212,20 @@ async function processAppointmentWaiver(job: ClaimedAutomationJob, payload: Reco
   if (!resultMessage) return cancel(job, 'WAIVER_MESSAGE_MISSING');
   const [sent] = await db.select().from(conversations).where(eq(conversations.id, resultMessage.conversationId)).limit(1);
   if (!sent) return cancel(job, 'SMS_CONVERSATION_MISSING');
+  const latest = await loadAppointment(job);
+  const latestDueAt = latest && new Date(latest.appointment.startsAt.getTime() - latest.artist.appointmentWaiverSendMinutes * 60_000);
+  if (latestDueAt && latestDueAt.getTime() > Date.now()) {
+    await updateClaimedJob(job, {status: 'RETRY', runAt: latestDueAt, conversationId: sent.id, resultMessageId: resultMessage.id, lockedAt: null, lockExpiresAt: null, lockToken: null, lastErrorCode: 'WAIVER_TIMING_CHANGED'});
+    return {id: job.id, status: 'RETRY', code: 'WAIVER_TIMING_CHANGED'};
+  }
   if (!await updateClaimedJob(job, { conversationId: sent.id, resultMessageId: resultMessage.id, status: 'SENDING', lockedAt: new Date(), lockExpiresAt: new Date(Date.now() + 300_000) })) return cancel(job, 'AUTOMATION_LEASE_LOST');
   job.status = 'SENDING';
   await db.update(messages).set({ metadata: { automationJobId: job.id, appointmentWaiverSend: true, waiverAssignmentId: assignmentId, status: 'provider_send_started' } }).where(eq(messages.id, resultMessage.id));
   const stillEligible = async () => {
     const current = await loadAppointment(job);
     if (!current || current.appointment.status !== 'CONFIRMED' || current.appointment.startsAt.getTime() <= Date.now() || current.appointment.scheduleRevision !== payload.scheduleRevision || !current.artist.appointmentWaiverSendEnabled || (current.appointment.depositCents && current.appointment.depositStatus !== 'PAID') || !current.client.phone || !current.client.smsOptIn || current.client.smsConsentStatus === 'OPTED_OUT') return false;
+    if (await waiverHumanTakeover(job)) return false;
+    if (current.appointment.startsAt.getTime() - current.artist.appointmentWaiverSendMinutes * 60_000 > Date.now()) return false;
     if (assignmentId) {
       const [assignment] = await db.select({ status: externalWaiverAssignments.status, completedAt: externalWaiverAssignments.completedAt }).from(externalWaiverAssignments).where(and(eq(externalWaiverAssignments.id, assignmentId), eq(externalWaiverAssignments.organizationId, job.organizationId), eq(externalWaiverAssignments.appointmentId, current.appointment.id))).limit(1);
       return Boolean(assignment && assignment.status === 'PENDING' && !assignment.completedAt);

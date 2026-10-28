@@ -110,8 +110,9 @@ export default function AutomationsSettingsPage() {
       </section>
       <section style={panel}>
         <h2>Day-of waiver</h2>
-        <label><input type="checkbox" checked={settings.appointmentWaiverSendEnabled} onChange={event => update('appointmentWaiverSendEnabled', event.target.checked)} /> Send an applicable waiver before the appointment</label>
-        {settings.appointmentWaiverSendEnabled && <label style={{ ...labelStyle, marginTop: 14 }}>Timing before appointment<select style={fieldStyle} value={settings.appointmentWaiverSendMinutes} onChange={event => update('appointmentWaiverSendMinutes', Number(event.target.value))}>{choice([[120, '2 hours'], [240, '4 hours'], [360, '6 hours'], [720, '12 hours']])}</select></label>}
+        <label><input type="checkbox" checked={settings.appointmentWaiverSendEnabled} onChange={event => update('appointmentWaiverSendEnabled', event.target.checked)} /> Automatically send the matching consent form before the appointment</label>
+        {settings.appointmentWaiverSendEnabled && <p>Maia chooses the active form matching this artist, service, and client age. Sends are approximate and require SMS consent and an approved sending number. Completed or already issued forms are skipped.</p>}
+        {settings.appointmentWaiverSendEnabled && <label style={{ ...labelStyle, marginTop: 14 }}>Timing before appointment<select style={fieldStyle} value={settings.appointmentWaiverSendMinutes} onChange={event => update('appointmentWaiverSendMinutes', Number(event.target.value))}>{choice([[60, '1 hour'], [120, '2 hours'], [240, '4 hours'], [360, '6 hours'], [720, '12 hours']])}</select></label>}
       </section>
       <section style={panel}>
         <h2>Aftercare follow-up</h2>

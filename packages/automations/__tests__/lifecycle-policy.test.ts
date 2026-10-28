@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appointmentCompletionDedupeKey, appointmentLifecycleDedupeKey, appointmentReminderPlan, isGoogleReviewUrl, isVenmoPaymentUrl, resolveDepositPaymentProvider, selectAppointmentAftercare, venmoPaymentInstructions } from '../lifecycle-policy';
+import { APPOINTMENT_WAIVER_MINUTES, appointmentCompletionDedupeKey, appointmentLifecycleDedupeKey, appointmentReminderPlan, isGoogleReviewUrl, isVenmoPaymentUrl, resolveDepositPaymentProvider, selectAppointmentAftercare, venmoPaymentInstructions } from '../lifecycle-policy';
 import { maySendStudioSms } from '../../integrations/studio-sms-policy';
 
 test('appointment reminders use absolute UTC instants and never send a normal reminder inside its lead window', () => {
@@ -53,4 +53,13 @@ test('review URLs must be HTTPS Google review links', () => {
   assert.equal(isGoogleReviewUrl('https://search.google.com/local/writereview?placeid=studio'), true);
   assert.equal(isGoogleReviewUrl('https://reviews.example.test/studio'), false);
   assert.equal(isGoogleReviewUrl('http://g.page/r/studio/review'), false);
+});
+
+
+test('consent supports one hour before and short-notice scheduling without an immediate send', () => {
+  assert.ok(APPOINTMENT_WAIVER_MINUTES.includes(60));
+  const now = new Date('2026-10-28T16:00:00Z');
+  assert.deepEqual(appointmentReminderPlan({now, startsAt: new Date('2026-10-28T21:00:00Z'), leadMinutes: 60, shortNoticeMode: 'SEND_AFTER_DELAY'}), {kind: 'STANDARD', runAt: new Date('2026-10-28T20:00:00Z')});
+  assert.deepEqual(appointmentReminderPlan({now, startsAt: new Date('2026-10-28T16:50:00Z'), leadMinutes: 60, shortNoticeMode: 'SEND_AFTER_DELAY'}), {kind: 'UPCOMING', runAt: new Date('2026-10-28T16:05:00Z')});
+  assert.deepEqual(appointmentReminderPlan({now, startsAt: new Date('2026-10-28T16:04:00Z'), leadMinutes: 60, shortNoticeMode: 'SEND_AFTER_DELAY'}), {kind: 'SKIP'});
 });

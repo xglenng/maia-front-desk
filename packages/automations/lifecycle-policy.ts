@@ -1,5 +1,5 @@
 export const APPOINTMENT_REMINDER_MINUTES = [120, 360, 720, 1440, 2880] as const;
-export const APPOINTMENT_WAIVER_MINUTES = [120, 240, 360, 720] as const;
+export const APPOINTMENT_WAIVER_MINUTES = [60, 120, 240, 360, 720] as const;
 export const FOLLOWUP_HOURS = [12, 24, 48, 72] as const;
 export const REVIEW_FOLLOWUP_HOURS = [24, 48, 72, 168] as const;
 export const SHORT_NOTICE_DELAY_MS = 5 * 60_000;

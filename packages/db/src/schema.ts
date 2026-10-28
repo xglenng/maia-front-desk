@@ -73,7 +73,7 @@ export const artists = pgTable("artists", {
   appointmentReminderMinutes: integer("appointment_reminder_minutes").default(1440).notNull(),
   appointmentReminderShortNoticeMode: text("appointment_reminder_short_notice_mode").default("SKIP").notNull(),
   appointmentWaiverSendEnabled: boolean("appointment_waiver_send_enabled").default(false).notNull(),
-  appointmentWaiverSendMinutes: integer("appointment_waiver_send_minutes").default(360).notNull(),
+  appointmentWaiverSendMinutes: integer("appointment_waiver_send_minutes").default(60).notNull(),
   aftercareFollowupEnabled: boolean("aftercare_followup_enabled").default(false).notNull(),
   aftercareFollowupHours: integer("aftercare_followup_hours").default(24).notNull(),
   reviewFollowupEnabled: boolean("review_followup_enabled").default(false).notNull(),
@@ -90,7 +90,7 @@ export const artists = pgTable("artists", {
   webDelayCheck: check("artists_web_response_delay_check", sql`${table.webResponseDelaySeconds} = 0`),
   reminderMinutesCheck: check("artists_appointment_reminder_minutes_check", sql`${table.appointmentReminderMinutes} IN (120, 360, 720, 1440, 2880)`),
   reminderShortNoticeCheck: check("artists_appointment_reminder_short_notice_check", sql`${table.appointmentReminderShortNoticeMode} IN ('SKIP', 'SEND_AFTER_DELAY')`),
-  waiverSendMinutesCheck: check("artists_appointment_waiver_send_minutes_check", sql`${table.appointmentWaiverSendMinutes} IN (120, 240, 360, 720)`),
+  waiverSendMinutesCheck: check("artists_appointment_waiver_send_minutes_check", sql`${table.appointmentWaiverSendMinutes} IN (60, 120, 240, 360, 720)`),
   aftercareHoursCheck: check("artists_aftercare_followup_hours_check", sql`${table.aftercareFollowupHours} IN (12, 24, 48, 72)`),
   reviewHoursCheck: check("artists_review_followup_hours_check", sql`${table.reviewFollowupHours} IN (24, 48, 72, 168)`),
 }));

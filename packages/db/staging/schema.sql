@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 2f842d57a053343507e2e650663bce4329dfdc168cff0a1083e8de8e32b918fe
+-- schema-source-sha256: d51fcf95fff98c0ab098826d18484119819ce2aa4fccd630c44c224be90ea4bc
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -114,7 +114,7 @@ CREATE TABLE "artists" (
 	"appointment_reminder_minutes" integer DEFAULT 1440 NOT NULL,
 	"appointment_reminder_short_notice_mode" text DEFAULT 'SKIP' NOT NULL,
 	"appointment_waiver_send_enabled" boolean DEFAULT false NOT NULL,
-	"appointment_waiver_send_minutes" integer DEFAULT 360 NOT NULL,
+	"appointment_waiver_send_minutes" integer DEFAULT 60 NOT NULL,
 	"aftercare_followup_enabled" boolean DEFAULT false NOT NULL,
 	"aftercare_followup_hours" integer DEFAULT 24 NOT NULL,
 	"review_followup_enabled" boolean DEFAULT false NOT NULL,
@@ -128,7 +128,7 @@ CREATE TABLE "artists" (
 	CONSTRAINT "artists_web_response_delay_check" CHECK ("artists"."web_response_delay_seconds" = 0),
 	CONSTRAINT "artists_appointment_reminder_minutes_check" CHECK ("artists"."appointment_reminder_minutes" IN (120, 360, 720, 1440, 2880)),
 	CONSTRAINT "artists_appointment_reminder_short_notice_check" CHECK ("artists"."appointment_reminder_short_notice_mode" IN ('SKIP', 'SEND_AFTER_DELAY')),
-	CONSTRAINT "artists_appointment_waiver_send_minutes_check" CHECK ("artists"."appointment_waiver_send_minutes" IN (120, 240, 360, 720)),
+	CONSTRAINT "artists_appointment_waiver_send_minutes_check" CHECK ("artists"."appointment_waiver_send_minutes" IN (60, 120, 240, 360, 720)),
 	CONSTRAINT "artists_aftercare_followup_hours_check" CHECK ("artists"."aftercare_followup_hours" IN (12, 24, 48, 72)),
 	CONSTRAINT "artists_review_followup_hours_check" CHECK ("artists"."review_followup_hours" IN (24, 48, 72, 168))
 );
