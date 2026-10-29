@@ -18,6 +18,7 @@ export default function SettingsPage() {
       <a href="/settings/consent-forms" style={card}><strong>SMS consent workflow</strong><p>Configure client-initiated texting with YES confirmation or a compliant form-based opt-in.</p></a>
       <a href="/settings/automations" style={card}><strong>Automated response timing</strong><p>Set the SMS and social reply delay for each artist.</p></a>
       <a href="/settings/studio" style={card}><strong>Studio Configuration</strong><p>Manage public studio details, locations, hours, policies, FAQs, aftercare, and Maia&apos;s receptionist preferences.</p></a>
+      <a href="/settings/integrations" style={card}><strong>Apps &amp; integrations</strong><p>Browse service imports, scheduling, payments, consent forms, and messaging connections.</p></a>
       <a href="/settings/services" style={card}><strong>Services &amp; Pricing</strong><p>Configure the services, durations, and prices Maia can share with clients.</p></a>
       <a href="/settings/scheduling" style={card}><strong>Scheduling</strong><p>Use Maia’s native calendar and availability, or optionally connect an existing Square account.</p></a>
       <a href="/compliance/registration" style={card}><strong>SMS campaign registration</strong><p>Campaign use case, opt-in flow, sample messages, and registration readiness.</p></a>

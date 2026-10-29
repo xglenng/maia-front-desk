@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import {selectedArtistId} from '@/packages/studio/artist-selection';
 import { useSession } from '@/components/session-gate';
 
 type Artist = { id: string; displayName: string };
@@ -53,7 +54,7 @@ export default function SchedulingSettingsPage() {
       .then(result => {
         const available = result.artists as Artist[];
         setArtists(available);
-        setArtistId(current => available.some(artist => artist.id === current) ? current : available[0]?.id || '');
+        setArtistId(current => selectedArtistId(available,new URLSearchParams(window.location.search).get('artistId'),current));
       })
       .catch(reason => setError(reason instanceof Error ? reason.message : 'Unable to load artists.'));
   }, [organizationId]);
