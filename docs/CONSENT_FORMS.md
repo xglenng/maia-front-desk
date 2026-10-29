@@ -18,3 +18,11 @@ Validation uses the normal typecheck/build/test scripts plus the optional isolat
 The test requires a fresh database named `maia_forms_test` on port 55449 in that local socket directory. It asserts the local data directory, seeds only synthetic records, and forbids provider fetches. It covers artist/tenant denial, external URL validation, private link creation without SMS consent, valid and invalid signatures, concurrent retries, and transaction rollback.
 
 Signature drawings are stored as validated numeric strokes, not user-provided SVG or image markup. The server rejects empty or stationary drawings, out-of-range coordinates, and excessive stroke/point counts. The stored strokes are included in the document hash. Existing signed records retain their original signature format. Unsigned links use the new drawing requirement.
+
+## Signed form archive
+
+Open `/waivers/archive` from the Signed forms section on `/waivers`. The archive lists stored Maia submissions across all appointment dates, newest first, with search by signer, artist, or form name and 25 records per page. Owners see their studio's submissions; artists see only submissions for appointments assigned to their user. Other roles are denied. List responses omit signature evidence; opening a record loads the saved form snapshot, answers, drawn signature, timestamp, template version, and document hash through an authenticated, tenant-scoped endpoint. Responses are private and not cached.
+
+Use **Print / Save PDF** for a readable copy, or **Download record (JSON)** for the stored evidence. Photo IDs remain separate private downloads through the existing authorized endpoint. Older submissions without a native definition or drawn signature show an explicit unavailable notice rather than reconstructing evidence from the current template. External-provider signed documents remain with their provider. No schema migration or retention changes are needed for this archive.
+
+Validation: the isolated PostgreSQL consent test covers owner/assigned-artist access, other artist/tenant denial, anonymous denial, search, pagination, invalid IDs, private response headers, and evidence download. The archive does not send client messages or automatically mark forms reviewed.

@@ -58,6 +58,20 @@ test('private consent IDs validate images, commit atomically, and isolate artist
   assert.equal(JSON.parse(evidence[0].signature_data).photoId.sha256,documents[0].sha256);
   assert.equal(JSON.stringify(JSON.parse(evidence[0].signature_data)).includes('encryptedImage'),false);
   assert.equal((await jsonSign()).status,200);assert.equal((await local.query('SELECT count(*)::int n FROM waiver_identity_documents')).rows[0].n,1);
+  const {GET:archive}=await import('@/app/api/waiver-archive/route');
+  const archived=(cookie?:string,query='')=>archive(new NextRequest(`http://localhost/api/waiver-archive${query}`,{headers:cookie?{cookie:`inkflow_session=${cookie.repeat(64)}`}:{}}),undefined);
+  assert.equal((await archived()).status,401);
+  for(const who of ['a','b']){
+   const response=await archived(who);assert.match(response.headers.get('Cache-Control')!,/no-store/);
+   const listing=await response.json();assert.equal(listing.forms.length,1);assert.equal(listing.forms[0].signatureData,undefined);
+   const detail=await archived(who,`?id=${evidence[0].id}`);assert.equal(detail.status,200);const saved=(await detail.json()).form;assert.equal(saved.signedName,'Synthetic Client');assert.equal(JSON.parse(saved.signatureData).definition.body,definition.body);assert.equal(saved.photoAssignmentId,assignment);assert.ok(!JSON.stringify(saved).includes('encryptedImage'));
+  }
+  for(const who of ['c','d']){assert.equal((await (await archived(who)).json()).forms.length,0);assert.equal((await archived(who,`?id=${evidence[0].id}`)).status,404);}
+  assert.equal((await (await archived('b','?q=missing')).json()).forms.length,0);
+  assert.equal((await (await archived('b','?q=Synthetic')).json()).forms.length,1);
+  assert.equal((await (await archived('b','?page=2')).json()).forms.length,0);
+  assert.equal((await archived('b','?id=invalid')).status,400);
+  const exportRecord=await archived('b',`?id=${evidence[0].id}&download=1`);assert.match(exportRecord.headers.get('Content-Disposition')!,/attachment/);
   const get=(cookie?:string)=>download(new NextRequest(`http://localhost/api/waiver-assignments/${assignment}/photo-id`,{headers:cookie?{cookie:`inkflow_session=${cookie.repeat(64)}`}:{}}),{params:Promise.resolve({id:assignment})});
   assert.equal((await get()).status,401);assert.equal((await get('c')).status,404);assert.equal((await get('d')).status,404);
   const owned=await get('b');assert.equal(owned.status,200);assert.equal(owned.headers.get('Content-Disposition'),'attachment; filename="photo-id.jpg"');assert.equal(owned.headers.get('X-Content-Type-Options'),'nosniff');assert.match(owned.headers.get('Cache-Control')!,/no-store/);

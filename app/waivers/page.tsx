@@ -108,6 +108,7 @@ export default function WaiversPage() {
         <button disabled={busy}>Add form link</button>
       </form>
     </section>
+    <section className="waiver-section"><h2>Signed forms</h2><p>Find completed Maia consent forms, answers, and signatures from past appointments.</p><a href="/waivers/archive">Open signed form archive →</a></section>
     <section className="waiver-section native-create"><NativeEditor studioBrand={setup.studioBrand||''} artists={setup.artists} busy={busy} onSaved={refresh}/></section>
 
     {webhookUrl && <section className="webhook-callout"><h2>Finish Jotform setup</h2><ol><li>Add a hidden field to each form with the unique name <code>waiverToken</code>.</li><li>Add this webhook URL to each imported form, replacing any older waiver webhook URL:</li></ol><input readOnly value={webhookUrl} onFocus={event => event.currentTarget.select()} /><p>Store this URL now. Its secret is intentionally shown only when created.</p></section>}
