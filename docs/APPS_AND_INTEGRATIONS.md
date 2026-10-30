@@ -1,11 +1,9 @@
-# Apps & integrations
+# Service app importer
 
-`/settings/integrations` is the app directory. Settings and the service importer link to it. The selected artist is resolved against the existing authorized artist list; URL IDs remain preferences, never authorization. Existing APIs enforce tenant and artist authorization. No credentials, new provider permissions, database tables, or automatic imports are introduced.
+Services & Pricing has an **Import from an app** button that opens a searchable modal for Square, GlossGenius, Vagaro, and other platforms. Choosing a public link or CSV closes the modal and opens the existing review-first importer on the same page for the selected artist. No account, calendar, or service changes happen automatically. Direct account connectors are not implied by these import choices.
 
-Square offers public-page/CSV service imports and a separate, explicitly labeled scheduling connection. The latter changes scheduling provider; service-only OAuth is not implemented. The directory reads existing scheduling status, with an explicit error if unavailable; payment, form, and channel cards link to their settings without inventing connected status.
+The native dialog supports Close and Escape and returns focus to the trigger. Changing artist closes the picker. Login-only dashboard URLs are not supported; public dynamic pages may require a CSV instead.
 
-GlossGenius and Vagaro offer the shared public-link/CSV preview workflow. They have no direct account connector in Maia. The UI does not imply a provider supports native CSV export: artists may supply a CSV they already have or use Maia's template. Public links may fail for login-only or dynamic pages. All import changes require reviewing and saving selected services. Calendar and deposit settings are not imported.
+The former `/settings/integrations` URL redirects to Services & Pricing with the artist preference preserved and the modal open. The selected artist is resolved against the authorized artist list by the services page. Settings no longer displays a separate Apps & integrations card. Payment, consent, messaging, and scheduling settings remain in their existing locations.
 
-Links preserve the selected artist to services and Square scheduling. Services accepts only `import=website` or `import=csv` as initial UI choices. This opens the relevant input, without fetching a URL, uploading, authorizing, or importing automatically.
-
-Deployment: no migration or environment changes. Rollback is a code rollback; existing service and connection data is unaffected.
+No migration or credential changes are required. Existing import APIs, tenant checks, preview, validation, duplicate handling, and save behavior are reused.
