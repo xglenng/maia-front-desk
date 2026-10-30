@@ -31,3 +31,12 @@ test('handles a 30-service studio and bounds bulk uploads', () => {
   assert.equal(parseServiceCsv(csv(30)).length, 30);
   assert.throws(() => parseServiceCsv(csv(251)));
 });
+test('bulk review identifies a blocking description even when later services are ready', () => {
+  const header='Name,Duration,Price,Category,Description\n';
+  const valid='Ready service,30,50,Consultations,Brief description';
+  const rows=parseServiceCsv(header+`Needs review,30,50,Consultations,${'x'.repeat(501)}\n`+valid);
+  assert.deepEqual(rows[0].errors,['Description must be at most 500 characters.']);
+  assert.deepEqual(rows[1].errors,[]);
+  assert.ok(parseServiceCsv(header+valid).every(row=>row.errors.length===0));
+  assert.ok(parseServiceCsv(header+'Needs review,30,50,Consultations,Corrected description\n'+valid).every(row=>row.errors.length===0));
+});

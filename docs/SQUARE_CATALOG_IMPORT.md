@@ -29,3 +29,7 @@ Live OAuth and real Square account catalog access are not considered verified un
 - Unit tests verify the exact read-only scope, CSV escaping, source-value preservation, unsupported-price handling, and the import size limit.
 - The isolated PostgreSQL test covers anonymous/peer/foreign access denial, hashed one-time OAuth state, wrong-user and expired state, denied grants, encrypted storage, preview/import/deduplication, refresh success/failure, local disconnect, tenant foreign keys, unchanged scheduling records/mappings, and the existing owner scheduling callback.
 - The real Drizzle baseline test applies the journal on empty and populated supported local schemas and compares it with the generated staging snapshot.
+
+## Review validation
+
+Import remains disabled while any selected row has validation errors. The review footer shows the count, first affected service and error, a jump to that row, and an option to deselect rows with errors. Category and description fields are editable in each row’s details; category is limited to 80 characters and description to 500. Source content is never silently truncated. Unchecked rows do not block importing the selected valid services.

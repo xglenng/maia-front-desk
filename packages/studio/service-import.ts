@@ -57,7 +57,8 @@ export function parseServiceCsv(source: string) {
       else { const [whole, fraction = ''] = price.split('.'); cents = Number(whole) * 100 + Number((fraction + '00').slice(0, 2)); if (!Number.isSafeInteger(cents) || cents > 2147483647) errors.push('Price is too large.'); }
     }
     if (fields.currency && fields.currency.toUpperCase() !== 'USD') errors.push('Only USD prices are supported.');
-    if ((fields.category || '').length > 80 || (fields.description || '').length > 500) errors.push('Category or description is too long.');
+    if ((fields.category || '').length > 80) errors.push('Category must be at most 80 characters.');
+    if ((fields.description || '').length > 500) errors.push('Description must be at most 500 characters.');
     const service: ImportedService = { name, serviceType, category: fields.category || null, description: fields.description || null, durationMinutes, pricingType: pricingType || 'QUOTE', basePriceCents: pricingType === 'FLAT' ? cents : null, hourlyRateCents: pricingType === 'HOURLY' ? cents : null, requiresArtistApproval: pricingType === 'QUOTE' };
     const key = serviceImportKey(service);
     if (seen.has(key)) errors.push('Duplicate service name and type in this file.');
