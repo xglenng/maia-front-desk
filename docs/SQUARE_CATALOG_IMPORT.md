@@ -33,3 +33,5 @@ Live OAuth and real Square account catalog access are not considered verified un
 ## Review validation
 
 Import remains disabled while any selected row has validation errors. The review footer shows the count, first affected service and error, a jump to that row, and an option to deselect rows with errors. Category and description fields are editable in each row’s details; category is limited to 80 characters and description to 500. Source content is never silently truncated. Unchecked rows do not block importing the selected valid services.
+
+The review toolbar includes Select all, Deselect all, and a selected-service count. Bulk selection changes only the draft; saving still requires valid selected rows and an explicit Import action.
