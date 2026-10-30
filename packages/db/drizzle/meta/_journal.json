@@ -162,6 +162,13 @@
       "when": 1793232000000,
       "tag": "0022_private_consent_photo_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793404800000,
+      "tag": "0023_square_catalog_connection",
+      "breakpoints": true
     }
   ]
 }

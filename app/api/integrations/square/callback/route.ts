@@ -1,3 +1,4 @@
+import {completeCatalogCallback} from '@/packages/integrations/square-catalog/callback';
 import { protectedRoute, identity } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
@@ -24,6 +25,10 @@ async function handleGET(request: NextRequest) {
   const rawState = request.nextUrl.searchParams.get('state');
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+
+  const catalogResponse=await completeCatalogCallback(request,user);
+  if(catalogResponse)return catalogResponse;
+  if(user.role!=='OWNER')return NextResponse.json({error:'Owner access required.'},{status:403});
 
   const callbackState = await resolveSquareOAuthCallbackState(rawState, user.id, user.organization_id, providerError, async (state, userId, organizationId) => {
     const consumed = await pool.query(
@@ -101,4 +106,4 @@ async function handleGET(request: NextRequest) {
   }
 }
 
-export const GET = protectedRoute(handleGET, true);
+export const GET = protectedRoute(handleGET, false);

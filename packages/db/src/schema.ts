@@ -555,6 +555,32 @@ export const schedulingConnections = pgTable("scheduling_connections", {
   tenantStatus: index("scheduling_connections_tenant_status_idx").on(table.organizationId, table.status)
 }));
 
+// Catalog-only credentials never participate in scheduling-provider selection.
+export const squareCatalogConnections = pgTable("square_catalog_connections", {
+ id: uuid("id").defaultRandom().primaryKey(),
+ organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+ artistId: uuid("artist_id").notNull(),
+ merchantId: text("merchant_id").notNull(),
+ accessTokenEncrypted: text("access_token_encrypted").notNull(),
+ refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+ expiresAt: timestamp("expires_at", {withTimezone:true}).notNull(),
+ status: text("status").default("CONNECTED").notNull(),
+ updatedAt: timestamp("updated_at", {withTimezone:true}).defaultNow().notNull(),
+}, table=>({
+ artistUnique:uniqueIndex("square_catalog_connections_artist_uidx").on(table.organizationId,table.artistId),
+ tenantArtist:foreignKey({name:"square_catalog_connections_artist_tenant_fk",columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+}));
+export const squareCatalogOAuthStates = pgTable("square_catalog_oauth_states", {
+ tokenHash:text("token_hash").primaryKey(),
+ userId:uuid("user_id").notNull(),
+ organizationId:uuid("organization_id").references(()=>organizations.id).notNull(),
+ artistId:uuid("artist_id").notNull(),
+ expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),
+},table=>({
+ tenantUser:foreignKey({name:"square_catalog_oauth_states_user_tenant_fk",columns:[table.userId,table.organizationId],foreignColumns:[users.id,users.organizationId]}),
+ tenantArtist:foreignKey({name:"square_catalog_oauth_states_artist_tenant_fk",columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+}));
+
 export const serviceProviderMappings = pgTable("service_provider_mappings", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),

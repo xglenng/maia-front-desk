@@ -25,7 +25,7 @@ type SquareCatalogObject = {
   item_data?: { name?: string; product_type?: string; variations?: Array<{ id: string }> };
   item_variation_data?: { name?: string; item_id?: string; service_duration?: SquareJsonInt64; pricing_type?: string; price_money?: { amount?: SquareJsonInt64; currency?: string } };
 };
-export type SquareServiceVariation = { id: string; version: string | null; name: string; durationMinutes: number | null; priceCents?: number | null; currency?: string | null };
+export type SquareServiceVariation = { id: string; version: string | null; name: string; durationMinutes: number | null; priceCents?: number | null; currency?: string | null; pricingType?: string };
 export type SquareAvailability = {
   start_at?: string;
   location_id?: string;
@@ -134,11 +134,14 @@ export class SquareApiClient {
     }));
   }
 
-  async listServiceVariations(): Promise<SquareServiceVariation[]> {
+  async listServiceVariations(includePricingType=false): Promise<SquareServiceVariation[]> {
     const items = new Map<string, SquareCatalogObject>();
     const variations = new Map<string, SquareCatalogObject>();
     let cursor: string | undefined;
+    let pages=0;
+    const seenCursors=new Set<string>();
     do {
+      if(includePricingType&&++pages>30)throw new Error("Square catalog exceeds the import page limit.");
       const body = await this.request<{ objects?: SquareCatalogObject[]; related_objects?: SquareCatalogObject[]; cursor?: string }>('/v2/catalog/search', {
         method: 'POST',
         body: JSON.stringify({ object_types: ['ITEM', 'ITEM_VARIATION'], include_related_objects: true, ...(cursor ? { cursor } : {}) }),
@@ -148,6 +151,7 @@ export class SquareApiClient {
         if (object.type === 'ITEM_VARIATION') variations.set(object.id, object);
       }
       cursor = body.cursor;
+      if(includePricingType&&cursor){if(seenCursors.has(cursor))throw new Error("Repeated Square catalog cursor.");seenCursors.add(cursor);}
     } while (cursor);
 
     const services: SquareServiceVariation[] = [];
@@ -165,6 +169,7 @@ export class SquareApiClient {
           durationMinutes: durationMs == null ? null : Math.ceil(durationMs / 60_000),
           priceCents: variation.item_variation_data.pricing_type === "FIXED_PRICING" ? squareSafeNumber(variation.item_variation_data.price_money?.amount) : null,
           currency: variation.item_variation_data.price_money?.currency ?? null,
+          ...(includePricingType?{pricingType:variation.item_variation_data.pricing_type}:{}),
         });
       }
     }

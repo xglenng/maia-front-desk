@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: d44b7fb7db565e5a0a708aaaecd1d50a81d9034e5fb93dd40e27c35fcdee5fed
+-- schema-source-sha256: 8742d7f01ed023e2d48d97a908d2f5db1c72005236c119fad94eb0e5dac8bc51
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -773,6 +773,26 @@ CREATE TABLE "sms_consent_evidence" (
 	"submitted_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "square_catalog_connections" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"merchant_id" text NOT NULL,
+	"access_token_encrypted" text NOT NULL,
+	"refresh_token_encrypted" text NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"status" text DEFAULT 'CONNECTED' NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "square_catalog_oauth_states" (
+	"token_hash" text PRIMARY KEY NOT NULL,
+	"user_id" uuid NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "staff_invitations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -1062,6 +1082,8 @@ CREATE UNIQUE INDEX "service_provider_mappings_connection_service_location_uidx"
 CREATE INDEX "service_provider_mappings_tenant_service_idx" ON "service_provider_mappings" USING btree ("organization_id","artist_id","service_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "services_id_organization_uidx" ON "services" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "square_catalog_connections_artist_uidx" ON "square_catalog_connections" USING btree ("organization_id","artist_id");
 --> statement-breakpoint
 CREATE INDEX "staff_invitations_artist_idx" ON "staff_invitations" USING btree ("organization_id","artist_id");
 --> statement-breakpoint
@@ -1430,6 +1452,16 @@ ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_artist_i
 ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "sms_consent_evidence" ADD CONSTRAINT "sms_consent_evidence_consent_form_id_tenant_fk" FOREIGN KEY ("consent_form_id","organization_id") REFERENCES "public"."artist_consent_forms"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "square_catalog_connections" ADD CONSTRAINT "square_catalog_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "square_catalog_connections" ADD CONSTRAINT "square_catalog_connections_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "square_catalog_oauth_states" ADD CONSTRAINT "square_catalog_oauth_states_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "square_catalog_oauth_states" ADD CONSTRAINT "square_catalog_oauth_states_user_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "square_catalog_oauth_states" ADD CONSTRAINT "square_catalog_oauth_states_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "staff_invitations" ADD CONSTRAINT "staff_invitations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
