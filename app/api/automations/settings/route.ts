@@ -36,7 +36,6 @@ const settingsSchema = z.object({
 async function handleGET(request: NextRequest) {
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-  if (user.role !== 'OWNER') return NextResponse.json({ error: 'Owner access is required.' }, { status: 403 });
   const rows = await db.select({
     id: artists.id,
     displayName: artists.displayName,
@@ -57,7 +56,7 @@ async function handleGET(request: NextRequest) {
     reviewFollowupHours: artists.reviewFollowupHours,
     googleReviewUrl: artists.googleReviewUrl,
     reviewFollowupMessage: artists.reviewFollowupMessage,
-  }).from(artists).where(eq(artists.organizationId, user.organization_id)).orderBy(artists.displayName);
+  }).from(artists).where(and(eq(artists.organizationId, user.organization_id), ...(user.role === 'OWNER' ? [] : [eq(artists.userId,user.id)]))).orderBy(artists.displayName);
   const requestedId = request.nextUrl.searchParams.get('artistId');
   const selected = rows.find(row => row.id === requestedId) ?? rows[0] ?? null;
   return NextResponse.json({ artists: rows, selected });
@@ -66,7 +65,6 @@ async function handleGET(request: NextRequest) {
 async function handlePUT(request: NextRequest) {
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-  if (user.role !== 'OWNER') return NextResponse.json({ error: 'Owner access is required.' }, { status: 403 });
   const parsed = settingsSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const artist = await db.transaction(async tx => {

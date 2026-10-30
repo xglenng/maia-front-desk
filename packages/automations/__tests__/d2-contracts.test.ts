@@ -42,10 +42,10 @@ test('completion is assigned-artist authorized, idempotent, timestamped, and sch
   assert.match(scheduler, /'REVIEW_FOLLOWUP'/);
 });
 
-test('D2 settings remain owner-only and scoped to the signed-in organization', () => {
+test('D2 settings remain artist-assigned and scoped to the signed-in organization', () => {
   const route = readFileSync('app/api/automations/settings/route.ts', 'utf8');
   const serviceApi = readFileSync('app/api/services/route.ts', 'utf8');
-  assert.match(route, /user\.role !== 'OWNER'/);
+  assert.match(route, /eq\(artists\.userId,user\.id\)/);
   assert.match(route, /eq\(artists\.organizationId, user\.organization_id\)/);
   assert.match(route, /isGoogleReviewUrl/);
   assert.match(serviceApi, /z\.enum\(\['SQUARE', 'STRIPE', 'VENMO_MANUAL'\]\)/);

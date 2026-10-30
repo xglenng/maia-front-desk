@@ -6,6 +6,8 @@ export default function SettingsPage() {
   const user = useSession();
 
   if (!user) return null;
+  const owner = user.role === 'OWNER';
+  if (!owner) return <main style={{ maxWidth: 900, margin: '0 auto', padding: '40px 20px 80px' }}><a href="/">← Dashboard</a><h1>My settings</h1><p>Manage your own services, messaging channels, and client consent. Studio billing, phone provisioning, and compliance are managed by your studio owner.</p><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}><a href="/settings/services" style={card}><strong>Services &amp; Pricing</strong><p>Manage and import your services.</p></a><a href="/items" style={card}><strong>Items &amp; services</strong><p>Manage your merchandise and service catalog.</p></a><a href="/channels" style={card}><strong>Instagram and Facebook</strong><p>Connect your own professional social accounts.</p></a><a href="/settings/sms" style={card}><strong>SMS settings</strong><p>View your assigned phone number and configure client opt-in.</p></a><a href="/settings/automations" style={card}><strong>Automated response timing</strong><p>Configure your response delays and consent reminders.</p></a><a href="/waivers" style={card}><strong>Consent forms &amp; waivers</strong><p>Build and manage your client forms.</p></a><a href="/help" style={card}><strong>Help &amp; support</strong><p>Find setup guides and support.</p></a></div></main>;
   return <main style={{ maxWidth: 900, margin: '0 auto', padding: '40px 20px 80px', color: '#181716' }}>
     <a href="/">← Dashboard</a><h1>Owner settings</h1>
     <p style={{ color: '#77736e' }}>Manage studio operations and the information Maia can share with clients.</p>

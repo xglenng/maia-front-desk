@@ -20,4 +20,4 @@ async function handleGET(request: NextRequest) {
   await pool.query("INSERT INTO auth_oauth_states VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [digest(state), user!.id, user!.organization_id, artist.id]);
   return NextResponse.redirect(metaOAuthUrl(state));
 }
-export const GET = protectedRoute(handleGET, true);
+export const GET = protectedRoute(handleGET);

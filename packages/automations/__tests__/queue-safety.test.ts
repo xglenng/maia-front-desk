@@ -13,9 +13,9 @@ test('automation claim uses PostgreSQL row locking and expiring per-job lease to
   assert.match(source, /automationInboundVersion/);
 });
 
-test('delay settings are owner-only, tenant-scoped, and restricted to supported values', () => {
+test('delay settings are artist-assigned, tenant-scoped, and restricted to supported values', () => {
   const source = readFileSync('app/api/automations/settings/route.ts', 'utf8');
-  assert.equal((source.match(/user\.role !== 'OWNER'/g) || []).length, 2);
+  assert.match(source, /eq\(artists\.userId,user\.id\)/);
   assert.match(source, /\[0, 60, 120, 300\]\.includes\(value\)/);
   assert.match(source, /eq\(artists\.organizationId, user\.organization_id\)/);
 });

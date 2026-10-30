@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { protectedRoute } from "@/packages/auth/server";
+import { protectedRoute, identity } from "@/packages/auth/server";
 import { appBaseUrl, consentDisclosure, inboundPublicDisclosure, smsConfirmationText, tokenDigest } from "@/packages/consent";
 import { ensureHostedConsentForm, loadConsentForm } from "@/packages/consent/server";
 import { db } from "@db";
@@ -29,7 +29,8 @@ async function handleGET(request: NextRequest) {
   const organizationId = request.nextUrl.searchParams.get("organizationId");
   const artistId = request.nextUrl.searchParams.get("artistId");
   if (!organizationId) return NextResponse.json({ error: "organizationId is required" }, { status: 400 });
-  const artistRows = await db.select({ id: artists.id, displayName: artists.displayName }).from(artists).where(eq(artists.organizationId, organizationId));
+  const user = (await identity(request))!;
+  const artistRows = await db.select({ id: artists.id, displayName: artists.displayName }).from(artists).where(and(eq(artists.organizationId, organizationId), ...(user.role === "OWNER" ? [] : [eq(artists.userId, user.id)])));
   if (!artistId) return NextResponse.json({ artists: artistRows, selectedArtistId: artistRows.length === 1 ? artistRows[0].id : null });
   const result = await ensureHostedConsentForm(organizationId, artistId);
   if (!result) return NextResponse.json({ error: "Artist not found." }, { status: 404 });
@@ -70,6 +71,6 @@ async function handlePOST(request: NextRequest) {
   return NextResponse.json({ token, endpoint: `${appBaseUrl()}/api/public/consent/external/${current.form.id}`, warning: "Copy this token now. It is not shown again." });
 }
 
-export const GET = protectedRoute(handleGET, true);
-export const PUT = protectedRoute(handlePUT, true);
+export const GET = protectedRoute(handleGET);
+export const PUT = protectedRoute(handlePUT);
 export const POST = protectedRoute(handlePOST, true);

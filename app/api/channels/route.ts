@@ -1,4 +1,4 @@
-import { protectedRoute, identity } from "@/packages/auth/server";
+import { protectedRoute, identity, assignedArtistReference } from "@/packages/auth/server";
 import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -26,8 +26,8 @@ async function handleGET(request: NextRequest) {
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const [connections, artistRows] = await Promise.all([
-    db.select({ id: channelConnections.id, artistId: channelConnections.artistId, artistName: artists.displayName, provider: channelConnections.provider, externalAccountId: channelConnections.externalAccountId, displayName: channelConnections.displayName, status: channelConnections.status, connectedAt: channelConnections.connectedAt, lastCheckedAt: channelConnections.lastCheckedAt, lastWebhookAt: channelConnections.lastWebhookAt, lastError: channelConnections.lastError }).from(channelConnections).innerJoin(artists, and(eq(channelConnections.artistId, artists.id), eq(channelConnections.organizationId, artists.organizationId))).where(eq(channelConnections.organizationId, user.organization_id)).orderBy(asc(channelConnections.provider), asc(channelConnections.displayName)),
-    db.select({ id: artists.id, name: artists.displayName }).from(artists).where(eq(artists.organizationId, user.organization_id)).orderBy(asc(artists.displayName)),
+    db.select({ id: channelConnections.id, artistId: channelConnections.artistId, artistName: artists.displayName, provider: channelConnections.provider, externalAccountId: channelConnections.externalAccountId, displayName: channelConnections.displayName, status: channelConnections.status, connectedAt: channelConnections.connectedAt, lastCheckedAt: channelConnections.lastCheckedAt, lastWebhookAt: channelConnections.lastWebhookAt, lastError: channelConnections.lastError }).from(channelConnections).innerJoin(artists, and(eq(channelConnections.artistId, artists.id), eq(channelConnections.organizationId, artists.organizationId))).where(and(eq(channelConnections.organizationId, user.organization_id), ...(user.role === "OWNER" ? [] : [eq(artists.userId, user.id)]))).orderBy(asc(channelConnections.provider), asc(channelConnections.displayName)),
+    db.select({ id: artists.id, name: artists.displayName }).from(artists).where(and(eq(artists.organizationId, user.organization_id), ...(user.role === "OWNER" ? [] : [eq(artists.userId, user.id)]))).orderBy(asc(artists.displayName)),
   ]);
   return NextResponse.json({ connections, artists: artistRows, mode: process.env.META_MESSAGING_MODE || "live", ...metaConfig(request) });
 }
@@ -39,12 +39,13 @@ async function handlePOST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   if (parsed.data.action === "DISCONNECT") {
     const [connection] = await db.select().from(channelConnections).where(and(eq(channelConnections.id, parsed.data.connectionId), eq(channelConnections.organizationId, user.organization_id))).limit(1);
-    if (!connection) return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+    if (!connection || !await assignedArtistReference(user,"artistId",connection.artistId)) return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     await db.update(channelConnections).set({ status: "DISCONNECTED", updatedAt: new Date() }).where(eq(channelConnections.id, connection.id));
     return NextResponse.json({ disconnected: true });
   }
   if (parsed.data.action === "CHECK_HEALTH") {
     const [connection] = await db.select().from(channelConnections).where(and(eq(channelConnections.id, parsed.data.connectionId), eq(channelConnections.organizationId, user.organization_id))).limit(1);
+    if (connection && !await assignedArtistReference(user,"artistId",connection.artistId)) return NextResponse.json({ error: "Connection not found" }, {status:404});
     if (!connection?.accessTokenEncrypted) return NextResponse.json({ error: "Connection credentials are missing. Reconnect the account." }, { status: 409 });
     if (!['FACEBOOK', 'INSTAGRAM'].includes(connection.provider)) return NextResponse.json({ error: "Unsupported social provider." }, { status: 409 });
     const metadata = connection.metadata && typeof connection.metadata === "object" && !Array.isArray(connection.metadata) ? connection.metadata as Record<string, unknown> : {};
@@ -60,12 +61,12 @@ async function handlePOST(request: NextRequest) {
   const externalAccountId = `mock_${parsed.data.provider.toLowerCase()}_${artist.id}`;
   try {
     const [connection]=await reserveChannelConnections([{organizationId:user.organization_id,artistId:artist.id,provider:parsed.data.provider,externalAccountId,displayName:parsed.data.displayName,accessTokenEncrypted:encryptComplianceSecret("mock-access-token"),status:"ACTIVE",metadata:{mock:true}}]);
-    return NextResponse.json({connection},{status:200});
+    return NextResponse.json({connection:{id:connection.id,artistId:connection.artistId,provider:connection.provider,displayName:connection.displayName,status:connection.status}},{status:200});
   } catch(error) {
     if(error instanceof ChannelOwnershipConflict || (error && typeof error==="object" && "code" in error && error.code==="23505"))return NextResponse.json({error:"This social account already has a routing owner."},{status:409});
     throw error;
   }
 }
 
-export const GET = protectedRoute(handleGET, true);
-export const POST = protectedRoute(handlePOST, true);
+export const GET = protectedRoute(handleGET);
+export const POST = protectedRoute(handlePOST);

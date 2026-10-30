@@ -30,7 +30,7 @@ export default function ConsentFormsPage() {
     if (!response.ok) return setMessage(value.error || "Unable to create token."); setToken(value);
   }
   if (!user) return null;
-  return <main style={{ maxWidth: 850, margin: "0 auto", padding: "40px 20px 80px", color: "#181716" }}><a href="/settings">← Owner settings</a><h1>SMS consent workflow</h1><p>Configure how each artist obtains and records permission for appointment-related text messages.</p>
+  return <main style={{ maxWidth: 850, margin: "0 auto", padding: "40px 20px 80px", color: "#181716" }}><a href="/settings">← Settings</a><h1>SMS consent workflow</h1><p>Configure how each artist obtains and records permission for appointment-related text messages.</p>
     <section style={card}><label style={{ display: "grid", gap: 7, fontWeight: 700 }}>Artist<select style={field} value={artistId} onChange={event => { setArtistId(event.target.value); void load(event.target.value); }}><option value="">Choose an artist</option>{artists.map(artist => <option key={artist.id} value={artist.id}>{artist.displayName}</option>)}</select></label></section>
     {data?.form && <section style={card}><h2 style={{ marginTop: 0 }}>{data.artistName}</h2><p>Status: <strong>{data.ready ? "Ready for Twilio review" : "Action required"}</strong></p>
       <label style={{ display: "grid", gap: 7, fontWeight: 700 }}>Consent method<select value={mode} onChange={event => { setMode(event.target.value as ConsentMode); setAttested(false); }} style={field}><option value="INBOUND_SMS_CONFIRMATION">Client texts first, then replies YES (recommended for this studio)</option><option value="HOSTED">Maia-hosted booking form checkbox</option><option value="EXTERNAL">Verified external form checkbox</option></select></label>
@@ -40,7 +40,7 @@ export default function ConsentFormsPage() {
       {mode === "INBOUND_SMS_CONFIRMATION" && <details style={{ marginTop: 16 }} open><summary>Disclosure to display beside the shop phone number</summary><p style={{ padding: 12, background: "#f7f4f1", lineHeight: 1.5 }}>{data.form.disclosureText}</p><p style={{fontSize:13}}>Place visible Privacy Policy and Terms links beside this disclosure.</p></details>}
       <details style={{ marginTop: 16 }}><summary>{mode === "INBOUND_SMS_CONFIRMATION" ? "YES confirmation sent before booking" : "Required disclosure"}</summary><p style={{ padding: 12, background: "#f7f4f1", lineHeight: 1.5 }}>{mode === "INBOUND_SMS_CONFIRMATION" ? data.form.confirmationText : data.form.disclosureText}</p></details>
       <button onClick={save} style={{ marginTop: 16, padding: "11px 18px", background: "#181716", color: "white", border: 0, borderRadius: 8 }}>Save form setup</button>
-      {mode === "EXTERNAL" && data.ready && <button onClick={rotateToken} style={{ marginLeft: 10, padding: "11px 18px" }}>Create integration token</button>}
+      {user.role === "OWNER" && mode === "EXTERNAL" && data.ready && <button onClick={rotateToken} style={{ marginLeft: 10, padding: "11px 18px" }}>Create integration token</button>}
       {token && <div style={{ marginTop: 16, background: "#fff3cd", padding: 14 }}><strong>Copy now—this token will not be shown again.</strong><p>Endpoint: <code>{token.endpoint}</code></p><p>Bearer token: <code style={{ overflowWrap: "anywhere" }}>{token.token}</code></p></div>}
     </section>}
     {message && <section style={card}>{message}</section>}

@@ -1,4 +1,4 @@
-import { protectedRoute, identity } from "@/packages/auth/server";
+import { protectedRoute, identity, assignedArtistReference } from "@/packages/auth/server";
 import { digest } from "@/packages/auth/crypto";
 import { pool } from "@/packages/db/src";
 import { exchangeLongLivedMetaToken, exchangeMetaCode, listMetaPages } from "@channels/meta";
@@ -22,6 +22,7 @@ async function handleGET(request: NextRequest) {
   const user = await identity(request);
   const consumed = await pool.query("DELETE FROM auth_oauth_states WHERE token_hash=$1 AND user_id=$2 AND organization_id=$3 AND expires_at>now() RETURNING organization_id,artist_id", [digest(rawState), user!.id, user!.organization_id]);
   if (!consumed.rowCount) return NextResponse.redirect(channelsUrl(request, { error: "meta-state-expired" }));
+  if (!await assignedArtistReference(user!, "artistId", consumed.rows[0].artist_id)) return NextResponse.redirect(channelsUrl(request, {error:"meta-state-expired"}));
   try {
     const shortLived = await exchangeMetaCode(code);
     const longLived = await exchangeLongLivedMetaToken(shortLived.access_token);
@@ -41,4 +42,4 @@ async function handleGET(request: NextRequest) {
     return NextResponse.redirect(channelsUrl(request, { error: "meta-oauth-failed" }));
   }
 }
-export const GET = protectedRoute(handleGET, true);
+export const GET = protectedRoute(handleGET);

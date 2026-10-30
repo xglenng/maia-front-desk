@@ -37,7 +37,7 @@ export default function AutomationsSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user || user.role !== 'OWNER') return;
+    if (!user) return;
     void fetch('/api/automations/settings').then(async response => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to load settings.');
@@ -71,9 +71,8 @@ export default function AutomationsSettingsPage() {
   }
 
   if (!user) return null;
-  if (user.role !== 'OWNER') return <main style={{ maxWidth: 760, margin: '0 auto', padding: '40px 20px' }}><a href="/settings">← Owner settings</a><p>Owner access is required.</p></main>;
   return <main style={{ maxWidth: 820, margin: '0 auto', padding: '36px 20px 80px', color: '#181716' }}>
-    <a href="/settings">← Owner settings</a>
+    <a href="/settings">← Settings</a>
     <h1>Automations</h1>
     <p style={{ color: '#77736e' }}>Set client communication timing and payment instructions for each artist.</p>
     <section style={panel}><label style={labelStyle}>Artist

@@ -22,7 +22,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path.startsWith('/legal/') ||
   path.startsWith('/a/') ||
   path.startsWith('/book/');
-  const ownerPage = path === '/settings' || path === '/settings/team' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio' || path === '/channels';
+  const ownerPage = path === '/settings/team' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio';
   const [dashboardView,setDashboardView]=useState('Overview');
   useEffect(()=>{const update=()=>setDashboardView(new URLSearchParams(window.location.search).get('view')||'Overview');update();window.addEventListener('maia-view',update);return()=>window.removeEventListener('maia-view',update);},[path]);
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -48,7 +48,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
       <nav className="session-nav" aria-label="Quick navigation">
         <a href="/help" className="session-icon" aria-label="Help & support" title="Help & support"><UiIcon name="help" /></a>
         <a href="/" className="session-icon" aria-label="Dashboard" title="Dashboard"><UiIcon name="dashboard" /></a>
-        {user.role === 'OWNER' && <a href="/settings" className="session-icon" aria-label="Settings" title="Settings"><UiIcon name="settings" /></a>}
+        <a href="/settings" className="session-icon" aria-label="Settings" title="Settings"><UiIcon name="settings" /></a>
         <details className="session-account" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
           <summary aria-label="Account and sign out" title={user.name}>{user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'M'}</summary>
           <div className="session-account-panel"><strong>{user.name}</strong><small>{user.role === 'OWNER' ? 'Studio owner' : 'Artist'}</small>
