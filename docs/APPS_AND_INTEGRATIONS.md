@@ -1,6 +1,6 @@
 # Service app importer
 
-Services & Pricing has an **Import from an app** button that opens a searchable modal for Square, GlossGenius, Vagaro, and other platforms. Choosing a public link or CSV closes the modal and opens the existing review-first importer on the same page for the selected artist. No account, calendar, or service changes happen automatically. Direct account connectors are not implied by these import choices.
+Services & Pricing has an **Import from an app** button that opens a searchable modal for Square, GlossGenius, Vagaro, and other platforms. Choosing a public link or CSV advances within the same modal. The input, validation messages, editable preview, and final import stay together for the selected artist. Close preserves the draft until leaving the page; reopen to continue, or choose another app to start a new import. No account, calendar, or service changes happen automatically. Direct account connectors are not implied by these import choices.
 
 The native dialog supports Close and Escape and returns focus to the trigger. Changing artist closes the picker. Login-only dashboard URLs are not supported; public dynamic pages may require a CSV instead.
 
