@@ -1,12 +1,12 @@
-# Square service-only catalog connection
+# Square catalog import
 
 ## Behavior
 
 On Services & Pricing, select an artist, open **Import from an app**, and choose Square → **Connect Square account**. Sign-in and authorization happen at Square. The connection requests only `ITEMS_READ`, not scheduling, customers, orders, or payments. It uses the existing configured Square application and registered callback URL (`SQUARE_REDIRECT_URI` or the app's `/api/integrations/square/callback`). No new redirect registration is needed if that existing callback is registered correctly.
 
-After authorization, the artist returns to the same modal. **Read Square services** fetches appointment-service variations and creates an editable preview using the existing CSV validation/import path. Names, service types, durations, and prices can be reviewed before saving. No service is saved at authorization or catalog read. A merchant account can contain multiple artists' services: users must choose only those intended for the selected artist.
+After authorization, the artist returns to the same modal. **Read Square catalog** fetches the chosen service and merchandise variations and creates an editable preview using the existing CSV validation/import path. Names, service types, durations, and prices can be reviewed before saving. No service is saved at authorization or catalog read. A merchant account can contain multiple artists' services: users must choose only those intended for the selected artist.
 
-Existing services are skipped by the established name/type duplicate rule; prices and deposits are not overwritten. New services follow the existing CSV-import defaults (no deposit, manual payment configuration), rather than connecting Square payments or scheduling. USD fixed prices and variable/quote prices are supported. Unsupported currencies/invalid fixed prices are skipped with a count. Missing durations remain validation errors for the user to correct. Imports are capped at 250 services; larger catalogs require split CSV imports. This version imports appointment services, not physical items or inventory. AI normalization and merchandise import remain separate future work.
+Existing services are skipped by the established name/type duplicate rule; prices and deposits are not overwritten. New services follow the existing CSV-import defaults (no deposit, manual payment configuration), rather than connecting Square payments or scheduling. USD fixed prices and variable/quote prices are supported. Unsupported currencies/invalid fixed prices are skipped with a count. Missing durations remain validation errors for the user to correct. Imports are capped at 250 services; larger catalogs require split CSV imports. Merchandise can be imported alongside services as described below. Inventory and AI normalization remain outside this import.
 
 ## Security and isolation
 
@@ -35,3 +35,11 @@ Live OAuth and real Square account catalog access are not considered verified un
 Import remains disabled while any selected row has validation errors. The review footer shows the count, first affected service and error, a jump to that row, and an option to deselect rows with errors. Category and description fields are editable in each row’s details; category is limited to 80 characters and description to 500. Source content is never silently truncated. Unchecked rows do not block importing the selected valid services.
 
 The review toolbar includes Select all, Deselect all, and a selected-service count. Bulk selection changes only the draft; saving still requires valid selected rows and an explicit Import action.
+
+## Combined services and merchandise import
+
+The connected Square panel offers Services only, Items only, or Services and items. Merchandise reads use the existing ITEMS_READ grant. REGULAR catalog items become merchandise; appointment services stay in the service review. Gift cards and other unsupported product types are excluded. Each variation retains its source name, SKU, category, and supported USD fixed/variable price. Invalid lengths remain editable rather than being silently truncated. Zero or unsupported fixed prices are skipped because Maia merchandise requires a positive fixed price.
+
+Both groups are reviewed before a single Save action. `/api/services/import` validates item fields and inserts both groups in one transaction under the same artist row lock. Existing merchandise names are skipped using a trimmed, case-insensitive key, and existing prices are never overwritten. A failure rolls back both groups. Only selected rows are sent. No inventory, images, Square tax rules, deposits, or scheduling changes are imported. Item tax rates start at zero and must be reviewed.
+
+On success the modal closes, the services list refreshes, and the importer shows counts for services and items. On failure the preview and selections remain available. This release requires no database migration. Deployment remains subject to production approval.

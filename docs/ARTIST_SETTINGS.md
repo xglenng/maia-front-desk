@@ -9,3 +9,5 @@ Owners retain team management, studio configuration, billing, scheduling-provide
 No database migration is required. Deployment is required before these changes appear in production. Real artist Meta OAuth authorization remains unverified; provider account approval must be completed by the artist.
 
 Validation: production build (includes lint/type checks), standalone typecheck, unit suite, and disposable PostgreSQL artist settings tests for list isolation, owned disconnect, peer/foreign denial, own SMS consent save, and automation list scope.
+
+Services & Pricing and Items default to the signed-in user’s linked artist profile. A stale URL cannot override that initial default. With multiple artists and no linked profile, the user must choose one instead of silently receiving the first artist in the list. Owners can still change the selector deliberately. Square OAuth returns retain the destination authorized at connection start, and the importer displays that artist’s name in both its header and review. Existing imported records are not moved by this UI change.

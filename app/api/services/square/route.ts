@@ -6,6 +6,7 @@ import {canAccessArtist} from '@/packages/inbox/state';
 import {db} from '@/packages/db/src';
 import {artists,squareCatalogConnections} from '@/packages/db/src/schema';
 import {catalogAccessToken} from '@/packages/integrations/square-catalog/credentials';
+import {squareRetailItems} from '@/packages/studio/item-import';
 import {squareCatalogCsv} from '@/packages/integrations/square-catalog/policy';
 import {encryptComplianceSecret} from '@/packages/compliance/secrets';
 import {SquareApiClient} from '@/packages/scheduling/square/client';
@@ -25,10 +26,13 @@ async function handleGET(request:NextRequest){
  if(process.env.MAIA_STAGING_ISOLATED==='1')return NextResponse.json({error:'Live Square reads are disabled in isolated previews.'},{status:503});
  try{
   const catalogFetch:typeof fetch=(url,init)=>fetch(url,{...init,redirect:'error',signal:AbortSignal.timeout(15000)});
-  const catalog=await new SquareApiClient(await catalogAccessToken(connection),catalogFetch).listServiceVariations(true);
-  const result=squareCatalogCsv(catalog);
-  if(!result.count)return NextResponse.json({error:`No importable appointment services found. ${result.skipped} unsupported services skipped.`},{status:409});
-  return NextResponse.json({...result,note:`Read ${result.count} Square services. ${result.skipped} unsupported prices skipped. Review all values before importing. Your calendar and existing services are unchanged.`});
+  const kind=request.nextUrl.searchParams.get('kind')||'SERVICES';
+  if(!['SERVICES','ITEMS','BOTH'].includes(kind))return NextResponse.json({error:'Choose services, items, or both.'},{status:400});
+  const client=new SquareApiClient(await catalogAccessToken(connection),catalogFetch);
+  const result=kind==='ITEMS'?{csv:'',count:0,skipped:0}:squareCatalogCsv(await client.listServiceVariations(true));
+  const retail=kind==='SERVICES'?{items:[],skipped:0}:squareRetailItems(await client.listRetailVariations());
+  if(!result.count&&!retail.items.length)return NextResponse.json({error:'No importable records found for this selection.'},{status:409});
+  return NextResponse.json({...result,items:retail.items,note:`Read ${result.count} services and ${retail.items.length} items. ${result.skipped+retail.skipped} unsupported records skipped. Review all values and item tax rates before saving. Stock, tax rules, deposits, and calendar settings are not imported.`});
  }catch{return NextResponse.json({error:'Unable to read Square services. Reconnect if access has expired, or try again later.'},{status:502});}
 }
 async function handlePOST(request:NextRequest){

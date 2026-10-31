@@ -1,5 +1,5 @@
 'use client';
-import {selectedArtistId as resolveArtistSelection} from '@/packages/studio/artist-selection';
+import {settingsArtistId as resolveArtistSelection} from '@/packages/studio/artist-selection';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import ServiceImport from './service-import';
@@ -149,7 +149,8 @@ export default function ServicesSettingsPage() {
         if (!current) return;
         const loaded = data.artists as Artist[];
         setArtists(loaded);
-        setArtistId(existing => resolveArtistSelection(loaded, new URLSearchParams(window.location.search).get('artistId'), existing));
+        const params = new URLSearchParams(window.location.search);
+        setArtistId(resolveArtistSelection(loaded, data.defaultArtistId, params.get('artistId'), params.get('import') === 'apps' && params.has('squareCatalog')));
       })
       .catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Unable to load artists.'); })
       .finally(() => { if (current) setLoadingArtists(false); });
@@ -306,7 +307,7 @@ export default function ServicesSettingsPage() {
       </label>
     </section>
 
-    <ServiceImport key={artistId} organizationId={organizationId} artistId={artistId} onManual={startNew} onImported={() => setImportRevision(value => value + 1)} />
+    <ServiceImport key={artistId} organizationId={organizationId} artistId={artistId} artistName={artists.find(artist=>artist.id===artistId)?.displayName || ''} onManual={startNew} onImported={() => setImportRevision(value => value + 1)} />
 
     {error && <p role="alert" style={alert}>{error}</p>}
     {notice && <p role="status" style={noticeStyle}>{notice}</p>}

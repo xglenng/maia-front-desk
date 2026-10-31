@@ -19,13 +19,14 @@ type SquareLocation = { id: string; name: string; status?: string; timezone?: st
 type SquareTeamMember = { id: string; given_name?: string; family_name?: string; status?: string };
 export type SquareJsonInt64 = number | bigint | string | ReturnType<typeof parseLosslessNumber>;
 type SquareCatalogObject = {
+  category_data?: {name?:string};
   id: string;
   type: string;
   version?: SquareJsonInt64;
-  item_data?: { name?: string; product_type?: string; variations?: Array<{ id: string }> };
-  item_variation_data?: { name?: string; item_id?: string; service_duration?: SquareJsonInt64; pricing_type?: string; price_money?: { amount?: SquareJsonInt64; currency?: string } };
+  item_data?: { name?: string; product_type?: string; category_id?:string; categories?:Array<{id:string}>; variations?: Array<{ id: string }> };
+  item_variation_data?: { sku?:string; name?: string; item_id?: string; service_duration?: SquareJsonInt64; pricing_type?: string; price_money?: { amount?: SquareJsonInt64; currency?: string } };
 };
-export type SquareServiceVariation = { id: string; version: string | null; name: string; durationMinutes: number | null; priceCents?: number | null; currency?: string | null; pricingType?: string };
+export type SquareServiceVariation = { id: string; version: string | null; name: string; durationMinutes: number | null; priceCents?: number | null; currency?: string | null; pricingType?: string; sku?:string|null; category?:string|null };
 export type SquareAvailability = {
   start_at?: string;
   location_id?: string;
@@ -134,9 +135,12 @@ export class SquareApiClient {
     }));
   }
 
-  async listServiceVariations(includePricingType=false): Promise<SquareServiceVariation[]> {
+  async listServiceVariations(includePricingType=false): Promise<SquareServiceVariation[]> { return this.listImportVariations(includePricingType,'SERVICES'); }
+  async listRetailVariations(): Promise<SquareServiceVariation[]> { return this.listImportVariations(true,'ITEMS'); }
+  private async listImportVariations(includePricingType:boolean,kind:'SERVICES'|'ITEMS'): Promise<SquareServiceVariation[]> {
     const items = new Map<string, SquareCatalogObject>();
     const variations = new Map<string, SquareCatalogObject>();
+    const categories = new Map<string,string>();
     let cursor: string | undefined;
     let pages=0;
     const seenCursors=new Set<string>();
@@ -144,10 +148,11 @@ export class SquareApiClient {
       if(includePricingType&&++pages>30)throw new Error("Square catalog exceeds the import page limit.");
       const body = await this.request<{ objects?: SquareCatalogObject[]; related_objects?: SquareCatalogObject[]; cursor?: string }>('/v2/catalog/search', {
         method: 'POST',
-        body: JSON.stringify({ object_types: ['ITEM', 'ITEM_VARIATION'], include_related_objects: true, ...(cursor ? { cursor } : {}) }),
+        body: JSON.stringify({ object_types: kind==='ITEMS'?['ITEM','ITEM_VARIATION','CATEGORY']:['ITEM', 'ITEM_VARIATION'], include_related_objects: true, ...(cursor ? { cursor } : {}) }),
       });
       for (const object of [...(body.objects || []), ...(body.related_objects || [])]) {
-        if (object.type === 'ITEM') items.set(object.id, object);
+        if (object.type === 'CATEGORY' && object.category_data?.name) categories.set(object.id,object.category_data.name);
+        if (object.type === 'ITEM') {items.set(object.id, object);for(const nested of object.item_data?.variations||[])if('item_variation_data' in nested)variations.set(nested.id,nested as SquareCatalogObject);}
         if (object.type === 'ITEM_VARIATION') variations.set(object.id, object);
       }
       cursor = body.cursor;
@@ -156,7 +161,8 @@ export class SquareApiClient {
 
     const services: SquareServiceVariation[] = [];
     for (const item of items.values()) {
-      if (item.type !== 'ITEM' || item.item_data?.product_type !== 'APPOINTMENTS_SERVICE') continue;
+      if(!item.item_data)continue;
+      if (kind==='SERVICES'?item.item_data?.product_type !== 'APPOINTMENTS_SERVICE':!['REGULAR'].includes(item.item_data?.product_type||'REGULAR')) continue;
       const referencedVariationIds = new Set((item.item_data.variations || []).map(reference => reference.id));
       for (const variation of variations.values()) {
         if (variation.item_variation_data?.item_id !== item.id && !referencedVariationIds.has(variation.id)) continue;
@@ -170,6 +176,7 @@ export class SquareApiClient {
           priceCents: variation.item_variation_data.pricing_type === "FIXED_PRICING" ? squareSafeNumber(variation.item_variation_data.price_money?.amount) : null,
           currency: variation.item_variation_data.price_money?.currency ?? null,
           ...(includePricingType?{pricingType:variation.item_variation_data.pricing_type}:{}),
+          ...(kind==='ITEMS'?{sku:variation.item_variation_data.sku||null,category:(item.item_data?.categories||[]).map(ref=>categories.get(ref.id)).filter(Boolean).join(', ')||categories.get(item.item_data?.category_id||'')||null}:{}),
         });
       }
     }
