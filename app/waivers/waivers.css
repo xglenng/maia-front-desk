@@ -137,3 +137,34 @@
 .archive-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 0;border-bottom:1px solid #e6e3df}.archive-actions{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:20px 0}.signed-body{white-space:pre-wrap;line-height:1.7}.signed-answer{margin:24px 0}.record-hash{overflow-wrap:anywhere}.archive-page input{max-width:500px}.archive-page form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}.archive-page form label{flex:1;min-width:200px}.archive-page button{padding:10px 18px;border:1px solid #ddd;border-radius:24px;background:#fff;color:#181716;cursor:pointer}.archive-page button:disabled{opacity:.5;cursor:default}@media print{body header,body nav,.archive-controls{display:none!important}.archive-page{max-width:none!important;margin:0!important;padding:0!important}.signed-record{border:0!important}.signed-answer,svg{break-inside:avoid}}
 .archive-page form label{display:flex;flex-direction:column;gap:8px}.archive-page form input{width:100%;border:1px solid #d7d7d7;border-radius:10px;padding:12px 14px;min-height:46px}.archive-page .waiver-section{margin-top:24px}.archive-page .archive-row p{margin:8px 0;color:#706b66}@media(max-width:600px){.archive-row{align-items:flex-start;flex-direction:column}}
 .archive-page dialog.signed-record{width:min(860px,calc(100vw - 32px));max-height:85vh;overflow:auto;margin:auto;padding:28px;color:#111;background:#fff;box-sizing:border-box}.archive-page dialog::backdrop{background:rgba(0,0,0,.45)}@media print{.archive-page dialog.signed-record{position:static;max-height:none;overflow:visible;width:100%;margin:0;padding:0}.archive-page dialog::backdrop{background:transparent}}
+
+.waiver-admin .routing-rule{display:flex;align-items:center;gap:16px;padding:18px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.waiver-admin .routing-summary{flex:1;min-width:180px;display:grid;gap:6px}
+.waiver-admin .routing-summary span{font-size:13px;color:var(--muted)}
+.waiver-admin .routing-edit{border:1px solid var(--line);border-radius:8px;padding:9px 15px;background:#fff;color:var(--ink);cursor:pointer}
+.waiver-admin .routing-rule>.form-save-feedback{flex-basis:100%;margin:0}
+.waiver-admin .routing-dialog{width:min(600px,calc(100vw - 32px));max-height:85dvh;overflow:auto;margin:auto;border:1px solid var(--line);border-radius:16px;padding:24px;background:#fff;color:var(--ink);box-sizing:border-box}
+.waiver-admin .routing-dialog::backdrop{background:#0007}
+.waiver-admin .routing-dialog-heading,.waiver-admin .routing-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.waiver-admin .routing-dialog h2{margin:0;font-size:22px}
+.waiver-admin .routing-dialog .form-name{margin:20px 0}
+.waiver-admin .routing-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px;border:0;padding:0;margin:20px 0;min-width:0}
+.waiver-admin .routing-fields label{display:grid;gap:7px;font-size:13px;min-width:0}
+.waiver-admin .routing-fields input,.waiver-admin .routing-fields select{width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+.waiver-admin .routing-fields label.check{display:flex;align-items:center;gap:8px}
+.waiver-admin .routing-fields input[type=checkbox]{width:18px;height:18px}
+.waiver-admin .routing-dialog footer{justify-content:flex-end;border-top:1px solid var(--line);padding-top:18px}
+.waiver-admin .routing-dialog button[type=submit]{background:#111;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-weight:700}
+.waiver-admin .routing-rule button:disabled{opacity:.5;cursor:default}
+@media(max-width:500px){.waiver-admin .routing-fields{grid-template-columns:1fr}.waiver-admin .routing-dialog{padding:18px}}
+@media(max-width:600px){
+ .waiver-admin .routing-dialog{width:100%;max-width:none;height:100dvh;max-height:100dvh;border:0;border-radius:0;padding:20px 16px;padding-bottom:max(20px,env(safe-area-inset-bottom))}
+ .waiver-admin .routing-dialog form{min-height:100%;display:flex;flex-direction:column}
+ .waiver-admin .routing-dialog-heading{position:sticky;top:-20px;background:#fff;padding:12px 0;z-index:1}
+ .waiver-admin .routing-fields{grid-template-columns:1fr;gap:20px}
+ .waiver-admin .routing-fields input,.waiver-admin .routing-fields select,.waiver-admin .routing-dialog button{min-height:44px;font-size:16px}
+ .waiver-admin .routing-fields input[type=checkbox]{min-height:20px}
+ .waiver-admin .routing-dialog footer{margin-top:auto;position:sticky;bottom:-20px;background:#fff;padding:16px 0}
+ .waiver-admin .routing-dialog footer button{flex:1}
+ .waiver-admin .routing-summary span{line-height:1.5}
+}
