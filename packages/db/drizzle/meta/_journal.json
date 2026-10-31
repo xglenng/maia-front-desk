@@ -169,6 +169,13 @@
       "when": 1793404800000,
       "tag": "0023_square_catalog_connection",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0024_studio_invoices",
+      "breakpoints": true
     }
   ]
 }

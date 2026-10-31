@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 8742d7f01ed023e2d48d97a908d2f5db1c72005236c119fad94eb0e5dac8bc51
+-- schema-source-sha256: 60f8146e16f08442d5b1dc978daa907ef5f5e8e639a6a63760f5d23af2fa22d5
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -875,6 +875,34 @@ CREATE TABLE "studio_faqs" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "studio_invoices" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"created_by_user_id" uuid NOT NULL,
+	"request_id" uuid NOT NULL,
+	"client_id" uuid,
+	"sms_status" text DEFAULT 'NOT_SENT' NOT NULL,
+	"sms_provider_id" text,
+	"client_name" text NOT NULL,
+	"client_email" text NOT NULL,
+	"lines" jsonb NOT NULL,
+	"total_cents" integer NOT NULL,
+	"due_days" integer DEFAULT 30 NOT NULL,
+	"note" text DEFAULT '' NOT NULL,
+	"status" text DEFAULT 'DRAFT' NOT NULL,
+	"stripe_account_id" text,
+	"stripe_invoice_id" text,
+	"issuing_at" timestamp with time zone,
+	"hosted_url" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "studio_invoice_sms_status_check" CHECK ("studio_invoices"."sms_status" IN ('NOT_SENT','SENDING','SENT','UNKNOWN')),
+	CONSTRAINT "studio_invoice_due_days_check" CHECK ("studio_invoices"."due_days" BETWEEN 1 AND 90),
+	CONSTRAINT "studio_invoice_total_check" CHECK ("studio_invoices"."total_cents" BETWEEN 1 AND 100000000),
+	CONSTRAINT "studio_invoice_status_check" CHECK ("studio_invoices"."status" IN ('DRAFT','ISSUING','OPEN','PAID','VOID','UNCOLLECTIBLE'))
+);
+--> statement-breakpoint
 CREATE TABLE "studio_locations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -1092,6 +1120,10 @@ CREATE INDEX "studio_aftercare_organization_idx" ON "studio_aftercare" USING btr
 CREATE INDEX "studio_business_hours_location_day_idx" ON "studio_business_hours" USING btree ("organization_id","location_id","day_of_week");
 --> statement-breakpoint
 CREATE INDEX "studio_faqs_organization_idx" ON "studio_faqs" USING btree ("organization_id","active","sort_order");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "studio_invoices_request_idx" ON "studio_invoices" USING btree ("organization_id","request_id");
+--> statement-breakpoint
+CREATE INDEX "studio_invoices_artist_idx" ON "studio_invoices" USING btree ("organization_id","artist_id","created_at");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "studio_locations_id_organization_idx" ON "studio_locations" USING btree ("id","organization_id");
 --> statement-breakpoint
@@ -1496,6 +1528,18 @@ ALTER TABLE "studio_business_hours" ADD CONSTRAINT "studio_business_hours_tenant
 ALTER TABLE "studio_faqs" ADD CONSTRAINT "studio_faqs_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_faqs" ADD CONSTRAINT "studio_faqs_tenant_location_fk" FOREIGN KEY ("location_id","organization_id") REFERENCES "public"."studio_locations"("id","organization_id") ON DELETE cascade ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_artist_id_organization_id_artists_id_organization_id_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_client_id_organization_id_clients_id_organization_id_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_locations" ADD CONSTRAINT "studio_locations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
