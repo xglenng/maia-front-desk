@@ -1,7 +1,15 @@
 import type { SVGProps } from 'react';
 
-export type IconName = 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off';
+export type IconName = 'services' | 'card' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off';
 const paths: Record<IconName, React.ReactNode> = {
+  services: <><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="2" fill="white"/><circle cx="16" cy="12" r="2" fill="white"/><circle cx="10" cy="19" r="2" fill="white"/></>,
+  card: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></>,
+  chart: <><path d="M4 3v18h17M8 16v-4m5 4V8m5 8V5"/></>,
+  document: <><path d="M14 2H5v20h14V7Z M14 2v5h5M8 12h8m-8 4h6"/></>,
+  message: <path d="M3 4h18v13H9l-6 4ZM7 9h10m-10 4h6"/>,
+  clock: <><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></>,
+  phone: <><path d="m5 3 4 4-2 3a16 16 0 0 0 7 7l3-2 4 4-3 3C9 21 3 15 2 6Z"/></>,
+  social: <><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5h.01"/></>,
   help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3h.01"/></>,
   checkout: <><path d="M4 8h16v13H4Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2M8 13h8"/></>,
   dashboard: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,

@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import "./waivers.css";
-import NativeEditor from "./native-editor";
 
 type FormRow = { id: string; provider: string; name: string; formUrl: string; category: string; audience: "ANY" | "ADULT" | "MINOR"; artistId: string | null; serviceId: string | null; priority: number; active: boolean; collectsMedicalData: boolean; completionMode: string };
 type Setup = { studioBrand?:string; isOwner?:boolean; connections: Array<{ id: string; provider: string; label: string; status: string; lastSyncedAt: string | null }>; forms: FormRow[]; artists: Array<{ id: string; name: string }>; services: Array<{ id: string; name: string; artistId: string }> };
@@ -36,7 +35,7 @@ export default function WaiversPage() {
       setSetup(configuration); setAppointments(schedule.appointments);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load waiver setup"); }
   }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); if (new URLSearchParams(window.location.search).get("created") === "1") setMessage("Consent form created. It is now available in Current forms."); }, [refresh]);
 
   async function connect(event: FormEvent) {
     event.preventDefault(); setBusy(true);
@@ -88,10 +87,12 @@ export default function WaiversPage() {
   }
 
   return <main className="waiver-admin">
-    <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Connect forms once, map them to appointment rules, and send the correct consent form to each client.</p></header>
+    <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Manage the consent forms available to your artists and send them to clients.</p></header>
     {message && <div className="waiver-notice" role="status">{message}</div>}
 
-    <section className="waiver-grid">
+    <div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new">+ Create form</a><a href="/waivers/archive">View signed forms →</a></div>
+    <section className="waiver-section"><div className="section-heading"><div><h2>Current forms</h2><p>Your available consent forms. Edit a form to choose when it is used and whether it is active.</p></div><strong>{setup.forms.length} forms</strong></div>{setup.forms.length === 0 ? <div className="empty">No forms yet. Create a Maia form or add an existing form link.</div> : <div className="form-list">{setup.forms.map(form => <FormEditor key={form.id} form={form} setup={setup} busy={busy} onSaved={refresh} />)}</div>}</section>
+    <details className="waiver-section consent-connections"><summary>Add an existing form or connect Jotform</summary><section className="waiver-grid">
       {setup.isOwner&&<form className="waiver-card" onSubmit={connect}>
         <div className="card-title"><div><h2>Connect Jotform</h2><p>API credentials are encrypted and never displayed again.</p></div><span className="provider-pill">Full integration</span></div>
         <label>API region<select value={region} onChange={event => setRegion(event.target.value)}><option value="STANDARD">Standard</option><option value="EU">European Union</option><option value="HIPAA">HIPAA</option></select></label>
@@ -107,13 +108,11 @@ export default function WaiversPage() {
         <div className="two-fields"><label>Category<input value={custom.category} onChange={event => setCustom({ ...custom, category: event.target.value })} /></label><label>Audience<select value={custom.audience} onChange={event => setCustom({ ...custom, audience: event.target.value })}><option value="ANY">Any age</option><option value="ADULT">Adult</option><option value="MINOR">Minor</option></select></label></div>
         <button disabled={busy}>Add form link</button>
       </form>
-    </section>
-    <section className="waiver-section"><h2>Signed forms</h2><p>Find completed Maia consent forms, answers, and signatures from past appointments.</p><a href="/waivers/archive">Open signed form archive →</a></section>
-    <section className="waiver-section native-create"><NativeEditor studioBrand={setup.studioBrand||''} artists={setup.artists} busy={busy} onSaved={refresh}/></section>
+    </section></details>
 
     {webhookUrl && <section className="webhook-callout"><h2>Finish Jotform setup</h2><ol><li>Add a hidden field to each form with the unique name <code>waiverToken</code>.</li><li>Add this webhook URL to each imported form, replacing any older waiver webhook URL:</li></ol><input readOnly value={webhookUrl} onFocus={event => event.currentTarget.select()} /><p>Store this URL now. Its secret is intentionally shown only when created.</p></section>}
 
-    <section className="waiver-section"><div className="section-heading"><div><h2>Form routing rules</h2><p>Specific service and artist matches win over general forms. Lower priority numbers win ties.</p></div><strong>{setup.forms.length} forms</strong></div>{setup.forms.length === 0 ? <div className="empty">Create a Maia form or bring an existing form link to begin.</div> : <div className="form-list">{setup.forms.map(form => <FormEditor key={form.id} form={form} setup={setup} busy={busy} onSaved={refresh} />)}</div>}</section>
+
 
     <section className="waiver-section"><div className="section-heading"><div><h2>Upcoming appointments</h2><p>Auto-select applies the routing rules above. Choose a form manually when needed.</p></div><strong>{appointments.length} appointments</strong></div><div className="appointment-list">{appointments.length === 0 ? <div className="empty">No upcoming appointments.</div> : appointments.map(row => <AppointmentWaivers key={row.appointment.id} row={row} formLink={formLinks[row.appointment.id]} notice={appointmentMessages[row.appointment.id]} forms={setup.forms.filter(f=>!f.artistId||f.artistId===row.appointment.artistId)} busy={busy} onSend={sendWaiver} onCreateLink={createLink} onAction={assignmentAction} />)}</div></section>
   </main>;
@@ -132,11 +131,11 @@ function FormEditor({ form, setup, busy, onSaved }: { form: FormRow; setup: Setu
   return <article className="routing-rule" aria-busy={saving}>
     <div className="routing-summary"><strong>{form.name}</strong><span>{artist} · {service} · {form.audience === "ANY" ? "Any age" : form.audience === "ADULT" ? "Adult" : "Minor"} · Priority {form.priority}</span></div>
     <span className={`form-state ${form.active ? "active" : "inactive"}`}>{form.active ? "Active" : "Inactive"}</span>
-    <button type="button" className="routing-edit" disabled={busy || saving} onClick={openEditor} aria-label={`Edit routing for ${form.name}`}>Edit</button>
+    <button type="button" className="routing-edit" disabled={busy || saving} onClick={openEditor} aria-label={`Edit settings for ${form.name}`}>Edit</button>
     {feedback && !dialog.current?.open && <p className={`form-save-feedback ${feedback.error ? "error" : "success"}`} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
     <dialog ref={dialog} className="routing-dialog" aria-labelledby={`routing-title-${form.id}`} onCancel={event => { if (saving) event.preventDefault(); }}>
       <form onSubmit={event => { event.preventDefault(); void save(); }} onChangeCapture={() => setFeedback(null)}>
-        <div className="routing-dialog-heading"><h2 id={`routing-title-${form.id}`}>Edit routing rule</h2><button type="button" className="routing-edit" aria-label="Close routing editor" disabled={saving} onClick={() => dialog.current?.close()}>×</button></div>
+        <div className="routing-dialog-heading"><h2 id={`routing-title-${form.id}`}>Edit form settings</h2><button type="button" className="routing-edit" aria-label="Close form settings" disabled={saving} onClick={() => dialog.current?.close()}>×</button></div>
         <div className="form-name"><strong>{form.name}</strong><span>{form.provider} · {form.completionMode === "HOSTED" ? "Signed in Maia" : form.completionMode === "WEBHOOK" ? "Automatic completion" : "Manual completion"}</span>{form.provider !== "MAIA" && /^https:\/\//i.test(form.formUrl) && <a href={form.formUrl} target="_blank" rel="noopener noreferrer">Open form ↗</a>}</div>
         <fieldset disabled={saving || busy} className="routing-fields"><label>Audience<select value={value.audience} onChange={event => setValue({ ...value, audience: event.target.value as FormRow["audience"] })}><option value="ANY">Any age</option><option value="ADULT">Adult</option><option value="MINOR">Minor</option></select></label><label>Artist<select value={value.artistId ?? ""} onChange={event => setValue({ ...value, artistId: event.target.value || null })}>{setup.isOwner&&<option value="">All artists</option>}{setup.artists.map(artist => <option key={artist.id} value={artist.id}>{artist.name}</option>)}</select></label><label>Service<select value={value.serviceId ?? ""} onChange={event => setValue({ ...value, serviceId: event.target.value || null })}><option value="">All services</option>{setup.services.map(service => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label><label>Priority<input type="number" min="0" max="1000" value={value.priority} onChange={event => setValue({ ...value, priority: Number(event.target.value) })} /></label><label className="check"><input type="checkbox" checked={value.collectsMedicalData} onChange={event => setValue({ ...value, collectsMedicalData: event.target.checked })} />Medical data</label><label className="check"><input type="checkbox" checked={value.active} onChange={event => setValue({ ...value, active: event.target.checked })} />Active</label></fieldset>
         {feedback?.error && <p className="form-save-feedback error" role="alert">{feedback.text}</p>}

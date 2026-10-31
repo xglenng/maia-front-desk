@@ -168,3 +168,8 @@
  .waiver-admin .routing-dialog footer button{flex:1}
  .waiver-admin .routing-summary span{line-height:1.5}
 }
+.waiver-admin .consent-page-actions{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin:24px 0}
+.waiver-admin .consent-create-link{display:inline-block;padding:12px 20px;background:#111;color:#fff;border-radius:9px;text-decoration:none;font-weight:700;min-height:44px;box-sizing:border-box}
+.waiver-admin .consent-connections>summary{cursor:pointer;font-weight:700;min-height:28px}
+.waiver-admin .consent-connections .waiver-grid{margin-top:20px}
+@media(max-width:600px){.waiver-admin .consent-page-actions{gap:16px}.waiver-admin .consent-create-link{flex:1;text-align:center}}

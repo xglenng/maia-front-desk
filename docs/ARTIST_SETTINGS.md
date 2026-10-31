@@ -15,3 +15,7 @@ Services & Pricing and Items default to the signed-in user’s linked artist pro
 Items and Services & Pricing use the shared catalog styles in `components/catalog-styles.ts`: matching content width, header actions, artist selector panel, import card, editor grid, category panels, catalog rows, and status badges. Item search and Square import remain available; the merchandise page no longer inherits checkout-grid styling.
 
 Consent form routing rules appear as compact summary rows on `/waivers`. Edit opens a full-screen editor on phones and an accessible centered dialog on desktop with audience, artist, service, priority, medical-data, and active settings. Cancel or Escape discards edits; successful saves close the modal and show confirmation beside the updated row. Failed saves remain open for correction. Routing selection and API authorization are unchanged.
+
+The consent settings landing page leads with **Current forms** and compact per-form settings. **Create form** opens `/waivers/new`, a dedicated builder page suitable for phones and desktop. Successful creation returns to Current forms with confirmation. Existing provider/link setup is collapsed until requested, and signed forms remain accessible from the page actions. The builder loads the same authorized setup API; no routing or tenant permissions change.
+
+Both owner and artist settings cards include decorative line icons from the shared `UiIcon` component. Text labels remain visible and provide the accessible link names; icons do not change navigation or permissions.
