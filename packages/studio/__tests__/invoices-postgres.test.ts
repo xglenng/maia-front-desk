@@ -35,6 +35,9 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   function request(path:string,who='b',body?:object){return new NextRequest('http://localhost'+path,{method:body?'POST':'GET',headers:{origin:'http://localhost',cookie:`inkflow_session=${who.repeat(64)}`,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});}
   assert.equal((await banking(request('/api/banking','b'),undefined)).status,403);
   const {GET:settings,PUT:saveSettings}=await import('../../../app/api/studio/config/route');
+  const {GET:artistOptions}=await import('../../../app/api/ai/settings/route');
+  assert.equal((await (await artistOptions(request('/api/ai/settings','b'),undefined)).json()).artists.length,1);
+  assert.equal((await (await artistOptions(request('/api/ai/settings?scope=studio-settings','b'),undefined)).json()).artists.length,2);
   const {GET:invitations}=await import('../../../app/api/studio/invitations/route');
   const {GET:paymentSetup}=await import('../../../app/api/payments/connect/route');
   await local.query('UPDATE artists SET requires_supervisor_approval=true WHERE id=$1',[artist]);

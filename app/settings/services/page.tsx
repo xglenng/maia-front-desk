@@ -141,7 +141,7 @@ export default function ServicesSettingsPage() {
     if (!organizationId) return;
     let current = true;
     setLoadingArtists(true);
-    fetch(`/api/ai/settings?organizationId=${encodeURIComponent(organizationId)}`, { cache: 'no-store' })
+    fetch(`/api/ai/settings?scope=studio-settings&organizationId=${encodeURIComponent(organizationId)}`, { cache: 'no-store' })
       .then(responseData)
       .then(data => {
         if (!current) return;

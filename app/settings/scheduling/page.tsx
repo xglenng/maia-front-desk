@@ -49,7 +49,7 @@ export default function SchedulingSettingsPage() {
 
   useEffect(() => {
     if (!organizationId) return;
-    fetch(`/api/ai/settings?organizationId=${encodeURIComponent(organizationId)}`, { cache: 'no-store' })
+    fetch(`/api/ai/settings?scope=studio-settings&organizationId=${encodeURIComponent(organizationId)}`, { cache: 'no-store' })
       .then(readJson)
       .then(result => {
         const available = result.artists as Artist[];

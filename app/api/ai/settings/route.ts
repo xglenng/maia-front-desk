@@ -17,7 +17,7 @@ async function handleGET(request: NextRequest) {
   const user=(await identity(request))!;
   const artistRows = await db.select({ userId: artists.userId, id: artists.id, displayName: artists.displayName, responseLength: artists.responseLength, aiMode: artists.aiMode, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled })
     .from(artists)
-    .where(and(eq(artists.organizationId, organizationId)))
+    .where(and(eq(artists.organizationId, organizationId),...(user.role==='OWNER'||request.nextUrl.searchParams.get('scope')==='studio-settings'?[]:[eq(artists.userId,user.id)])))
     .orderBy(asc(artists.displayName));
   return NextResponse.json({ artists: artistRows.map(({userId, ...artist}) => artist), defaultArtistId: artistRows.find(artist => artist.userId === user.id)?.id || null });
 }
