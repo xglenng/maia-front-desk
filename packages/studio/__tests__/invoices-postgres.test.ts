@@ -31,7 +31,11 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   for(const [id,orgId,userId] of [[artist,org,user],[peer,org,peerUser],[foreign,other,foreignUser]])await local.query("INSERT INTO artists(id,organization_id,user_id,display_name) VALUES($1,$2,$3,'Synthetic')",[id,orgId,userId]);
   const {GET,POST}=await import('../../../app/api/invoices/route');
   const {GET:transactions}=await import('../../../app/api/transactions/route');
+  const {GET:banking}=await import('../../../app/api/banking/route');
   function request(path:string,who='b',body?:object){return new NextRequest('http://localhost'+path,{method:body?'POST':'GET',headers:{origin:'http://localhost',cookie:`inkflow_session=${who.repeat(64)}`,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});}
+  assert.equal((await banking(request('/api/banking','b'),undefined)).status,403);
+  assert.deepEqual(await (await banking(request('/api/banking','d'),undefined)).json(),{connected:false});
+  assert.equal((await banking(request('/api/banking?organizationId='+other,'a'),undefined)).status,403);
   const input={action:'CREATE',artistId:artist,requestId:randomUUID(),clientName:'Synthetic client',clientEmail:'client@example.test',lines:[{name:'Test service',quantity:2,unitCents:1000}],dueDays:30,note:''};
   const responses=await Promise.all([POST(request('/api/invoices','b',input),undefined),POST(request('/api/invoices','b',input),undefined)]);
   assert.deepEqual(responses.map(response=>response.status).sort(),[200,201]);

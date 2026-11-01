@@ -15,3 +15,9 @@ Refresh payment status retrieves the invoice from Stripe; automatic invoice webh
 Production migration requires explicit approval. Deploy migration before the new API/pages. Rollback application code first; retain the table and remote IDs once invoices exist. Never drop issued/payment records as rollback. Local preview may use synthetic drafts, but must not issue/send real invoices or take payment.
 
 Stripe account permissions must allow Customers, Invoices, and Invoice Items in addition to existing card checkout permissions. API failure leaves the draft/retry state visible; no keys are exposed. The existing studio payment setup and live/test gates apply.
+
+## Banking and invoice layout
+
+`/more` links to `/banking`. Only owners can retrieve studio balances and the ten most recent Stripe payouts; artist users see a link to their scoped transactions. `/api/banking` resolves the connected account from the authenticated organization, verifies payment mode, and returns only balances and payout summaries. It does not expose bank details or initiate transfers. Stripe balance/payout read permission is required; provider failures display a retryable error rather than a zero balance. No database migration is required.
+
+Invoice creation uses expandable customer and line-item sections, payment terms, a draft action, and a mobile bottom Continue action. Continue saves a draft and opens review; issuing and SMS delivery remain explicit actions. One-time card invoices retain the existing 1–90 day due window; recurring billing, scheduled delivery, ACH, and tipping are not implemented by the layout change.
