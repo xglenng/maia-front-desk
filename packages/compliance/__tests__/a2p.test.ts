@@ -229,7 +229,7 @@ test("inbound outbound replies use the artist Messaging Service when available",
 
 test("registration API is authoritative and the client only renders its campaign preview", () => {
   const api = readFileSync("app/api/compliance/registration/route.ts", "utf8");
-  const page = readFileSync("app/compliance/registration/page.tsx", "utf8");
+  const page = readFileSync("components/sms/campaign-registration.tsx", "utf8");
   const live = readFileSync("packages/compliance/live-registration.ts", "utf8");
   assert.match(api, /campaignPreview\(campaignProfile/);
   assert.match(api, /messageFlow: campaign\?\.messageFlow.*campaign \}/);

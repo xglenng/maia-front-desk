@@ -1,9 +1,15 @@
 'use client';
-import {useEffect,useState} from 'react';
-import {useSession} from '@/components/session-gate';
-type PhoneStatus={artist:{id:string;displayName:string};phoneNumber:{phoneNumber:string;active:boolean;complianceStatus:string}|null};
+import {useEffect,useRef,useState} from 'react';
+import PhoneSetup from '@/components/sms/phone-setup';
+import CampaignRegistration from '@/components/sms/campaign-registration';
+import ConsentWorkflow from '@/components/sms/consent-workflow';
+import './sms.css';
+const tabs=[{id:'phone',label:'Phone setup'},{id:'campaign',label:'Campaign registration'},{id:'consent',label:'SMS consent'}] as const;
+type Tab=typeof tabs[number]['id'];
 export default function SmsSettings(){
- const user=useSession();const [rows,setRows]=useState<PhoneStatus[]>([]);const [error,setError]=useState('');
- useEffect(()=>{if(!user)return;let active=true;fetch('/api/twilio/status').then(async response=>{const data=await response.json();if(!response.ok)throw Error(data.error||'Unable to load SMS settings');if(active)setRows(data.artists);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[user]);
- return <main style={{maxWidth:850,margin:'0 auto',padding:'40px 20px 80px'}}><a href="/settings">← Settings</a><h1>SMS settings</h1><p>Manage client opt-in and automatic message timing for your artist profile.</p>{error&&<p role="alert">{error}</p>}{rows.map(row=><section key={row.artist.id} style={{border:'1px solid #e4dfda',borderRadius:12,padding:22,marginTop:16}}><h2>{row.artist.displayName}</h2>{row.phoneNumber?<><p>Business number: <strong>{row.phoneNumber.phoneNumber}</strong></p><p>{row.phoneNumber.active?'Active':'Inactive'} · {row.phoneNumber.complianceStatus}</p></>:<p>No business number assigned. Use phone setup to configure a number and registration.</p>}<p><a href="/settings/consent-forms">Configure SMS consent →</a></p><p><a href="/settings/automations">Configure message timing →</a></p></section>)}<p>Phone purchases, number transfers, and registrations are shared studio settings.</p>{user&&<a href="/twilio">Phone setup and porting →</a>}</main>;
+ const [active,setActive]=useState<Tab>('phone'),[visited,setVisited]=useState<Tab[]>(['phone']);
+ const nav=useRef<HTMLDivElement>(null);
+ function select(id:Tab){setActive(id);setVisited(current=>current.includes(id)?current:[...current,id]);const url=new URL(window.location.href);url.searchParams.set('tab',id);window.history.replaceState(null,'',url);}
+ useEffect(()=>{const id=new URLSearchParams(window.location.search).get('tab');if(tabs.some(tab=>tab.id===id)){setActive(id as Tab);setVisited(current=>current.includes(id as Tab)?current:[...current,id as Tab]);}},[]);
+ return <main className="sms-setup"><a href="/settings">← Settings</a><h1>SMS setup</h1><p>Set up your business number, register appointment messaging, and configure how clients opt in.</p><div ref={nav} className="sms-setup-tabs" role="tablist" aria-label="SMS setup sections" onKeyDown={event=>{const index=tabs.findIndex(tab=>tab.id===active);let next:number;if(event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;event.preventDefault();select(tabs[next].id);nav.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();}}>{tabs.map(tab=><button key={tab.id} type="button" role="tab" id={`sms-tab-${tab.id}`} aria-controls={`sms-panel-${tab.id}`} aria-selected={active===tab.id} tabIndex={active===tab.id?0:-1} onClick={()=>select(tab.id)}>{tab.label}</button>)}</div>{tabs.map(tab=><div role="tabpanel" id={`sms-panel-${tab.id}`} aria-labelledby={`sms-tab-${tab.id}`} key={tab.id} hidden={active!==tab.id} tabIndex={0}>{visited.includes(tab.id)&&(tab.id==='phone'?<PhoneSetup embedded/>:tab.id==='campaign'?<CampaignRegistration embedded/>:<ConsentWorkflow embedded/>)}</div>)}<p className="sms-setup-related"><a href="/compliance">Business information &amp; legal pages →</a><a href="/settings/automations">Message timing &amp; reminders →</a></p></main>;
 }

@@ -7,3 +7,7 @@ Configuration endpoints explicitly opt into `protectedSettingsRoute` (or its mul
 Ordinary booking, messaging, invoice, checkout, and customer-record permissions are unchanged. Apprentice supervision is still enforced there. Only owners can change the existing supervision flag; shared studio saves omit that field for non-owners. Team invitation access and actual owner role remain unchanged.
 
 No schema migration or production record changes are required. Rollback restores the prior page/API guards; no staff roles need to be reverted. The separate invoice customer-picker fix is also pending in the same workspace.
+
+## SMS navigation
+
+Settings has one SMS setup entry at `/settings/sms`. Phone setup/porting, campaign registration, and SMS consent run in tabs using the existing form components and API guards. Visited tabs remain mounted so switching tabs preserves edits. The `tab=phone|campaign|consent` query selects a section. Existing `/twilio`, `/compliance/registration`, and `/settings/consent-forms` links remain supported. No provider registrations, messages, or phone changes are triggered by navigation.
