@@ -57,9 +57,18 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
 
   async function provision(event: FormEvent) {
     event.preventDefault(); setLoading(true); setMessage(""); setResult(null);
-    const res = await fetch("/api/twilio/provision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, ...(areaCode ? { areaCode } : {}) }) });
-    const data = await res.json(); setLoading(false); setResult(data); setMessage(res.ok ? (data.message || "Temporary Twilio number is ready.") : data.error ?? "Provisioning failed.");
-    if (res.ok) await status(artistId);
+    try {
+      const res = await fetch("/api/twilio/provision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, ...(areaCode ? { areaCode } : {}) }) });
+      const data = await res.json();
+      setResult(data);
+      setMessage(res.ok ? (data.message || "Temporary Twilio number is ready.") : data.error ?? "Provisioning failed.");
+      if (res.ok) await status(artistId);
+    } catch (error) {
+      console.error("Temporary number provisioning failed", error);
+      setMessage("The temporary number request could not be completed. Check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function checkNumber() {

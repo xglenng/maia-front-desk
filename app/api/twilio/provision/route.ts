@@ -75,6 +75,9 @@ async function handlePOST(req: Request) {
     return NextResponse.json({ status: 'provisioned_pending_compliance', phoneNumber: row.phoneNumber, phoneNumberSid: row.twilioPhoneNumberSid, messagingServiceSid: service.serviceSid, twilioAccountSid: account.accountSid, message: 'Number purchased. Outbound SMS remains disabled until A2P campaign approval.' });
   } catch (error) {
     if (error instanceof LegalCustomerConflict || error instanceof ProvisionReconciliationRequired || error instanceof TwilioProvisionConfigurationError) return NextResponse.json({ error: error.message }, { status: 409 });
+    if (error instanceof Error && (error.message.startsWith('Twilio API ') || error.message.startsWith('No SMS-capable Twilio number'))) {
+      return NextResponse.json({ error: error.message }, { status: 502 });
+    }
     console.error({ event: 'twilio_provision_failed', errorType: error instanceof Error ? error.name : 'UnknownError' });
     return NextResponse.json({ error: 'Unable to provision Twilio resources. Review the provisioning state before retrying.' }, { status: 500 });
   }
