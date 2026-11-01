@@ -1,4 +1,4 @@
-import { protectedFormRoute, protectedRoute } from "@/packages/auth/server";
+import { protectedSettingsFormRoute as protectedFormRoute, protectedSettingsRoute as protectedRoute } from "@/packages/auth/server";
 import { NextResponse } from "next/server";
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import { z } from "zod";

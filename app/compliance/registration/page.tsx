@@ -129,7 +129,7 @@ export default function A2pRegistrationPage() {
     <h1 style={{ marginBottom: 6 }}>A2P campaign registration</h1>
     <p style={{ color: "#77736e", lineHeight: 1.5 }}>Prepare each studio&apos;s SMS campaign for carrier review. Complete legal-page setup before submitting this form.</p>
 
-    {organizationId && user?.role === 'OWNER' && <LegalCustomerSetup organizationId={organizationId} />}
+    {organizationId && user && <LegalCustomerSetup organizationId={organizationId} />}
     {!profile && <section style={card}><h2>{message ? 'Registration setup needed' : 'Loading your studio registration…'}</h2><p>{message || "Your signed-in studio is selected automatically."}</p></section>}
 
     {profile && <>

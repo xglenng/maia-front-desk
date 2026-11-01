@@ -34,6 +34,22 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const {GET:banking}=await import('../../../app/api/banking/route');
   function request(path:string,who='b',body?:object){return new NextRequest('http://localhost'+path,{method:body?'POST':'GET',headers:{origin:'http://localhost',cookie:`inkflow_session=${who.repeat(64)}`,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});}
   assert.equal((await banking(request('/api/banking','b'),undefined)).status,403);
+  const {GET:settings,PUT:saveSettings}=await import('../../../app/api/studio/config/route');
+  const {GET:invitations}=await import('../../../app/api/studio/invitations/route');
+  const {GET:paymentSetup}=await import('../../../app/api/payments/connect/route');
+  await local.query('UPDATE artists SET requires_supervisor_approval=true WHERE id=$1',[artist]);
+  const configResponse=await settings(request('/api/studio/config','b'),undefined);assert.equal(configResponse.status,200);
+  const config=await configResponse.json();
+  const configBody={organizationId:org,profile:config.profile,artists:config.artists.map((row:any)=>({...row,displayName:row.artistId===peer?'Updated studio peer':row.displayName,requiresSupervisorApproval:false}))};
+  const saveRequest=new NextRequest('http://localhost/api/studio/config',{method:'PUT',headers:{origin:'http://localhost',cookie:`inkflow_session=${'b'.repeat(64)}`,'content-type':'application/json'},body:JSON.stringify(configBody)});
+  assert.equal((await saveSettings(saveRequest,undefined)).status,200);
+  assert.equal((await local.query('SELECT requires_supervisor_approval FROM artists WHERE id=$1',[artist])).rows[0].requires_supervisor_approval,true);
+  assert.equal((await local.query('SELECT display_name FROM artists WHERE id=$1',[peer])).rows[0].display_name,'Updated studio peer');
+  assert.equal((await settings(request('/api/studio/config?organizationId='+other,'b'),undefined)).status,403);
+  assert.equal((await invitations(request('/api/studio/invitations','b'),undefined)).status,403);
+  assert.equal((await paymentSetup(request('/api/payments/connect','b'),undefined)).status,403);
+  await local.query('UPDATE artists SET requires_supervisor_approval=false WHERE id=$1',[artist]);
+
   assert.deepEqual(await (await banking(request('/api/banking','d'),undefined)).json(),{connected:false});
   assert.equal((await banking(request('/api/banking?organizationId='+other,'a'),undefined)).status,403);
   const input={action:'CREATE',artistId:artist,requestId:randomUUID(),clientName:'Synthetic client',clientEmail:'client@example.test',lines:[{name:'Test service',quantity:2,unitCents:1000}],dueDays:30,note:''};

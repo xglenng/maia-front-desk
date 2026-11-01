@@ -1,6 +1,7 @@
-import {nativeDefinition,publicFormUrl,canManageForm} from '@/packages/waivers/forms';
+import {canManageStudioSettings} from '@/packages/auth/settings-policy';
+import {nativeDefinition,publicFormUrl} from '@/packages/waivers/forms';
 import crypto from "node:crypto";
-import { protectedRoute, identity } from "@/packages/auth/server";
+import { protectedSettingsRoute as protectedRoute, identity } from "@/packages/auth/server";
 import { encryptComplianceSecret, decryptComplianceSecret } from "@/packages/compliance/secrets";
 import { listJotformForms, parseJotformCredentials } from "@waivers/providers";
 import { NextRequest, NextResponse } from "next/server";
@@ -44,9 +45,9 @@ async function handleGET(request: NextRequest) {
     db.select({ id: services.id, name: services.name, artistId: services.artistId }).from(services).where(and(eq(services.organizationId, organizationId), eq(services.active, true))).orderBy(asc(services.name)),
     db.select({name:organizations.name,publicName:organizations.publicName}).from(organizations).where(eq(organizations.id,organizationId)).limit(1),
   ]);
-  const ownRows=user.role==='OWNER'?artistRows:await db.select({id:artists.id,name:artists.displayName}).from(artists).where(and(eq(artists.organizationId,organizationId),eq(artists.userId,user.id)));
+  const ownRows=canManageStudioSettings(user.role)?artistRows:await db.select({id:artists.id,name:artists.displayName}).from(artists).where(and(eq(artists.organizationId,organizationId),eq(artists.userId,user.id)));
   const ids=ownRows.map(a=>a.id);
-  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', isOwner:user.role==='OWNER',connections:user.role==='OWNER'?connections:[], forms:forms.filter(f=>user.role==='OWNER'||f.artistId&&ids.includes(f.artistId)), artists:ownRows, services:serviceRows.filter(s=>user.role==='OWNER'||ids.includes(s.artistId)) });
+  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', isOwner:canManageStudioSettings(user.role),connections:canManageStudioSettings(user.role)?connections:[], forms:forms.filter(f=>canManageStudioSettings(user.role)||f.artistId&&ids.includes(f.artistId)), artists:ownRows, services:serviceRows.filter(s=>canManageStudioSettings(user.role)||ids.includes(s.artistId)) });
 }
 
 async function handlePOST(request: NextRequest) {
@@ -58,9 +59,9 @@ async function handlePOST(request: NextRequest) {
   const ownArtists=await db.select({id:artists.id}).from(artists).where(and(eq(artists.organizationId,organizationId),eq(artists.userId,user.id)));
   const ownIds=ownArtists.map(a=>a.id);
   const input=parsed.data;
-  if(['CONNECT_JOTFORM','SYNC','ROTATE_WEBHOOK'].includes(input.action)&&user.role!=='OWNER')return NextResponse.json({error:'Only the studio owner can manage shared provider credentials.'},{status:403});
+  if(['CONNECT_JOTFORM','SYNC','ROTATE_WEBHOOK'].includes(input.action)&&!canManageStudioSettings(user.role))return NextResponse.json({error:'Only the studio owner can manage shared provider credentials.'},{status:403});
   if(input.action==='ADD_NATIVE_FORM'||input.action==='ADD_CUSTOM_FORM'||input.action==='UPDATE_FORM'){
-   if(!canManageForm(user.role,ownIds,input.artistId??null))return NextResponse.json({error:'Choose one of your own artist profiles.'},{status:403});
+   if(!canManageStudioSettings(user.role))return NextResponse.json({error:'Choose one of your own artist profiles.'},{status:403});
    if(input.artistId){const [artist]=await db.select({id:artists.id}).from(artists).where(and(eq(artists.id,input.artistId),eq(artists.organizationId,organizationId)));if(!artist)return NextResponse.json({error:'Artist not found.'},{status:404});}
    if('serviceId' in input&&input.serviceId){const [service]=await db.select().from(services).where(and(eq(services.id,input.serviceId),eq(services.organizationId,organizationId)));if(!service||input.artistId&&service.artistId!==input.artistId)return NextResponse.json({error:'Service does not belong to this artist.'},{status:400});}
   }
@@ -101,7 +102,7 @@ async function handlePOST(request: NextRequest) {
   }
   if(parsed.data.action!=="UPDATE_FORM")return NextResponse.json({error:"Unknown action"},{status:400});
   const [existingForm] = await db.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.id, parsed.data.formId), eq(externalWaiverForms.organizationId, organizationId)));
-  if (!existingForm || !canManageForm(user.role,ownIds,existingForm.artistId)) return NextResponse.json({ error: "Waiver form not found" }, { status: 404 });
+  if (!existingForm || !canManageStudioSettings(user.role)) return NextResponse.json({ error: "Waiver form not found" }, { status: 404 });
   const [form] = await db.update(externalWaiverForms).set({ category: parsed.data.category, audience: parsed.data.audience, artistId: parsed.data.artistId, serviceId: parsed.data.serviceId, priority: parsed.data.priority, active: parsed.data.active, collectsMedicalData: parsed.data.collectsMedicalData, updatedAt: new Date() }).where(eq(externalWaiverForms.id, existingForm.id)).returning();
   return NextResponse.json({ form });
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { protectedRoute, identity } from '@/packages/auth/server';
+import { protectedSettingsRoute as protectedRoute, identity } from '@/packages/auth/server';
 import { pool } from '@/packages/db/src';
 import { reusableKnowledgeCandidate } from '@/packages/studio/knowledge-policy';
 import { z } from 'zod';

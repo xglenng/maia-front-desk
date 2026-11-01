@@ -1,5 +1,5 @@
 import { validServiceDuration } from '@/packages/studio/service-duration-policy';
-import { protectedRoute } from '@/packages/auth/server';
+import { protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';

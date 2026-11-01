@@ -1,4 +1,4 @@
-import { protectedRoute } from '@/packages/auth/server';
+import { identity, protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
@@ -106,6 +106,7 @@ async function handleGET(request: NextRequest) {
 }
 
 async function handlePUT(request: NextRequest) {
+  const user=(await identity(request))!;
   const parsed = updateSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const input = parsed.data;
@@ -154,6 +155,8 @@ async function handlePUT(request: NextRequest) {
       }
       for (const settings of input.artists ?? []) {
         const { artistId, ...values } = settings;
+        // Shared settings access cannot remove apprentice supervision.
+        if(user.role!=='OWNER')delete values.requiresSupervisorApproval;
         const [before] = await tx.select().from(artists).where(and(eq(artists.id, artistId), eq(artists.organizationId, input.organizationId))).for('update');
         if (values.requiresSupervisorApproval !== undefined && before.requiresSupervisorApproval !== values.requiresSupervisorApproval) {
           await tx.update(conversations).set({ inboundVersion: sql`${conversations.inboundVersion} + 1`, updatedAt: new Date() }).where(and(eq(conversations.artistId, artistId), eq(conversations.organizationId, input.organizationId)));

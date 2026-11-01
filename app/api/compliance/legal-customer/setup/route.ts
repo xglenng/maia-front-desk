@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@db';
 import { artists, legalCustomers, legalCustomerAccounts, twilioAccounts, twilioAccountCreationIntents } from '@db/schema';
-import { protectedRoute } from '@/packages/auth/server';
+import { protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 
 async function handleGET(request: NextRequest) {
   const organizationId = request.nextUrl.searchParams.get('organizationId')!;

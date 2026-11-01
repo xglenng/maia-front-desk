@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { identity, protectedRoute } from '@/packages/auth/server';
+import { identity, protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { db } from '@db/index';
 import { artists } from '@db/schema';
 import { isGoogleReviewUrl, isVenmoPaymentUrl } from '@/packages/automations/lifecycle-policy';
@@ -56,7 +56,7 @@ async function handleGET(request: NextRequest) {
     reviewFollowupHours: artists.reviewFollowupHours,
     googleReviewUrl: artists.googleReviewUrl,
     reviewFollowupMessage: artists.reviewFollowupMessage,
-  }).from(artists).where(and(eq(artists.organizationId, user.organization_id), ...(user.role === 'OWNER' ? [] : [eq(artists.userId,user.id)]))).orderBy(artists.displayName);
+  }).from(artists).where(and(eq(artists.organizationId, user.organization_id))).orderBy(artists.displayName);
   const requestedId = request.nextUrl.searchParams.get('artistId');
   const selected = rows.find(row => row.id === requestedId) ?? rows[0] ?? null;
   return NextResponse.json({ artists: rows, selected });

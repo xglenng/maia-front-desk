@@ -15,7 +15,7 @@ test('recovery distinguishes persisted evidence from uncertain provider outcomes
   assert.equal(recoveryDecision({...row,step:'ASSOCIATE',number_count:1,service_count:1}),'PROVIDER_OUTCOME_UNKNOWN');
   assert.equal(recoveryDecision({...row,step:'ASSOCIATE',associated_count:1}),'LOCAL_RECORD_PRESENT_REVIEW_INTENT');
 });
-test('owner recovery endpoint scopes queries and omits credentials; foreign tenants and artists cannot inspect',async t=>{
+test('staff recovery endpoint scopes queries and omits credentials; foreign tenants and unknown roles cannot inspect',async t=>{
   const org='11111111-1111-4111-8111-111111111111',foreign='22222222-2222-4222-8222-222222222222';
   let role='OWNER',queries=0;
   t.mock.method(globalThis,'fetch',async()=>{throw new Error('Provider requests forbidden');});
@@ -28,5 +28,5 @@ test('owner recovery endpoint scopes queries and omits credentials; foreign tena
   const response=await GET(req(org),undefined);assert.equal(response.status,200);
   const body=await response.text();assert.ok(!body.includes('must-not-return'));assert.ok(body.includes('"automaticRetryAllowed":false'));
   assert.equal((await GET(req(foreign),undefined)).status,403);
-  role='ARTIST';assert.equal((await GET(req(org),undefined)).status,403);assert.equal(queries,1);
+  role='ARTIST';assert.equal((await GET(req(org),undefined)).status,200);role='UNKNOWN';assert.equal((await GET(req(org),undefined)).status,403);assert.equal(queries,2);
 });

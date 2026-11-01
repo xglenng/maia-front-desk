@@ -1,4 +1,4 @@
-import { protectedRoute, identity } from "@/packages/auth/server";
+import { protectedSettingsRoute as protectedRoute, identity } from "@/packages/auth/server";
 import { token, digest } from "@/packages/auth/crypto";
 import { metaOAuthUrl } from "@channels/meta";
 import { pool } from "@/packages/db/src";

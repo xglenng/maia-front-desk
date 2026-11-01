@@ -45,7 +45,7 @@ export default function CompliancePage() {
     <p style={{ margin: 0, color: "#8f2f22", fontSize: 12, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase" }}>Maia compliance</p>
     <h1 style={{ fontSize: 38, margin: "8px 0" }}>SMS Compliance Setup</h1>
     <p style={{ color: "#6f6a64", lineHeight: 1.6 }}>Create the business identity, legal pages, and verifiable SMS opt-in surface used for A2P registration.</p>
-    <p><a href="/settings">← Owner settings</a> · <a href="/compliance/registration">SMS campaign registration →</a></p>
+    <p><a href="/settings">← Settings</a> · <a href="/compliance/registration">SMS campaign registration →</a></p>
 
     <form onSubmit={saveBusiness} style={card}>
       <h2 style={{ marginTop: 0 }}>1. Business information</h2>

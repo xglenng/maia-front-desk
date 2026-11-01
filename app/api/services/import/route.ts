@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { protectedRoute } from '@/packages/auth/server';
+import { protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { db } from '@db/index';
 import { artists, services, retailItems } from '@db/schema';
 import {importedItemSchema,itemImportKey} from '@/packages/studio/item-import';

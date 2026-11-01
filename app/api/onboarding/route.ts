@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
-import { protectedRoute, identity } from "@/packages/auth/server";
+import { protectedSettingsRoute as protectedRoute, identity } from "@/packages/auth/server";
 import { buildActivationPlan, type NumberStrategy } from "@/packages/onboarding/activation";
 import { ensureHostedConsentForm } from "@/packages/consent/server";
 import { db, pool } from "@db";

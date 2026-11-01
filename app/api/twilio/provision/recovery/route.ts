@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { protectedRoute } from '@/packages/auth/server';
+import { protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { provisioningRecoveryReport } from '@integrations/provision-recovery';
 async function handleGET(request: NextRequest) {
   try {

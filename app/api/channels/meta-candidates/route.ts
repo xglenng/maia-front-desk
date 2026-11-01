@@ -1,4 +1,4 @@
-import { protectedRoute, identity, assignedArtistReference } from "@/packages/auth/server";
+import { protectedSettingsRoute as protectedRoute, identity, settingsArtistReference } from "@/packages/auth/server";
 import { decryptComplianceSecret, encryptComplianceSecret } from "@/packages/compliance/secrets";
 import { db } from "@db/index";
 import { channelConnections, metaConnectionCandidates } from "@db/schema";
@@ -17,7 +17,7 @@ async function candidateFor(request: NextRequest, setupId: string) {
   const user = await identity(request);
   if (!user) return null;
   const [candidate] = await db.select().from(metaConnectionCandidates).where(and(eq(metaConnectionCandidates.id, setupId), eq(metaConnectionCandidates.organizationId, user.organization_id), eq(metaConnectionCandidates.userId, user.id), gt(metaConnectionCandidates.expiresAt, new Date()))).limit(1);
-  if (!candidate || !await assignedArtistReference(user, "artistId", candidate.artistId)) return null;
+  if (!candidate || !await settingsArtistReference(user, "artistId", candidate.artistId)) return null;
   return candidate;
 }
 

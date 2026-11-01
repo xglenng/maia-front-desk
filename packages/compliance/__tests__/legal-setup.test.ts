@@ -26,6 +26,7 @@ test('legal setup snapshot requires the owning tenant and excludes credential co
   assert.equal(data.registrationApproved, false);
   assert.equal(reads, 5);
   assert.equal((await GET(request('22222222-2222-4222-8222-222222222222'), undefined)).status, 403);
-  role = 'ARTIST'; assert.equal((await GET(request(org), undefined)).status, 403);
-  assert.equal(reads, 5);
+  role = 'ARTIST'; assert.equal((await GET(request(org), undefined)).status, 200);
+  role = 'UNKNOWN'; assert.equal((await GET(request(org), undefined)).status, 403);
+  assert.equal(reads, 10);
 });

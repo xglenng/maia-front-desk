@@ -75,7 +75,6 @@ export default function OnboardingPage() {
   }, [activation, testClientId]);
 
   if (!user) return null;
-  if (user.role !== 'OWNER') return <main style={{ maxWidth: 900, margin: '0 auto', padding: 32 }}><h1>Studio setup</h1><p>Owner access is required to manage organization onboarding.</p><a href="/">Return to dashboard</a></main>;
 
   async function sendTestSms() {
     if (!activation || !testClientId) return;
@@ -87,7 +86,7 @@ export default function OnboardingPage() {
   }
 
   return <main style={{ maxWidth: 980, margin: "0 auto", padding: "38px 20px 80px", color: "#181716", fontFamily: "Arial, sans-serif" }}>
-    <p><a href="/settings" style={{ color: "#8f2f22" }}>← Owner settings</a></p>
+    <p><a href="/settings" style={{ color: "#8f2f22" }}>← Settings</a></p>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div><p style={{ margin: 0, color: "#8f2f22", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Studio setup</p><h1 style={{ margin: "7px 0" }}>Get Maia ready</h1><p style={{ maxWidth: 650, color: "#6f6b66", lineHeight: 1.55 }}>Follow the guided steps to set up your studio. Use Maia’s calendar, connect the channels you need, and test your receptionist. You can return to any step later.</p></div>
       {activation?.status === "LIVE" && <span style={{ padding: "9px 13px", borderRadius: 20, background: "#e6f2ea", color: "#2f7651", fontWeight: 800 }}>● SMS LIVE</span>}

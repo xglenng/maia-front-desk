@@ -1,4 +1,4 @@
-import { protectedRoute } from "@/packages/auth/server";
+import { protectedSettingsRoute as protectedRoute } from "@/packages/auth/server";
 import { NextResponse } from "next/server";
 import { and, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";

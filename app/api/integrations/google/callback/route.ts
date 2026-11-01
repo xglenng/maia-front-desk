@@ -1,5 +1,5 @@
 import { encryptGoogleToken, saveGoogleCredentials } from "@/packages/integrations/google-credentials";
-import { protectedRoute } from '@/packages/auth/server';
+import { protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { identity } from '@/packages/auth/server';
 import { pool } from '@/packages/db/src';

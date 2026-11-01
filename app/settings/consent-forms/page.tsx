@@ -40,7 +40,7 @@ export default function ConsentFormsPage() {
       {mode === "INBOUND_SMS_CONFIRMATION" && <details style={{ marginTop: 16 }} open><summary>Disclosure to display beside the shop phone number</summary><p style={{ padding: 12, background: "#f7f4f1", lineHeight: 1.5 }}>{data.form.disclosureText}</p><p style={{fontSize:13}}>Place visible Privacy Policy and Terms links beside this disclosure.</p></details>}
       <details style={{ marginTop: 16 }}><summary>{mode === "INBOUND_SMS_CONFIRMATION" ? "YES confirmation sent before booking" : "Required disclosure"}</summary><p style={{ padding: 12, background: "#f7f4f1", lineHeight: 1.5 }}>{mode === "INBOUND_SMS_CONFIRMATION" ? data.form.confirmationText : data.form.disclosureText}</p></details>
       <button onClick={save} style={{ marginTop: 16, padding: "11px 18px", background: "#181716", color: "white", border: 0, borderRadius: 8 }}>Save form setup</button>
-      {user.role === "OWNER" && mode === "EXTERNAL" && data.ready && <button onClick={rotateToken} style={{ marginLeft: 10, padding: "11px 18px" }}>Create integration token</button>}
+      {mode === "EXTERNAL" && data.ready && <button onClick={rotateToken} style={{ marginLeft: 10, padding: "11px 18px" }}>Create integration token</button>}
       {token && <div style={{ marginTop: 16, background: "#fff3cd", padding: 14 }}><strong>Copy now—this token will not be shown again.</strong><p>Endpoint: <code>{token.endpoint}</code></p><p>Bearer token: <code style={{ overflowWrap: "anywhere" }}>{token.token}</code></p></div>}
     </section>}
     {message && <section style={card}>{message}</section>}

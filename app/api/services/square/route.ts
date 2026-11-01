@@ -1,8 +1,8 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {and,eq} from 'drizzle-orm';
 import {z} from 'zod';
-import {identity,protectedRoute} from '@/packages/auth/server';
-import {canAccessArtist} from '@/packages/inbox/state';
+import {identity,protectedSettingsRoute as protectedRoute} from '@/packages/auth/server';
+import {canManageStudioSettings} from '@/packages/auth/settings-policy';
 import {db} from '@/packages/db/src';
 import {artists,squareCatalogConnections} from '@/packages/db/src/schema';
 import {catalogAccessToken} from '@/packages/integrations/square-catalog/credentials';
@@ -14,7 +14,7 @@ async function artistScope(request:NextRequest,id:unknown){
  const user=await identity(request);if(!user)return null;
  const valid=z.string().uuid().safeParse(id);if(!valid.success)return null;
  const [artist]=await db.select().from(artists).where(and(eq(artists.id,valid.data),eq(artists.organizationId,user.organization_id))).limit(1);
- return artist&&canAccessArtist(user.role,user.id,artist.userId)?{organizationId:user.organization_id,artistId:artist.id}:null;
+ return artist&&canManageStudioSettings(user.role)?{organizationId:user.organization_id,artistId:artist.id}:null;
 }
 async function handleGET(request:NextRequest){
  const scope=await artistScope(request,request.nextUrl.searchParams.get('artistId'));if(!scope)return NextResponse.json({error:'Artist not found.'},{status:404});

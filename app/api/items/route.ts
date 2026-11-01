@@ -1,5 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server';
-import {identity,protectedRoute} from '@/packages/auth/server';
+import {identity,protectedSettingsRoute as protectedRoute} from '@/packages/auth/server';
 import {db} from '@/packages/db/src';
 import {retailItems} from '@/packages/db/src/schema';
 import {and,eq,asc} from 'drizzle-orm';

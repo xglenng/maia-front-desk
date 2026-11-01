@@ -1,4 +1,4 @@
-import { identity, protectedRoute } from "@/packages/auth/server";
+import { identity, protectedSettingsRoute as protectedRoute } from "@/packages/auth/server";
 import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -17,7 +17,7 @@ async function handleGET(request: NextRequest) {
   const user=(await identity(request))!;
   const artistRows = await db.select({ userId: artists.userId, id: artists.id, displayName: artists.displayName, responseLength: artists.responseLength, aiMode: artists.aiMode, bookingEnabled: artists.bookingEnabled, receptionistEnabled: artists.receptionistEnabled })
     .from(artists)
-    .where(and(eq(artists.organizationId, organizationId),...(user.role==='OWNER'?[]:[eq(artists.userId,user.id)])))
+    .where(and(eq(artists.organizationId, organizationId)))
     .orderBy(asc(artists.displayName));
   return NextResponse.json({ artists: artistRows.map(({userId, ...artist}) => artist), defaultArtistId: artistRows.find(artist => artist.userId === user.id)?.id || null });
 }

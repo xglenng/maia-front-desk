@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import UiIcon from './ui-icon';
 import SetupReturn from './setup-return';
 import './session-gate.css';
+import {ownerSettingsPage} from '@/packages/auth/settings-policy';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; role: 'OWNER' | 'ARTIST' };
 const SessionContext = createContext<SessionUser | null>(null);
@@ -22,7 +23,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path.startsWith('/legal/') ||
   path.startsWith('/a/') ||
   path.startsWith('/book/');
-  const ownerPage = path === '/settings/team' || path === '/settings/scheduling' || path === '/compliance' || path.startsWith('/compliance/') || path === '/twilio';
+  const ownerPage = ownerSettingsPage(path);
   const [dashboardView,setDashboardView]=useState('Overview');
   useEffect(()=>{const update=()=>setDashboardView(new URLSearchParams(window.location.search).get('view')||'Overview');update();window.addEventListener('maia-view',update);return()=>window.removeEventListener('maia-view',update);},[path]);
   const [user, setUser] = useState<SessionUser | null>(null);

@@ -176,7 +176,6 @@ export default function StudioSettingsPage() {
   }
 
   if (!user) return null;
-  if (user.role !== 'OWNER') return <main style={{ maxWidth: 960, margin: '0 auto', padding: 32 }}><h1>Studio Configuration</h1><p>Owner access is required to manage organization settings.</p></main>;
   if (loading && !config) return <main style={{ maxWidth: 960, margin: '0 auto', padding: 32 }}><h1>Studio Configuration</h1><p>Loading studio settings…</p></main>;
   if (!config) return <main style={{ maxWidth: 960, margin: '0 auto', padding: 32 }}><h1>Studio Configuration</h1><p role="alert">{error || 'Studio configuration could not be loaded.'}</p></main>;
 
@@ -184,7 +183,7 @@ export default function StudioSettingsPage() {
   const updateArtist = (update: Partial<ArtistSettings>) => patchConfig({ artists: config.artists.map(artist => artist.artistId === selectedArtist ? { ...artist, ...update } : artist) });
 
   return <main style={{ maxWidth: 1040, margin: '0 auto', padding: '32px 20px 72px', color: '#181716' }}>
-    <a href="/settings">← Owner settings</a>
+    <a href="/settings">← Settings</a>
     <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', margin: '14px 0 20px' }}>
       <div><h1 style={{ margin: 0 }}>Studio settings</h1><p style={{ color: '#706b66', marginBottom: 0 }}>Set the basics once. Teach Maia through a few notes and the replies you already write.</p></div>
       <button type="button" onClick={event => { const form = document.getElementById('studio-config-form') as HTMLFormElement | null; form?.requestSubmit(); }} disabled={saving} style={button}>{saving ? 'Saving…' : 'Save configuration'}</button>
@@ -289,7 +288,7 @@ export default function StudioSettingsPage() {
         {activeArtist && <>
 
           <div style={toggleRow}>
-            <label><input type="checkbox" checked={activeArtist.requiresSupervisorApproval} onChange={event => updateArtist({ requiresSupervisorApproval: event.target.checked })} /> Requires owner approval (apprentice)</label>
+            <label><input type="checkbox" disabled={user.role!=='OWNER'} checked={activeArtist.requiresSupervisorApproval} onChange={event => updateArtist({ requiresSupervisorApproval: event.target.checked })} /> Requires owner approval (apprentice)</label>
             <label><input type="checkbox" checked={activeArtist.bookingEnabled} onChange={event => updateArtist({ bookingEnabled: event.target.checked })} /> Booking enabled</label>
             <label><input type="checkbox" checked={activeArtist.receptionistEnabled} onChange={event => updateArtist({ receptionistEnabled: event.target.checked })} /> Receptionist enabled</label>
           </div>

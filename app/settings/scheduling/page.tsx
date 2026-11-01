@@ -183,14 +183,14 @@ export default function SchedulingSettingsPage() {
     }
   }
 
-  if (!user || user.role !== 'OWNER') return null;
+  if (!user) return null;
   const connected = data?.connection?.provider === 'SQUARE' && data.connection.status === 'CONNECTED';
   const bookingEnabled = connected && data?.bookingPermissions?.status === 'ENABLED';
   const bookingPermissionUnknown = connected && data?.bookingPermissions?.status === 'UNKNOWN';
   const locationSaved = Boolean(locationId && locationId === data?.connection?.locationId);
 
   return <main style={{ maxWidth: 1000, margin: '0 auto', padding: '38px 20px 80px', color: '#181716' }}>
-    <a href="/settings">← Owner settings</a>
+    <a href="/settings">← Settings</a>
     <header style={{ margin: '14px 0 22px' }}><h1 style={{ margin: 0 }}>Scheduling</h1><p style={{ color: '#706b66' }}>Choose how Maia checks availability for each provider.</p></header>
     <section style={panel}>
       <label style={label}>Artist / provider

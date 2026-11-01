@@ -1,4 +1,4 @@
-import { protectedRoute } from '@/packages/auth/server';
+import { protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { NextResponse } from "next/server";
 import { db } from "@db";
 import { complianceProfiles, legalDocuments, organizations } from "@db/schema";

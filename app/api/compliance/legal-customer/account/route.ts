@@ -1,7 +1,7 @@
 import { NextRequest,NextResponse } from 'next/server';
 import { pool } from '@db';
 import { z } from 'zod';
-import { identity,protectedRoute } from '@/packages/auth/server';
+import { identity,protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { createFirstLegalAccount,FirstAccountConflict } from '@/packages/compliance/first-account.server';
 import { TwilioProvisionConfigurationError } from '@integrations/twilio-provision-preflight';
 const command=z.object({organizationId:z.string().uuid(),legalCustomerId:z.string().uuid(),artistId:z.string().uuid(),liveAccountCreationAuthorized:z.literal(true)}).strict();

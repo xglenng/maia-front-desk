@@ -1,6 +1,6 @@
 import { NextRequest,NextResponse } from 'next/server';
 import { z } from 'zod';
-import { identity,protectedRoute } from '@/packages/auth/server';
+import { identity,protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { reviewPersistedProvision,ProvisionReviewConflict } from '@integrations/provision-review';
 const command=z.object({organizationId:z.string().uuid(),operationId:z.string().uuid(),reference:z.string().trim().min(1).max(300),localResourceReviewed:z.literal(true)}).strict();
 async function handlePOST(request:NextRequest) {

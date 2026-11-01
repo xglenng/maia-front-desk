@@ -3,7 +3,7 @@ import {and,eq} from 'drizzle-orm';
 import {db} from '@/packages/db/src';
 import {artists,squareCatalogOAuthStates,squareCatalogConnections} from '@/packages/db/src/schema';
 import {digest} from '@/packages/auth/crypto';
-import {canAccessArtist} from '@/packages/inbox/state';
+import {canManageStudioSettings} from '@/packages/auth/settings-policy';
 import {encryptComplianceSecret} from '@/packages/compliance/secrets';
 import {squareBaseUrl,squareRedirectUri} from '@/packages/scheduling/square/config';
 import {parseSquareOAuthTokenResponse} from '@/packages/scheduling/square/oauth-token';
@@ -15,7 +15,7 @@ export async function completeCatalogCallback(request:NextRequest,user:{id:strin
  const back=(status:string)=>new NextResponse(null,{status:303,headers:{Location:`/settings/services?artistId=${encodeURIComponent(consumed.artistId)}&import=apps&squareCatalog=${status}`}});
  if(consumed.expiresAt.getTime()<=Date.now())return back('invalid-state');
  const [artist]=await db.select().from(artists).where(and(eq(artists.id,consumed.artistId),eq(artists.organizationId,user.organization_id))).limit(1);
- if(!artist||!canAccessArtist(user.role,user.id,artist.userId))return back('invalid-state');
+ if(!artist||!canManageStudioSettings(user.role))return back('invalid-state');
  if(request.nextUrl.searchParams.has('error'))return back('denied');
  const code=request.nextUrl.searchParams.get('code');if(!code)return back('failed');
  if(!process.env.SQUARE_APPLICATION_ID||!process.env.SQUARE_APPLICATION_SECRET)return back('not-configured');

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { identity, protectedRoute } from '@/packages/auth/server';
+import { identity, protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { bindLegalCustomerAccount, createLegalCustomer, LegalCustomerConflict, resolveLegalCustomerAccount } from '@/packages/compliance/legal-customer.server';
 const command = z.discriminatedUnion('action', [
   z.object({ action: z.literal('CREATE'), organizationId: z.string().uuid(), legalName: z.string().trim().min(1).max(200), customerType: z.enum(['STUDIO', 'INDEPENDENT_BUSINESS']) }).strict(),

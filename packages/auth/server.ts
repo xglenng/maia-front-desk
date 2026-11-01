@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/packages/db/src';
 import { digest } from './crypto';
 import { readWaiver } from './waiver-token';
+import {canManageStudioSettings,sharedStudioSettingsPath} from './settings-policy';
 
 export const cookieName = 'inkflow_session';
 export type Identity = { id: string; organization_id: string; role: string; name: string; email: string };
@@ -50,7 +51,7 @@ export async function assignedArtistReference(user:Identity,key:string,id:string
 }
 
 // All browser API handlers enter here before reading or mutating tenant records.
-export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Promise<Response>, owner = false) {
+export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Promise<Response>, owner = false, sharedSettings = false) {
   return async (req: NextRequest, context: C): Promise<Response> => {
     try {
       const waiverPath = new URL(req.url).pathname;
@@ -66,7 +67,9 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
       if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
       if (!['GET','HEAD'].includes(req.method) && !sameOrigin(req)) return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
       const url = new URL(req.url);
-      if (user.role === 'ARTIST' && !['GET','HEAD'].includes(req.method)) {
+      const settingsAccess=sharedSettings&&sharedStudioSettingsPath(url.pathname)&&canManageStudioSettings(user.role);
+      const ownerRequired=owner&&!settingsAccess;
+      if (user.role === 'ARTIST' && !settingsAccess && !['GET','HEAD'].includes(req.method)) {
         const supervised = await pool.query('SELECT requires_supervisor_approval FROM artists WHERE organization_id=$1 AND user_id=$2 AND requires_supervisor_approval=true LIMIT 1', [user.organization_id, user.id]);
         const draftOrControl = /^\/api\/inbox\/[a-f0-9-]{36}(?:\/draft)?$/.test(url.pathname);
         if (supervised.rows[0]?.requires_supervisor_approval === true && !draftOrControl && url.pathname !== '/api/ai/chat') return NextResponse.json({ error: 'Owner approval is required for this action. Submit a draft for review.' }, { status: 403 });
@@ -75,9 +78,9 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
       const body = ['GET','HEAD','DELETE'].includes(req.method) ? {} : await req.clone().json();
       if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Invalid request'}, {status:400});
       for (const org of [url.searchParams.get('organizationId'), body.organizationId]) {
-        if (org && !permitted(user, org, owner)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        if (org && !permitted(user, org, ownerRequired)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
-      if (!permitted(user, user.organization_id, owner)) return NextResponse.json({error:'Owner access required'}, {status:403});
+      if (!permitted(user, user.organization_id, ownerRequired)) return NextResponse.json({error:'Owner access required'}, {status:403});
       const tables: Record<string,string> = { artistId:'artists',clientId:'clients',appointmentId:'appointments',conversationId:'conversations',serviceId:'services',waiverTemplateId:'waiver_templates' };
       const references = [...Object.entries(body), ...url.searchParams.entries()];
       const pathId = url.pathname.match(/^\/api\/appointments\/([^/]+)(?:\/deposit)?$/)?.[1];
@@ -88,7 +91,7 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
         if (!tables[key] || id == null || id === '') continue;
         if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id)) return NextResponse.json({error:'Invalid record ID'}, {status:400});
         const found = await pool.query(`SELECT id FROM ${tables[key]} WHERE id=$1 AND organization_id=$2`, [id,user.organization_id]);
-        if (!found.rowCount || !await assignedArtistReference(user,key,id)) return NextResponse.json({error:'Record not found'}, {status:404});
+        if (!found.rowCount || (!settingsAccess&&!await assignedArtistReference(user,key,id))) return NextResponse.json({error:'Record not found'}, {status:404});
       }
       url.searchParams.set('organizationId', user.organization_id);
       if (!['GET','HEAD','DELETE'].includes(req.method)) body.organizationId = user.organization_id;
@@ -111,16 +114,17 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
 // Multipart uploads cannot use protectedRoute because that guard intentionally
 // normalizes JSON bodies. This variant performs the same owner, tenant, and
 // same-origin checks without attempting to serialize an uploaded document.
-export function protectedFormRoute<C>(handler: (req: NextRequest, context: C) => Promise<Response>, owner = false) {
+export function protectedFormRoute<C>(handler: (req: NextRequest, context: C) => Promise<Response>, owner = false, sharedSettings = false) {
   return async (req: NextRequest, context: C): Promise<Response> => {
     try {
       const user = await identity(req);
       if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
       if (!sameOrigin(req)) return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
-      if (!permitted(user, user.organization_id, owner)) return NextResponse.json({ error: 'Owner access required' }, { status: 403 });
+      const ownerRequired=owner&&!(sharedSettings&&sharedStudioSettingsPath(new URL(req.url).pathname)&&canManageStudioSettings(user.role));
+      if (!permitted(user, user.organization_id, ownerRequired)) return NextResponse.json({ error: 'Owner access required' }, { status: 403 });
       const form = await req.clone().formData();
       const organizationId = form.get('organizationId');
-      if (typeof organizationId !== 'string' || !permitted(user, organizationId, owner)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      if (typeof organizationId !== 'string' || !permitted(user, organizationId, ownerRequired)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       const artistId = form.get('artistId');
       if (typeof artistId !== 'string' || !/^[a-f0-9-]{36}$/i.test(artistId)) return NextResponse.json({ error: 'Invalid artist ID' }, { status: 400 });
       const found = await pool.query('SELECT id FROM artists WHERE id=$1 AND organization_id=$2', [artistId, user.organization_id]);
@@ -133,4 +137,20 @@ export function protectedFormRoute<C>(handler: (req: NextRequest, context: C) =>
       return NextResponse.json({ error: 'Request failed' }, { status: 500 });
     }
   };
+}
+
+// Opt-in per configuration endpoint; never changes the session role or the
+// authorization of transaction, banking, invitation, messaging, or booking APIs.
+export function protectedSettingsRoute<C>(handler:(req:NextRequest,context:C)=>Promise<Response>, owner=true){
+ return protectedRoute(handler,owner,true);
+}
+export function protectedSettingsFormRoute<C>(handler:(req:NextRequest,context:C)=>Promise<Response>, owner=true){
+ return protectedFormRoute(handler,owner,true);
+}
+
+// Provider OAuth callbacks also resolve the artist against the authenticated tenant.
+export async function settingsArtistReference(user:Identity,key:string,id:string){
+ if(!canManageStudioSettings(user.role)||key!=='artistId')return false;
+ const found=await pool.query('SELECT id FROM artists WHERE id=$1 AND organization_id=$2',[id,user.organization_id]);
+ return Boolean(found.rowCount);
 }
