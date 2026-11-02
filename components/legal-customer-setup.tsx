@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import './legal-customer-setup.css';
+import {supportDraft} from '@/packages/studio/help-center';
 import {settingsArtistId} from "@/packages/studio/artist-selection";
-import { legalSetupActions, type LegalSetupSnapshot as Setup } from '@/packages/compliance/legal-setup-policy';
+import { legalSetupActions, legalSetupReviewReason, type LegalSetupSnapshot as Setup } from '@/packages/compliance/legal-setup-policy';
 
 const field = { display: 'block', width: '100%' };
 
@@ -48,7 +49,7 @@ export function LegalCustomerSetup({ organizationId, onReadyChange }: { organiza
       if (!response.ok) throw new Error(data.error || 'Setup requires review.');
       setReviewed(false); setAuthorized(false);
       await load(ticket);
-      if (ticket === version.current) setMessage('Setup saved. This does not approve an SMS registration.');
+      if (ticket === version.current) setMessage(path === '/api/compliance/legal-customer' && 'action' in body && body.action === 'CREATE' ? 'Business name saved.' : 'Account setup updated.');
     } catch (error) {
       if (ticket === version.current) {
         setMessage(error instanceof Error ? error.message : 'Setup requires review.');
@@ -67,6 +68,7 @@ export function LegalCustomerSetup({ organizationId, onReadyChange }: { organiza
   }
 
   const { customer, account, bound, canBind, canCreate } = legalSetupActions(setup);
+  const reviewReason=legalSetupReviewReason(setup);
   useEffect(()=>{onReadyChange?.(bound);},[bound,onReadyChange]);
   return <section className="legal-customer-setup">
     <h2>Business identity</h2>
@@ -82,7 +84,7 @@ export function LegalCustomerSetup({ organizationId, onReadyChange }: { organiza
     {customer && <>
       <p role="status"><strong>Business name saved: {customer.legalName}</strong> · {customer.customerType === 'STUDIO' ? 'Studio legal business' : 'Independent artist legal business'}</p>
       {bound ? <p>Business account connected. Next: choose a phone number. SMS stays unavailable until messaging registration is approved.</p> : <>
-        <p role="status">Your business name is saved. The remaining step is connecting its Twilio account; entering the name again will not fix this.</p>
+        {!reviewReason&&<p>Next: connect the messaging account for this business.</p>}
         {canBind && account && <form onSubmit={event => { event.preventDefault(); void command('/api/compliance/legal-customer', { action: 'BIND', legalCustomerId: customer.id, twilioAccountId: account.id, verificationReference: reference, ownershipReviewed: true }); }}>
           <p>Existing Twilio account: <code>{account.accountSid}</code>. Review its legal owner and existing resources before recording a binding.</p>
           <label>Ownership review reference<input required maxLength={300} style={field} value={reference} onChange={event => setReference(event.target.value)} /></label>
@@ -97,11 +99,10 @@ export function LegalCustomerSetup({ organizationId, onReadyChange }: { organiza
           </>}
           <button disabled={busy || !canCreate || !authorized || !artistId} onClick={() => void command('/api/compliance/legal-customer/account', { legalCustomerId: customer.id, artistId, liveAccountCreationAuthorized: true })}>Create first Twilio account</button>
         </>}
-        {setup!.intents.length > 0 && <p>Account creation has already been attempted. Refresh to inspect its outcome; do not create a replacement account. Operator review is required if ownership was not saved.</p>}
-        {setup!.accounts.length > 1 || (account && (account.status !== 'ACTIVE' || !/^AC[0-9a-f]{32}$/i.test(account.accountSid))) ? <p>Maia support needs to review the existing account before you can create a number. Your business name is already saved; do not create another business or account.</p> : null}
+
       </>}
     </>}
-    {setup && setup.customers.length > 1 && <p>Ambiguous legal ownership requires operator review.</p>}
+    {reviewReason&&<section className="legal-setup-review" aria-labelledby="legal-review-heading"><h3 id="legal-review-heading">Next: resolve account setup</h3><p>{reviewReason}</p><p>Your business name is saved. There is nothing else you need to re-enter on this step.</p><a className="legal-review-action" href={supportDraft('Messaging setup review',`SMS business setup is blocked.\n${reviewReason}\nPlease review the existing messaging account and help finish setup.`)}>Open setup review email ↗</a><p>This opens an email draft. Send it to request help; no request has been submitted yet.</p><a href="/help#contact-support">Other support options →</a></section>}
     <button className="legal-setup-refresh" disabled={busy || !organizationId} onClick={() => void refresh()}>Refresh account setup</button>
     {setup && message && <p role="status">{message}</p>}
   </section>;

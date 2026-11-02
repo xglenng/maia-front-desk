@@ -12,3 +12,5 @@
 .legal-customer-setup input:focus-visible,.legal-customer-setup select:focus-visible,.legal-customer-setup button:focus-visible{outline:3px solid #8269bb;outline-offset:3px}
 .legal-customer-setup code{overflow-wrap:anywhere}
 @media(max-width:600px){.legal-customer-setup{padding:20px;border-radius:12px}.legal-customer-setup button{width:100%;justify-self:stretch}.legal-customer-setup input:not([type=checkbox]),.legal-customer-setup select{font-size:16px}.legal-customer-setup h2{font-size:20px}}
+
+.legal-setup-review{margin-top:20px;border:1px solid #dfd6c6;border-radius:12px;padding:18px;background:#faf8f3}.legal-setup-review h3{margin:0;font-size:18px}.legal-setup-review .legal-review-action{display:inline-block;background:#181716;color:white;border-radius:10px;padding:14px 18px;text-decoration:none;font-weight:600;box-sizing:border-box;max-width:100%}.legal-setup-review p{margin:12px 0}.legal-setup-review a{overflow-wrap:anywhere}
