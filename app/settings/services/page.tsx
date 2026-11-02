@@ -1,8 +1,8 @@
 'use client';
-import {settingsArtistId as resolveArtistSelection} from '@/packages/studio/artist-selection';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import {field, labelStyle, panel, primaryButton, secondaryButton, formGrid, toggleRow, serviceRow, statusLabel, alert, noticeStyle} from '@/components/catalog-styles';
+import {field, labelStyle, panel, primaryButton, secondaryButton, formGrid, toggleRow, serviceRow, statusLabel, alert, noticeStyle, catalogIconButton} from '@/components/catalog-styles';
+import UiIcon from '@/components/ui-icon';
 import ServiceImport from './service-import';
 import { useSession } from '@/components/session-gate';
 
@@ -113,6 +113,7 @@ export default function ServicesSettingsPage() {
   const organizationId = user?.organization_id || '';
   const [artists, setArtists] = useState<Artist[]>([]);
   const [artistId, setArtistId] = useState('');
+  const [search, setSearch] = useState('');
   const [services, setServices] = useState<Service[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const editorRef = useRef<HTMLFormElement>(null);
@@ -123,7 +124,6 @@ export default function ServicesSettingsPage() {
   const [loadingArtists, setLoadingArtists] = useState(true);
   const [loadingServices, setLoadingServices] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [importRevision, setImportRevision] = useState(0);
@@ -141,14 +141,15 @@ export default function ServicesSettingsPage() {
     if (!organizationId) return;
     let current = true;
     setLoadingArtists(true);
-    fetch(`/api/ai/settings?scope=studio-settings&organizationId=${encodeURIComponent(organizationId)}`, { cache: 'no-store' })
+    fetch(`/api/ai/settings?organizationId=${encodeURIComponent(organizationId)}`, { cache: 'no-store' })
       .then(responseData)
       .then(data => {
         if (!current) return;
         const loaded = data.artists as Artist[];
         setArtists(loaded);
-        const params = new URLSearchParams(window.location.search);
-        setArtistId(resolveArtistSelection(loaded, data.defaultArtistId, params.get('artistId'), params.get('import') === 'apps' && params.has('squareCatalog')));
+        const ownArtist = loaded.find(artist => artist.id === data.defaultArtistId);
+        setArtistId(ownArtist?.id || '');
+        if (!ownArtist) setError('Your account needs a linked artist profile before you can manage services.');
       })
       .catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Unable to load artists.'); })
       .finally(() => { if (current) setLoadingArtists(false); });
@@ -261,51 +262,22 @@ export default function ServicesSettingsPage() {
     }
   }
 
-  async function setActive(service: Service) {
-    if (!organizationId || pendingId) return;
-    setPendingId(service.id);
-    setError('');
-    setNotice('');
-    try {
-      const response = await fetch(`/api/services/${service.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId, active: !service.active }),
-      });
-      const data = await responseData(response);
-      setServices(current => current.map(item => item.id === service.id ? data.service as Service : item));
-      setNotice(service.active ? 'Service deactivated. Existing appointments are unchanged.' : 'Service activated.');
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Unable to update service.');
-    } finally {
-      setPendingId(null);
-    }
-  }
-
   if (!user || !['OWNER','ARTIST'].includes(user.role)) return null;
   const groups = new Map<string, Service[]>();
-  for (const service of services) {
+  for (const service of services.filter(service => `${service.name} ${service.category || ""} ${service.serviceType}`.toLowerCase().includes(search.trim().toLowerCase()))) {
     const key = `${service.serviceType}\u0000${service.category || ''}`;
     groups.set(key, [...(groups.get(key) || []), service]);
   }
 
-  return <main style={{ maxWidth: 1060, margin: '0 auto', padding: '36px 20px 80px', color: '#181716' }}>
+  return <main className="catalog-settings" style={{ maxWidth: 1060, margin: '0 auto', padding: '36px 20px 80px', color: '#181716' }}>
     <a href={`/items?artistId=${artistId}`}>← Items & services</a>
     <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', flexWrap: 'wrap', margin: '14px 0 22px' }}>
       <div><h1 style={{ margin: 0 }}>Services &amp; Pricing</h1><p style={{ color: '#706b66', margin: '7px 0 0' }}>Manage the active services and pricing Maia can share with clients.</p></div>
       <button type="button" onClick={startNew} disabled={!artistId || loadingArtists} style={primaryButton}>+ Add service</button>
     </header>
 
-    <section style={panel}>
-      <label style={labelStyle}>Artist / provider
-        <select value={artistId} disabled={loadingArtists || artists.length === 0 || saving} onChange={event => { setArtistId(event.target.value); setEditorOpen(false); setEditingId(null); setDraft({ ...blankDraft }); }} style={field}>
-          <option value="">{loadingArtists ? 'Loading providers…' : 'Select a provider'}</option>
-          {artists.map(artist => <option key={artist.id} value={artist.id}>{artist.displayName}</option>)}
-        </select>
-      </label>
-    </section>
-
-    <ServiceImport key={artistId} organizationId={organizationId} artistId={artistId} artistName={artists.find(artist=>artist.id===artistId)?.displayName || ''} onManual={startNew} onImported={() => setImportRevision(value => value + 1)} />
+    {artistId && !loadingArtists && !loadingServices && services.length === 0 && <ServiceImport key={artistId} organizationId={organizationId} artistId={artistId} artistName={artists.find(artist=>artist.id===artistId)?.displayName || ''} onManual={startNew} onImported={() => setImportRevision(value => value + 1)} />}
+    {services.length > 0 && <label style={{...labelStyle,marginBottom:20}}>Search services<input type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search services" style={field}/></label>}
 
     {error && <p role="alert" style={alert}>{error}</p>}
     {notice && <p role="status" style={noticeStyle}>{notice}</p>}
@@ -363,7 +335,7 @@ export default function ServicesSettingsPage() {
         {draft.pricingType !== 'QUOTE' && <label><input type="checkbox" checked={draft.startingAt} onChange={event => setDraft({ ...draft, startingAt: event.target.checked })} /> Starting at</label>}
         <label><input type="checkbox" checked={draft.requiresConsultation} onChange={event => setDraft({ ...draft, requiresConsultation: event.target.checked })} /> Requires consultation</label>
         <label><input type="checkbox" checked={draft.requiresArtistApproval} onChange={event => setDraft({ ...draft, requiresArtistApproval: event.target.checked })} /> Requires provider approval</label>
-        <label><input type="checkbox" checked={draft.active} onChange={event => setDraft({ ...draft, active: event.target.checked })} /> Active</label>
+        <button type="button" disabled={saving} aria-label={draft.active ? "Deactivate service" : "Activate service"} title={draft.active ? "Deactivate service (save changes to apply)" : "Activate service (save changes to apply)"} onClick={() => setDraft({ ...draft, active: !draft.active })} style={catalogIconButton}><UiIcon name={draft.active ? "eye-off" : "eye"}/></button><span>{draft.active ? "Active" : "Inactive"} · Save changes to apply</span>
         <label style={{ ...labelStyle, maxWidth: 150 }}>Sort order
           <input type="number" step={1} value={draft.sortOrder} onChange={event => setDraft({ ...draft, sortOrder: event.target.value })} style={field} />
         </label>
@@ -376,21 +348,18 @@ export default function ServicesSettingsPage() {
 
     <section style={{ marginTop: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}><h2 style={{ margin: 0, fontSize: 18 }}>Configured services</h2><span style={{ color: '#706b66', fontSize: 13 }}>{services.filter(service => service.active).length} active · {services.length} total</span></div>
-      {loadingServices ? <p>Loading services…</p> : !artistId ? <section style={panel}>Select an artist/provider to manage its services.</section> : services.length === 0 ? <section style={panel}>No services are configured for this provider yet.</section> : [...groups.entries()].map(([key, group]) => {
+      {loadingServices ? <p>Loading services…</p> : !artistId ? <section style={panel}>No artist profile is linked to your account.</section> : services.length === 0 ? <section style={panel}>No services are configured for this provider yet.</section> : groups.size === 0 ? <section style={panel}>No services match your search.</section> : [...groups.entries()].map(([key, group]) => {
         const [type, category] = key.split('\u0000');
         return <section key={key} style={{ ...panel, marginBottom: 12 }}>
           <h3 style={{ margin: '0 0 10px', fontSize: 14 }}>{type}{category ? ` · ${category}` : ''}</h3>
           <div style={{ display: 'grid', gap: 8 }}>
             {group.map(service => <article key={service.id} style={serviceRow}>
               <div style={{ minWidth: 0 }}>
-                <strong>{service.name}</strong><div style={{ color: '#706b66', fontSize: 13, marginTop: 4 }}>{service.durationMinutes === 0 ? 'Duration pending approval' : `${service.durationMinutes} min`} · {service.pricingType} · {formatPrice(service)}{service.depositType !== 'NONE' ? ` · ${service.paymentProvider === 'VENMO_MANUAL' ? 'Venmo manual' : service.paymentProvider}` : ''}{service.requiresConsultation ? ' · Consultation required' : ''}{service.requiresArtistApproval ? ' · Approval required' : ''}</div>
+<span style={{ ...statusLabel, background: service.active ? '#e6f2ea' : '#eee', color: service.active ? '#2f7651' : '#68635e' }}>{service.active ? 'Active' : 'Inactive'}</span>
+                <strong style={{display:"block",marginTop:6,overflowWrap:"anywhere"}}>{service.name}</strong><div style={{ color: '#706b66', fontSize: 13, marginTop: 4 }}>{service.durationMinutes === 0 ? 'Duration pending approval' : `${service.durationMinutes} min`} · {service.pricingType} · {formatPrice(service)}{service.depositType !== 'NONE' ? ` · ${service.paymentProvider === 'VENMO_MANUAL' ? 'Venmo manual' : service.paymentProvider}` : ''}{service.requiresConsultation ? ' · Consultation required' : ''}{service.requiresArtistApproval ? ' · Approval required' : ''}</div>
                 {service.description && <p style={{ margin: '5px 0 0', color: '#706b66', fontSize: 13 }}>{service.description}</p>}
               </div>
-              <span style={{ ...statusLabel, background: service.active ? '#e6f2ea' : '#eee', color: service.active ? '#2f7651' : '#68635e' }}>{service.active ? 'Active' : 'Inactive'}</span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" disabled={Boolean(pendingId) || saving} onClick={() => edit(service)} style={secondaryButton}>Edit</button>
-                <button type="button" disabled={pendingId === service.id || saving} onClick={() => void setActive(service)} style={secondaryButton}>{pendingId === service.id ? 'Saving…' : service.active ? 'Deactivate' : 'Activate'}</button>
-              </div>
+              <button type="button" aria-label={`Edit ${service.name}`} title="Edit service" disabled={saving} onClick={() => edit(service)} style={catalogIconButton}><UiIcon name="edit"/></button>
             </article>)}
           </div>
         </section>;

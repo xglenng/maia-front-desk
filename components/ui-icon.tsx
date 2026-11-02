@@ -1,7 +1,8 @@
 import type { SVGProps } from 'react';
 
-export type IconName = 'services' | 'card' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off';
+export type IconName = 'services' | 'card' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off' | 'edit';
 const paths: Record<IconName, React.ReactNode> = {
+  edit: <><path d="m16 3 5 5L9 20l-6 1 1-6ZM14 5l5 5"/></>,
   services: <><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="2" fill="white"/><circle cx="16" cy="12" r="2" fill="white"/><circle cx="10" cy="19" r="2" fill="white"/></>,
   card: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></>,
   chart: <><path d="M4 3v18h17M8 16v-4m5 4V8m5 8V5"/></>,
