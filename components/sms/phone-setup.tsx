@@ -119,6 +119,8 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
     {message && <div role="status" aria-live="polite" style={{...card,borderColor:"#c9ada4"}}>{message}</div>}
     <button type="button" disabled={loading} onClick={()=>void status()} style={{...button,marginTop:16}}>Refresh phone status</button>
 
+    <p>Before creating a number, complete <a href="/settings/sms?tab=business">Business setup</a> to connect your legal business to a live Twilio account.</p>
+
     {choice === "new" && <form onSubmit={provision} style={card}>
       <h2 style={{marginTop:0}}>New business number</h2><p>Keep this as your main business number, or use it while moving an existing number to Maia. SMS sending requires registration approval.</p>
       <label style={label}>Preferred US area code (optional)<input value={areaCode} onChange={e => setAreaCode(e.target.value.replace(/\D/g, ""))} maxLength={3} inputMode="numeric" style={field} /></label>

@@ -19,7 +19,7 @@ const initialForm = {
   hasEmbeddedLinks: false, hasEmbeddedPhoneNumbers: false, subscriberOptIn: true
 };
 
-export default function A2pRegistrationPage({embedded=false}:{embedded?:boolean}={}) {
+export default function A2pRegistrationPage({embedded=false,includeBusinessSetup=true}:{embedded?:boolean;includeBusinessSetup?:boolean}={}) {
   const Container=embedded?'section':'main';
   const Heading=embedded?'h2':'h1';
   const user = useSession();
@@ -131,7 +131,7 @@ export default function A2pRegistrationPage({embedded=false}:{embedded?:boolean}
     <Heading style={{ marginBottom: 6 }}>A2P campaign registration</Heading>
     <p style={{ color: "#77736e", lineHeight: 1.5 }}>Prepare each studio&apos;s SMS campaign for carrier review. Complete legal-page setup before submitting this form.</p>
 
-    {organizationId && user && <LegalCustomerSetup organizationId={organizationId} />}
+    {includeBusinessSetup && organizationId && user && <LegalCustomerSetup organizationId={organizationId} />}
     {!profile && <section style={card}><h2>{message ? 'Registration setup needed' : 'Loading your studio registration…'}</h2><p>{message || "Your signed-in studio is selected automatically."}</p></section>}
 
     {profile && <>

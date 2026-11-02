@@ -1,3 +1,4 @@
+import { calendarClientSchema } from '@/packages/studio/calendar-client-schema';
 import { ONBOARDING_PREVIEW_CLIENT_NOTE } from '@/packages/onboarding/readiness';
 import { NextRequest,NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -29,10 +30,10 @@ async function get(request:NextRequest){
  ]);
  return NextResponse.json({timeOff,appointments:rows,services:serviceRows,clients:clientRows,hours:rules,timezone,provider});
 }
-const booking=z.object({...scope,requestId:z.string().uuid(),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:z.object({firstName:z.string().trim().min(2).max(120),phone:z.string().regex(/^\+[1-9]\d{7,14}$/).optional(),email:z.string().trim().toLowerCase().email().max(254).optional()}).optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000)}).refine(input=>Boolean(input.clientId)!==Boolean(input.newClient),'Choose an existing client or enter a new client.');
+const booking=z.object({...scope,requestId:z.string().uuid(),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:calendarClientSchema.optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000)}).refine(input=>Boolean(input.clientId)!==Boolean(input.newClient),'Choose an existing client or enter a new client.');
 async function post(request:NextRequest){
  if((await request.clone().json()).action==='TIME_OFF')return timeOff(request);
- const parsed=booking.safeParse(await request.json());if(!parsed.success)return NextResponse.json({error:'Check client, service, date, duration and price.'},{status:400});
+ const parsed=booking.safeParse(await request.json());if(!parsed.success)return NextResponse.json({error:parsed.error.issues.find(issue=>issue.path.includes('phone'))?.message || 'Check client, service, date, duration and price.'},{status:400});
  const input=parsed.data,user=(await identity(request))!,provider=await nativeProvider(input.organizationId,input.artistId);
  if(!provider.native)return NextResponse.json({error:`This artist uses ${provider.label}. Manage bookings there; no external booking was changed.`},{status:409});
  try {
