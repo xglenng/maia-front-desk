@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import './legal-customer-setup.css';
 import { legalSetupActions, type LegalSetupSnapshot as Setup } from '@/packages/compliance/legal-setup-policy';
 
-const field = { display: 'block', width: '100%', padding: 10, marginTop: 6 };
+const field = { display: 'block', width: '100%' };
 
 export function LegalCustomerSetup({ organizationId }: { organizationId: string }) {
   const [setup, setSetup] = useState<Setup | null>(null);
@@ -64,7 +65,7 @@ export function LegalCustomerSetup({ organizationId }: { organizationId: string 
   }
 
   const { customer, account, bound, canBind, canCreate } = legalSetupActions(setup);
-  return <section style={{ background: 'white', border: '1px solid #e8e4df', borderRadius: 12, padding: 22, marginTop: 16 }}>
+  return <section className="legal-customer-setup">
     <h2>Legal business &amp; Twilio account</h2>
     <p>One legal business owns this studio account and registration. Artists under that business may share it. An independently operated artist with a separate legal identity needs a separate Maia studio account, even at the same address.</p>
     {!setup && <p role="status">{message || 'Loading legal-business setup…'}</p>}
@@ -96,7 +97,7 @@ export function LegalCustomerSetup({ organizationId }: { organizationId: string 
       </>}
     </>}
     {setup && setup.customers.length > 1 && <p>Ambiguous legal ownership requires operator review.</p>}
-    <button disabled={busy || !organizationId} onClick={() => void refresh()}>Refresh account setup</button>
+    <button className="legal-setup-refresh" disabled={busy || !organizationId} onClick={() => void refresh()}>Refresh account setup</button>
     {setup && message && <p role="status">{message}</p>}
   </section>;
 }
