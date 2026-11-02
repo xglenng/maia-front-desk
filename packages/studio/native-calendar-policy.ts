@@ -15,6 +15,7 @@ export function addCalendarDate(value:string,days:number){const date=new Date(va
 export const rescheduleSchema=z.object({
  organizationId:z.string().uuid(),artistId:z.string().uuid(),appointmentId:z.string().uuid(),
  localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
+ extraMinutes:z.number().int().min(0).max(240).optional(),
  expectedRevision:z.number().int().min(0),
 });
 export function canRescheduleNative(status:string,provider:string|null,externalId:string|null){

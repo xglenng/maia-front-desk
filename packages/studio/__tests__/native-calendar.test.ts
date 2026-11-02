@@ -31,3 +31,11 @@ test('rescheduling is limited to confirmed native appointments',async()=>{
  assert.equal(canRescheduleNative('CONFIRMED','INTERNAL','external'),false);
  assert.equal(rescheduleSchema.safeParse({}).success,false);
 });
+
+test('extra calendar time is bounded and retains revision protection',async()=>{
+ const {rescheduleSchema}=await import('../native-calendar-policy');
+ const request={organizationId:'11111111-1111-4111-8111-111111111111',artistId:'22222222-2222-4222-8222-222222222222',appointmentId:'33333333-3333-4333-8333-333333333333',localStart:'2026-11-03T09:00',expectedRevision:2};
+ assert.equal(rescheduleSchema.parse({...request,extraMinutes:30}).extraMinutes,30);
+ for(const extraMinutes of [-1,241,1.5])assert.equal(rescheduleSchema.safeParse({...request,extraMinutes}).success,false);
+ assert.equal(rescheduleSchema.safeParse({...request,extraMinutes:30,expectedRevision:undefined}).success,false);
+});

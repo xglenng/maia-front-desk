@@ -97,10 +97,11 @@ async function patch(request:NextRequest){
   if(!artist?.bookingEnabled)throw new Error('Booking is disabled for this artist.');
   const [org]=await tx.select({timezone:organizations.timezone}).from(organizations).where(eq(organizations.id,input.organizationId));
   const startsAt=localDateTimeToUtc(input.localStart,org?.timezone||'UTC');
-  const endsAt=new Date(startsAt.getTime()+current.endsAt.getTime()-current.startsAt.getTime());
+  const endsAt=new Date(startsAt.getTime()+current.endsAt.getTime()-current.startsAt.getTime()+(input.extraMinutes||0)*60000);
+  if((endsAt.getTime()-startsAt.getTime())/60000>1440)throw new Error('Total appointment duration cannot exceed 24 hours.');
   if(current.scheduleRevision!==input.expectedRevision)throw new Error('This appointment changed. Refresh before rescheduling.');
   if(!Number.isFinite(startsAt.getTime())||!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt,current.id))throw new Error('That time is outside bookable hours or is no longer available.');
-  if(current.startsAt.getTime()===startsAt.getTime())return current;
+  if(current.startsAt.getTime()===startsAt.getTime()&&current.endsAt.getTime()===endsAt.getTime())return current;
   return (await tx.update(appointments).set({startsAt,endsAt,scheduleRevision:current.scheduleRevision+1,updatedAt:new Date()}).where(and(eq(appointments.id,current.id),eq(appointments.organizationId,input.organizationId))).returning())[0];
  });
  // Existing jobs validate their schedule revision before delivery. Keep them for

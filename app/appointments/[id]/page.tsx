@@ -5,13 +5,16 @@ import {CheckoutTipReview} from '@/components/checkout-tip-review';
 import {checkoutTip,type TipChoice} from '@/packages/integrations/checkout-tip';
 import {StudioCardEntry} from '@/components/studio-card-entry';
 import {paymentSummary} from '@/packages/integrations/payment-summary';
+import {localDateString} from '@/packages/booking/src/time';
+import {calendarMinute} from '@/packages/studio/calendar-layout';
 import { useSession } from '@/components/session-gate';
 
 type Payment = { tipCents:number; refundedCents:number; purpose: string; id: string; provider: string; amountCents: number; status: string; confirmationMethod: string | null; confirmedAt: string | null };
 type ExternalWaiver = { id: string; status: string; sentAt: string | null; completedAt: string | null; formName: string };
 type SignedWaiver = { id: string; signedAt: string; templateName: string };
 type AppointmentDetail = {
-  appointment: { notes:string|null; id: string; startsAt: string; endsAt: string; status: string; holdExpiresAt:string|null; priceCents:number|null; depositCents: number | null; depositStatus: string; paymentProvider: string | null; completedAt: string | null };
+  location:{name:string;addressLine1:string|null;addressLine2:string|null;city:string|null;region:string|null;postalCode:string|null}|null;organization:{name:string;timezone:string};
+  appointment: { artistId:string;schedulingProvider:string|null;providerBookingId:string|null;calendarEventId:string|null;scheduleRevision:number; notes:string|null; id: string; startsAt: string; endsAt: string; status: string; holdExpiresAt:string|null; priceCents:number|null; depositCents: number | null; depositStatus: string; paymentProvider: string | null; completedAt: string | null };
   client: { firstName: string; lastName: string | null; phone: string | null; email: string | null };
   service: { name: string; paymentProvider: string; depositType: string } | null;
   payments: Payment[];
@@ -42,8 +45,8 @@ export default function AppointmentDetailPage() {
   const [tipInput,setTipInput]=useState('0');
   const [tipChoice,setTipChoice]=useState<TipChoice>(0);
   const [cardEntry,setCardEntry]=useState(false);
-  const [checkoutUrl,setCheckoutUrl]=useState('');
-  async function checkout(purpose:'DEPOSIT'|'BALANCE'){setBusy(true);setError('');try{const r=await fetch('/api/payments/connect/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appointmentId:params.id,purpose})});const body=await r.json();if(!r.ok)throw new Error(body.error);setCheckoutUrl(body.checkoutUrl);await load();}catch(e){setError(e instanceof Error?e.message:'Unable to create checkout.');}finally{setBusy(false);}}
+  const [extraMinutes,setExtraMinutes]=useState(15);
+
 
   async function refund(payment:Payment){
     if(!window.confirm(`Refund the ${money(payment.amountCents)} test ${paymentLabel(payment).toLowerCase()}? The appointment will stay booked.`))return;
@@ -88,16 +91,19 @@ export default function AppointmentDetailPage() {
   const canComplete = appointment.status === 'CONFIRMED';
   return <main style={{ maxWidth: 760, margin: '0 auto', padding: '36px 20px 80px', color: '#181716' }}>
     <a href="/">← Dashboard</a>
-    <header style={{ margin: '20px 0' }}><p style={{ marginBottom: 4, color: '#706b66' }}>Appointment</p><h1 style={{ margin: 0 }}>{clientName}</h1><p>{data.service?.name || 'Appointment'} · {new Date(appointment.startsAt).toLocaleString()} – {new Date(appointment.endsAt).toLocaleTimeString()}</p></header>
+    <header style={{ margin: '20px 0',fontWeight:600 }}><p style={{ marginBottom: 4, color: '#706b66' }}>Appointment</p><h1 style={{ margin: 0 }}>{clientName}</h1><p>{data.service?.name || 'Appointment'} · {new Date(appointment.startsAt).toLocaleString()} – {new Date(appointment.endsAt).toLocaleTimeString()}</p></header>
     {error && <p role="alert" style={{ color: '#8b1e1e' }}>{error}</p>}{notice && <p role="status">{notice}</p>}
     {nativePayments&&user.role==='OWNER'&&paymentProvider==='STRIPE'&&['CONFIRMED','COMPLETED'].includes(appointment.status)&&summary.remainingCents!=null&&summary.remainingCents>0&&!data.payments.some(p=>p.status.startsWith('REFUND'))&&<section style={section}><button style={action} onClick={openNativePayment}>Test card tap on iPhone</button><p>Opens the native payment review. Simulation only.</p></section>}
     {user.role==='OWNER'&&paymentProvider==='STRIPE'&&['CONFIRMED','COMPLETED'].includes(appointment.status)&&summary.remainingCents!=null&&summary.remainingCents>0&&!data.payments.some(p=>p.status.startsWith('REFUND'))&&<section style={section}><CheckoutTipReview balanceCents={summary.remainingCents} choice={tipChoice} custom={tipInput} disabled={cardEntry} onChoice={setTipChoice} onCustom={setTipInput}/><button style={secondary} disabled={busy||cardEntry||!validTip} onClick={()=>setCardEntry(true)}>{cardEntry?'Card form open':validTip&&checkoutTotal!=null?`Continue to card entry · ${money(checkoutTotal)}`:'Continue to card entry'}</button><p>Secure sandbox card form. No real cards or charges.</p>{cardEntry&&<StudioCardEntry appointmentId={params.id} tipCents={tipCents} onClose={()=>{setCardEntry(false);void load().catch(()=>setError('Unable to refresh payment status.'));}}/>}</section>}
     {appointment.notes&&<section style={section}><h2>Appointment notes</h2><p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{appointment.notes}</p></section>}
-    <section style={section}><h2>Payment summary</h2><dl style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>{[['Total',summary.totalCents],['Payments received',summary.receivedCents],['Refunded',summary.refundedCents],['Net paid',summary.retainedCents],['Remaining service balance',summary.remainingCents],['Tips received',summary.tipReceivedCents],['Tips refunded',summary.tipRefundedCents]].map(([label,value])=><div key={label as string}><dt>{label}</dt><dd style={{margin:0,fontWeight:600}}>{value==null?'Not priced':money(value as number)}</dd></div>)}</dl>{data.payments.some(p=>p.status.startsWith('REFUND'))&&<p>Refunds do not cancel the appointment. Review the payment arrangement before collecting any remaining amount.</p>}{summary.needsReview&&<p role="status">Payment needs review. A refund is pending or requires attention. Check Stripe before taking further payment.</p>}</section>
+    <section style={section}><h2>Amount due</h2><strong style={{fontSize:30}}>{summary.remainingCents==null?'Price not set':money(summary.remainingCents)}</strong>{summary.needsReview&&<p role="status">Payment needs review before collecting more money.</p>}</section>
+    <section style={section}><h2>Business location</h2><strong>{data.location?.name||data.organization.name}</strong>{data.location?<p>{[data.location.addressLine1,data.location.addressLine2,data.location.city,data.location.region,data.location.postalCode].filter(Boolean).join(', ')}</p>:<p>No primary business address configured.</p>}</section>
+    {appointment.status==='CONFIRMED'&&appointment.schedulingProvider==='INTERNAL'&&!appointment.providerBookingId&&!appointment.calendarEventId&&<section style={section}><h2>Block extra time</h2><p>Extend the end of this appointment without changing the price or deposit.</p><label style={{display:'grid',gap:8,fontWeight:600}}>Additional time<select style={{fontSize:16,padding:12,maxWidth:'100%'}} value={extraMinutes} onChange={event=>setExtraMinutes(Number(event.target.value))}>{[15,30,45,60,90,120,180,240].map(minutes=><option key={minutes} value={minutes}>{minutes} minutes</option>)}</select></label><button type="button" style={{...secondary,marginTop:12}} disabled={busy} onClick={()=>{const zone=data.organization.timezone;const minute=calendarMinute(appointment.startsAt,zone);void runAction('/api/calendar','PATCH',{artistId:appointment.artistId,appointmentId:appointment.id,expectedRevision:appointment.scheduleRevision,extraMinutes,localStart:localDateString(new Date(appointment.startsAt),zone)+'T'+String(Math.floor(minute/60)).padStart(2,'0')+':'+String(minute%60).padStart(2,'0')});}}>Save extra time</button></section>}
+
     <section style={section}>
       <h2>Deposit</h2>
       <p><strong>{appointment.depositStatus.startsWith('REFUND') ? appointment.depositStatus.replaceAll('_',' ') : paid ? 'Paid' : appointment.depositCents ? 'Pending' : 'Not required'}</strong> · {money(appointment.depositCents)}{paymentProvider ? ` · ${paymentProvider === 'VENMO_MANUAL' ? 'Venmo (manual confirmation)' : paymentProvider}` : ''}</p>
-      {paymentProvider==='STRIPE'&&(!['CONFIRMED','COMPLETED'].includes(appointment.status)||(summary.remainingCents!=null&&summary.remainingCents>0))&&!data.payments.some(p=>p.status.startsWith('REFUND'))&&<><button style={secondary} disabled={busy} onClick={()=>void checkout(paid||['CONFIRMED','COMPLETED'].includes(appointment.status)?'BALANCE':'DEPOSIT')}>{paid||['CONFIRMED','COMPLETED'].includes(appointment.status)?'Create remaining-balance test checkout':'Create deposit test checkout'}</button>{checkoutUrl&&<p><a href={checkoutUrl} target="_blank" rel="noopener noreferrer">Open test checkout</a> · Copy this link to share it. No message has been sent.</p>}</>}
+
       {canConfirmVenmo && <button type="button" disabled={busy} onClick={() => void runAction(`/api/appointments/${appointment.id}/deposit`, 'POST', {})} style={action}>{busy ? 'Recording…' : 'Mark Deposit Received'}</button>}
       {paid && data.payments.filter(payment => payment.status === 'PAID').map(payment => <p key={payment.id} style={{ color: '#706b66' }}>Confirmed {payment.confirmationMethod === 'MANUAL' ? 'manually' : 'by provider'}{payment.confirmedAt ? ` · ${new Date(payment.confirmedAt).toLocaleString()}` : ''}</p>)}
     </section>
