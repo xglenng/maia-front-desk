@@ -21,3 +21,5 @@ export const rescheduleSchema=z.object({
 export function canRescheduleNative(status:string,provider:string|null,externalId:string|null){
  return status==='CONFIRMED'&&provider==='INTERNAL'&&!externalId;
 }
+
+export function canExtendNative(status:string,provider:string|null,externalId:string|null){return (status==='CONFIRMED'||status==='PAYMENT_PENDING')&&provider==='INTERNAL'&&!externalId;}

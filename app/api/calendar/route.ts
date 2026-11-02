@@ -7,7 +7,7 @@ import { db } from '@/packages/db/src';
 import { calendarTimeOff,retailItems,appointments,artists,availabilityRules,calendarConnections,clients,organizations,schedulingConnections,services } from '@/packages/db/src/schema';
 import { identity,protectedRoute } from '@/packages/auth/server';
 import { localDateTimeToUtc } from '@/packages/booking/src/time';
-import { addCalendarDate,calendarDate,calendarHoursSchema,nativeDeposit,rescheduleSchema,canRescheduleNative } from '@/packages/studio/native-calendar-policy';
+import { addCalendarDate,calendarDate,calendarHoursSchema,nativeDeposit,rescheduleSchema,canRescheduleNative,canExtendNative } from '@/packages/studio/native-calendar-policy';
 import { lockArtistCalendar,nativeSlotAvailable } from '@/packages/booking/src/native-calendar.server';
 import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
 const scope={artistId:z.string().uuid(),organizationId:z.string().uuid()};
@@ -92,11 +92,12 @@ async function patch(request:NextRequest){
  const appointment=await db.transaction(async tx=>{
   await lockArtistCalendar(tx,input.organizationId,input.artistId);
   const [current]=await tx.select().from(appointments).where(and(eq(appointments.id,input.appointmentId),eq(appointments.organizationId,input.organizationId),eq(appointments.artistId,input.artistId)));
-  if(!current||!canRescheduleNative(current.status,current.schedulingProvider,current.providerBookingId)||current.calendarEventId)throw new Error('Only confirmed Maia appointments can be rescheduled here.');
+  if(!current||(!canRescheduleNative(current.status,current.schedulingProvider,current.providerBookingId)&&!(input.extraMinutes&&canExtendNative(current.status,current.schedulingProvider,current.providerBookingId)))||current.calendarEventId)throw new Error('Only confirmed Maia appointments can be rescheduled here.');
   const [artist]=await tx.select().from(artists).where(and(eq(artists.id,input.artistId),eq(artists.organizationId,input.organizationId)));
   if(!artist?.bookingEnabled)throw new Error('Booking is disabled for this artist.');
   const [org]=await tx.select({timezone:organizations.timezone}).from(organizations).where(eq(organizations.id,input.organizationId));
   const startsAt=localDateTimeToUtc(input.localStart,org?.timezone||'UTC');
+  if(current.status==='PAYMENT_PENDING'&&startsAt.getTime()!==current.startsAt.getTime())throw new Error('Only extra time can be added to a payment-pending appointment.');
   const endsAt=new Date(startsAt.getTime()+current.endsAt.getTime()-current.startsAt.getTime()+(input.extraMinutes||0)*60000);
   if((endsAt.getTime()-startsAt.getTime())/60000>1440)throw new Error('Total appointment duration cannot exceed 24 hours.');
   if(current.scheduleRevision!==input.expectedRevision)throw new Error('This appointment changed. Refresh before rescheduling.');
@@ -106,7 +107,7 @@ async function patch(request:NextRequest){
  });
  // Existing jobs validate their schedule revision before delivery. Keep them for
  // audit rather than cancelling jobs that another reschedule may have queued.
- await scheduleConfirmedAppointmentAutomations(appointment.id);
+ if(appointment.status==='CONFIRMED')await scheduleConfirmedAppointmentAutomations(appointment.id);
  return NextResponse.json({appointment});
  }catch(error){return NextResponse.json({error:error instanceof Error&&!('code' in error)?error.message:'Unable to reschedule. Refresh and try again.'},{status:409});}
 }

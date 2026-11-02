@@ -39,3 +39,12 @@ test('extra calendar time is bounded and retains revision protection',async()=>{
  for(const extraMinutes of [-1,241,1.5])assert.equal(rescheduleSchema.safeParse({...request,extraMinutes}).success,false);
  assert.equal(rescheduleSchema.safeParse({...request,extraMinutes:30,expectedRevision:undefined}).success,false);
 });
+
+test('extra time supports unpaid internal bookings without permitting external or cancelled bookings',async()=>{
+ const {canExtendNative}=await import('../native-calendar-policy');
+ assert.equal(canExtendNative('PAYMENT_PENDING','INTERNAL',null),true);
+ assert.equal(canExtendNative('CONFIRMED','INTERNAL',null),true);
+ assert.equal(canExtendNative('CANCELLED','INTERNAL',null),false);
+ assert.equal(canExtendNative('PAYMENT_PENDING','SQUARE',null),false);
+ assert.equal(canExtendNative('PAYMENT_PENDING','INTERNAL','external'),false);
+});
