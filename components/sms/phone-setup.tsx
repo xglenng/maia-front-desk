@@ -1,5 +1,5 @@
 "use client";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session-gate";
 
 type ArtistStatus = { artist: { id: string; displayName: string }; provisioned: boolean; phoneNumber: { phoneNumber: string; active: boolean; complianceStatus: string; lifecycleRole: string } | null };
@@ -20,7 +20,6 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
   const organizationId = user?.organization_id ?? "";
   const [artistId, setArtistId] = useState("");
   const [artists, setArtists] = useState<ArtistStatus[]>([]);
-  const newNumberForm = useRef<HTMLFormElement>(null);
   const [choice, setChoice] = useState<"new" | "port">("new");
   const [areaCode, setAreaCode] = useState("");
   const [existingNumber, setExistingNumber] = useState("");
@@ -114,13 +113,13 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
         <option value="">Select an artist</option>{artists.map(row => <option key={row.artist.id} value={row.artist.id}>{row.artist.displayName}{row.phoneNumber ? ` — ${row.phoneNumber.phoneNumber}` : " — no number"}</option>)}
       </select></label>
       {selected?.phoneNumber && <p style={{fontSize:13}}>Primary number: <strong>{selected.phoneNumber.phoneNumber}</strong> · {selected.phoneNumber.lifecycleRole === "TEMPORARY" ? "New number" : selected.phoneNumber.lifecycleRole} · {selected.phoneNumber.complianceStatus}</p>}
-      <div style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>{setChoice("new"); requestAnimationFrame(()=>newNumberForm.current?.scrollIntoView({behavior:"smooth",block:"start"}));}}>Create a new number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} onClick={()=>setChoice("port")}>Port an existing number</button></div>
+      <div role="group" aria-label="Phone number setup option" style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>setChoice("new")}>New number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} aria-pressed={choice === "port"} onClick={()=>setChoice("port")}>Port existing number</button></div>
     </section>
 
     {message && <div role="status" aria-live="polite" style={{...card,borderColor:"#c9ada4"}}>{message}</div>}
     <button type="button" disabled={loading} onClick={()=>void status()} style={{...button,marginTop:16}}>Refresh phone status</button>
 
-    {choice === "new" && <form ref={newNumberForm} onSubmit={provision} style={card}>
+    {choice === "new" && <form onSubmit={provision} style={card}>
       <h2 style={{marginTop:0}}>New business number</h2><p>Keep this as your main business number, or use it while moving an existing number to Maia. SMS sending requires registration approval.</p>
       <label style={label}>Preferred US area code (optional)<input value={areaCode} onChange={e => setAreaCode(e.target.value.replace(/\D/g, ""))} maxLength={3} inputMode="numeric" style={field} /></label>
       <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>{loading ? "Checking phone setup…" : "Create number"}</button>
