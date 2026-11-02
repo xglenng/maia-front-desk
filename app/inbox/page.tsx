@@ -38,6 +38,7 @@ type Detail = {
 };
 
 type Filter = "all" | "unread" | "quotes" | "human" | "ai" | "closed";
+type SetupShortcuts = { sms: boolean; social: boolean };
 
 async function json<T>(response: Response): Promise<T> {
   const data = await response.json();
@@ -87,6 +88,7 @@ export default function InboxPage() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [schedulingNotice, setSchedulingNotice] = useState<string | null>(null);
+  const [setupShortcuts, setSetupShortcuts] = useState<SetupShortcuts | null>(null);
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
 
   const loadList = useCallback(async () => {
@@ -117,6 +119,31 @@ export default function InboxPage() {
   }, [loadList]);
 
   useEffect(() => { void loadList(); const timer = window.setInterval(loadList, 15_000); return () => window.clearInterval(timer); }, [loadList]);
+  useEffect(() => {
+    const organizationId = session?.organization_id ?? "";
+    if (!organizationId) return;
+    let active = true;
+    async function loadSetupStatus() {
+      try {
+        const [smsResponse, socialResponse] = await Promise.all([
+          fetch(`/api/twilio/status?organizationId=${encodeURIComponent(organizationId)}`, { cache: "no-store" }),
+          fetch("/api/channels", { cache: "no-store" }),
+        ]);
+        const [sms, social] = await Promise.all([
+          json<{ artists: Array<{ account: unknown | null; messagingService: unknown | null; phoneNumber: unknown | null }> }>(smsResponse),
+          json<{ connections: Array<unknown> }>(socialResponse),
+        ]);
+        if (active) setSetupShortcuts({
+          sms: !sms.artists.some(artist => artist.account || artist.messagingService || artist.phoneNumber),
+          social: social.connections.length === 0,
+        });
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "Unable to check messaging setup");
+      }
+    }
+    void loadSetupStatus();
+    return () => { active = false; };
+  }, [session?.organization_id]);
   useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
     void loadDetail(selectedId);
@@ -258,6 +285,13 @@ export default function InboxPage() {
 
     {schedulingNotice && <div className="inbox-alert" role="status">{schedulingNotice}</div>}
     {error && <div className="inbox-alert" role="alert">{error}<button onClick={() => setError(null)}>×</button></div>}
+    {setupShortcuts && (setupShortcuts.sms || setupShortcuts.social) && <section className="inbox-setup-shortcuts" aria-label="Messaging setup shortcuts">
+      <div><strong>Connect your messaging channels</strong><span>Set up a channel before client conversations arrive here.</span></div>
+      <nav>
+        {setupShortcuts.sms && <a href="/settings/sms">Set up SMS <span aria-hidden="true">→</span></a>}
+        {setupShortcuts.social && <a href="/channels">Set up social messaging <span aria-hidden="true">→</span></a>}
+      </nav>
+    </section>}
 
     <div className="inbox-grid">
       <section className="thread-panel" aria-label="Conversation list">
