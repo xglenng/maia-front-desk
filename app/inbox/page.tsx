@@ -39,6 +39,7 @@ type Detail = {
 
 type Filter = "all" | "unread" | "quotes" | "human" | "ai" | "closed";
 type SetupShortcuts = { sms: boolean; social: boolean };
+type DismissedSetupShortcuts = { sms: boolean; social: boolean };
 
 async function json<T>(response: Response): Promise<T> {
   const data = await response.json();
@@ -89,7 +90,7 @@ export default function InboxPage() {
   const [error, setError] = useState<string | null>(null);
   const [schedulingNotice, setSchedulingNotice] = useState<string | null>(null);
   const [setupShortcuts, setSetupShortcuts] = useState<SetupShortcuts | null>(null);
-  const [setupShortcutsDismissed, setSetupShortcutsDismissed] = useState(false);
+  const [dismissedSetupShortcuts, setDismissedSetupShortcuts] = useState<DismissedSetupShortcuts>({ sms: false, social: false });
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
 
   const loadList = useCallback(async () => {
@@ -124,8 +125,11 @@ export default function InboxPage() {
     const organizationId = session?.organization_id ?? "";
     const userId = session?.id ?? "";
     if (!organizationId || !userId) return;
-    const dismissedKey = `maia:inbox-setup-shortcuts-dismissed:${organizationId}:${userId}`;
-    setSetupShortcutsDismissed(window.localStorage.getItem(dismissedKey) === "true");
+    const dismissedKey = (channel: keyof DismissedSetupShortcuts) => `maia:inbox-setup-shortcut-dismissed:${channel}:${organizationId}:${userId}`;
+    setDismissedSetupShortcuts({
+      sms: window.localStorage.getItem(dismissedKey("sms")) === "true",
+      social: window.localStorage.getItem(dismissedKey("social")) === "true",
+    });
     let active = true;
     async function loadSetupStatus() {
       try {
@@ -148,10 +152,10 @@ export default function InboxPage() {
     void loadSetupStatus();
     return () => { active = false; };
   }, [session?.organization_id, session?.id]);
-  function dismissSetupShortcuts() {
+  function dismissSetupShortcut(channel: keyof DismissedSetupShortcuts) {
     if (!session?.organization_id || !session.id) return;
-    window.localStorage.setItem(`maia:inbox-setup-shortcuts-dismissed:${session.organization_id}:${session.id}`, "true");
-    setSetupShortcutsDismissed(true);
+    window.localStorage.setItem(`maia:inbox-setup-shortcut-dismissed:${channel}:${session.organization_id}:${session.id}`, "true");
+    setDismissedSetupShortcuts(current => ({ ...current, [channel]: true }));
   }
   useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
@@ -294,13 +298,15 @@ export default function InboxPage() {
 
     {schedulingNotice && <div className="inbox-alert" role="status">{schedulingNotice}</div>}
     {error && <div className="inbox-alert" role="alert">{error}<button onClick={() => setError(null)}>×</button></div>}
-    {setupShortcuts && !setupShortcutsDismissed && (setupShortcuts.sms || setupShortcuts.social) && <section className="inbox-setup-shortcuts" aria-label="Messaging setup shortcuts">
-      <div><strong>Set up messaging</strong><span>Connect a channel to receive conversations here.</span></div>
-      <nav>
-        {setupShortcuts.sms && <a href="/settings/sms">Set up SMS <span aria-hidden="true">→</span></a>}
-        {setupShortcuts.social && <a href="/channels">Set up social messaging <span aria-hidden="true">→</span></a>}
-      </nav>
-      <button type="button" className="inbox-setup-dismiss" onClick={dismissSetupShortcuts} aria-label="Dismiss messaging setup shortcuts">×</button>
+    {setupShortcuts && ((setupShortcuts.sms && !dismissedSetupShortcuts.sms) || (setupShortcuts.social && !dismissedSetupShortcuts.social)) && <section className="inbox-setup-shortcuts" aria-label="Messaging setup shortcuts">
+      {setupShortcuts.sms && !dismissedSetupShortcuts.sms && <div className="inbox-setup-shortcut">
+        <a href="/settings/sms"><strong>Set up SMS</strong><span>Connect SMS to receive text conversations.</span></a>
+        <button type="button" className="inbox-setup-dismiss" onClick={() => dismissSetupShortcut("sms")} aria-label="Dismiss SMS setup shortcut">×</button>
+      </div>}
+      {setupShortcuts.social && !dismissedSetupShortcuts.social && <div className="inbox-setup-shortcut">
+        <a href="/channels"><strong>Set up social messaging</strong><span>Connect Instagram or Facebook to receive social conversations.</span></a>
+        <button type="button" className="inbox-setup-dismiss" onClick={() => dismissSetupShortcut("social")} aria-label="Dismiss social messaging setup shortcut">×</button>
+      </div>}
     </section>}
 
     <div className="inbox-grid">
