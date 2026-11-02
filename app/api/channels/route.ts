@@ -27,9 +27,9 @@ async function handleGET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const [connections, artistRows] = await Promise.all([
     db.select({ id: channelConnections.id, artistId: channelConnections.artistId, artistName: artists.displayName, provider: channelConnections.provider, externalAccountId: channelConnections.externalAccountId, displayName: channelConnections.displayName, status: channelConnections.status, connectedAt: channelConnections.connectedAt, lastCheckedAt: channelConnections.lastCheckedAt, lastWebhookAt: channelConnections.lastWebhookAt, lastError: channelConnections.lastError }).from(channelConnections).innerJoin(artists, and(eq(channelConnections.artistId, artists.id), eq(channelConnections.organizationId, artists.organizationId))).where(and(eq(channelConnections.organizationId, user.organization_id))).orderBy(asc(channelConnections.provider), asc(channelConnections.displayName)),
-    db.select({ id: artists.id, name: artists.displayName }).from(artists).where(and(eq(artists.organizationId, user.organization_id))).orderBy(asc(artists.displayName)),
+    db.select({ id: artists.id, name: artists.displayName, userId: artists.userId }).from(artists).where(and(eq(artists.organizationId, user.organization_id))).orderBy(asc(artists.displayName)),
   ]);
-  return NextResponse.json({ connections, artists: artistRows, mode: process.env.META_MESSAGING_MODE || "live", ...metaConfig(request) });
+  return NextResponse.json({ connections, artists: artistRows.map(({id,name})=>({id,name})), defaultArtistId: artistRows.find(artist=>artist.userId===user.id)?.id ?? null, mode: process.env.META_MESSAGING_MODE || "live", ...metaConfig(request) }, {headers:{"Cache-Control":"private, no-store"}});
 }
 
 async function handlePOST(request: NextRequest) {

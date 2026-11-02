@@ -14,15 +14,15 @@ async function handleGET(req: NextRequest) {
   const conditions=[eq(artists.organizationId,organizationId)];
   if(artistId)conditions.push(eq(artists.id,artistId));
   if(user.role==='ARTIST')conditions.push(eq(artists.userId,user.id));
-  const artistsRows=await db.select({id:artists.id,displayName:artists.displayName}).from(artists).where(and(...conditions));
+  const artistsRows=await db.select({id:artists.id,displayName:artists.displayName,userId:artists.userId}).from(artists).where(and(...conditions));
   const results = [];
   for (const artist of artistsRows) {
     const [account] = await db.select({ sid: twilioAccounts.accountSid, status: twilioAccounts.status }).from(twilioAccounts).where(and(eq(twilioAccounts.organizationId, organizationId), eq(twilioAccounts.artistId, artist.id))).limit(1);
     const [service] = await db.select({ sid: twilioMessagingServices.serviceSid, status: twilioMessagingServices.status }).from(twilioMessagingServices).where(and(eq(twilioMessagingServices.organizationId, organizationId), eq(twilioMessagingServices.artistId, artist.id))).limit(1);
     const [number] = await db.select({ phoneNumber: phoneNumbers.phoneNumber, sid: phoneNumbers.twilioPhoneNumberSid, active: phoneNumbers.active, complianceStatus: phoneNumbers.complianceStatus, lifecycleRole: phoneNumbers.lifecycleRole }).from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, organizationId), eq(phoneNumbers.artistId, artist.id), eq(phoneNumbers.isPrimary, true))).limit(1);
-    results.push({ artist, account: account ?? null, messagingService: service ?? null, phoneNumber: number ?? null, provisioned: Boolean(account && service && number) });
+    results.push({ artist: {id:artist.id,displayName:artist.displayName}, account: account ?? null, messagingService: service ?? null, phoneNumber: number ?? null, provisioned: Boolean(account && service && number) });
   }
-  return NextResponse.json({ artists: results });
+  return NextResponse.json({ artists: results, defaultArtistId: artistsRows.find(artist=>artist.userId===user.id)?.id ?? null }, {headers:{"Cache-Control":"private, no-store"}});
 }
 
 export const GET = protectedRoute(handleGET, false);

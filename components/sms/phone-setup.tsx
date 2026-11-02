@@ -1,5 +1,6 @@
 "use client";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { settingsArtistId } from "@/packages/studio/artist-selection";
 import { useSession } from "@/components/session-gate";
 
 type ArtistStatus = { artist: { id: string; displayName: string }; provisioned: boolean; phoneNumber: { phoneNumber: string; active: boolean; complianceStatus: string; lifecycleRole: string } | null };
@@ -41,7 +42,7 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
       if (res.ok) {
         const rows = (data.artists ?? []) as ArtistStatus[];
         if (!selectedArtistId) setArtists(rows); else setArtists(current => current.map(row => rows.find(next => next.artist.id === row.artist.id) ?? row));
-        if (!selectedArtistId && rows.length === 1) setArtistId(rows[0].artist.id);
+        if (!selectedArtistId) setArtistId(current => rows.some(row=>row.artist.id===current) ? current : settingsArtistId(rows.map(row=>row.artist),data.defaultArtistId ?? null,null));
       } else setMessage(data.error ?? "Unable to load phone status.");
     } catch {
       setMessage("Unable to load phone status. Refresh the status and try again.");
