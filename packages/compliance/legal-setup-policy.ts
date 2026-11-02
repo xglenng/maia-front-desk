@@ -1,4 +1,6 @@
 export type LegalSetupSnapshot = {
+  savedBusinessName?: string|null;
+  defaultArtistId?: string|null;
   customers: { id: string; legalName: string; customerType: string }[];
   accounts: { id: string; accountSid: string; status: string }[];
   bindings: { legalCustomerId: string; accountId: string }[];

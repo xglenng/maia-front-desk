@@ -14,7 +14,7 @@ test('legal setup snapshot requires the owning tenant and excludes credential co
   t.mock.method(db, 'select', ((selection: Record<string, unknown>) => {
     reads++;
     assert.ok(!Object.keys(selection).some(key => /token|secret|credential/i.test(key)));
-    return { from: () => ({ where: async () => [] }) };
+    return { from: () => ({ where: () => { const rows='businessName' in selection?[{businessName:'Saved studio name'}]:[]; const result=Promise.resolve(rows); return Object.assign(result,{limit:async()=>rows}); } }) };
   }) as never);
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('Unexpected provider action'); });
   const request = (id: string) => new NextRequest(`http://localhost/api/compliance/legal-customer/setup?organizationId=${id}`, { headers: { cookie: `inkflow_session=${'a'.repeat(64)}` } });
@@ -24,9 +24,11 @@ test('legal setup snapshot requires the owning tenant and excludes credential co
   assert.equal(data.liveCreationEnabled, false);
   assert.equal(data.providerVerified, false);
   assert.equal(data.registrationApproved, false);
-  assert.equal(reads, 5);
+  assert.equal(reads, 6);
+  assert.equal(data.savedBusinessName,'Saved studio name');
+  assert.equal(data.defaultArtistId,null);
   assert.equal((await GET(request('22222222-2222-4222-8222-222222222222'), undefined)).status, 403);
   role = 'ARTIST'; assert.equal((await GET(request(org), undefined)).status, 200);
   role = 'UNKNOWN'; assert.equal((await GET(request(org), undefined)).status, 403);
-  assert.equal(reads, 10);
+  assert.equal(reads, 12);
 });

@@ -21,3 +21,10 @@ test('existing account UI refuses mock, inactive, ambiguous and uncertain owners
   const bound = legalSetupActions({ ...existing, bindings: [{ legalCustomerId: 'independent', accountId: account.id }] });
   assert.equal(bound.bound, true); assert.equal(bound.canBind, false); assert.equal(bound.canCreate, false);
 });
+
+test('a saved registration name does not imply recorded legal identity or connected account', () => {
+  const snapshot: LegalSetupSnapshot={customers:[],accounts:[],bindings:[],artists:[{id:'val',displayName:'Val'}],intents:[],liveCreationEnabled:true,savedBusinessName:'Saved studio',defaultArtistId:'val'};
+  assert.equal(legalSetupActions(snapshot).customer,null);
+  assert.equal(legalSetupActions(snapshot).bound,false);
+  assert.equal(legalSetupActions(snapshot).canCreate,false);
+});
