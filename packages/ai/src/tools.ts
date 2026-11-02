@@ -371,7 +371,7 @@ export async function createDepositRequest(ctx: AgentContext, appointmentId: str
   if (!['SQUARE', 'STRIPE'].includes(provider)) throw new Error('This service has an unsupported deposit provider.');
 
   if (provider === 'STRIPE') {
-    if(process.env.MAIA_STRIPE_CONNECT_ENABLED==='true'&&appointment.schedulingProvider==='INTERNAL'){const session=await studioCheckout(ctx.organizationId,appointment.id);return {provider:'STRIPE',url:session.checkoutUrl,amountCents:session.amountCents,appointmentId:appointment.id,paymentStatus:'PENDING' as const};}
+    if(process.env.MAIA_STRIPE_CONNECT_ENABLED==='true'&&appointment.schedulingProvider==='INTERNAL'){const session=await studioCheckout(ctx.organizationId,appointment.id);return {provider:'STRIPE',url:session.checkoutUrl,expiresAt:session.expiresAt,message:'Tell the client the payment link expires at expiresAt, formatted in the studio timezone. Do not invent a different deadline.',amountCents:session.amountCents,appointmentId:appointment.id,paymentStatus:'PENDING' as const};}
 
     const [existingPayment] = await db.select().from(payments).where(and(
       eq(payments.organizationId, ctx.organizationId), eq(payments.appointmentId, appointment.id), eq(payments.provider, 'stripe'), eq(payments.status, 'PENDING'),

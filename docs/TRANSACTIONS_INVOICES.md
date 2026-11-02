@@ -23,3 +23,10 @@ Stripe account permissions must allow Customers, Invoices, and Invoice Items in 
 Invoice creation uses expandable customer and line-item sections, payment terms, a draft action, and a mobile bottom Continue action. Continue saves a draft and opens review; issuing and SMS delivery remain explicit actions. One-time card invoices retain the existing 1–90 day due window; recurring billing, scheduled delivery, ACH, and tipping are not implemented by the layout change.
 
 The Add customer action opens a native dialog (full screen on small devices) with client search, explicit loading/error/empty states, and a Use customer confirmation. Closing it discards unconfirmed edits. Entered customer details stay on the invoice; they do not create a CRM client or grant SMS consent. Changing artists clears the selected customer and ignores stale client-list responses.
+
+### Invoice customers and payment timing
+New invoice drafts default to one day (24 hours) after issue; the artist can choose another supported term. Existing drafts keep their saved terms. Stripe sets the actual due timestamp when issuing the invoice, and invoice SMS includes that provider timestamp in UTC. A due date does not automatically expire or void a Stripe invoice.
+
+Owners can search all customers within their studio. Other users remain limited to customers linked to their authorized artist through appointments or non-test conversations. Selecting a customer does not grant SMS consent; sending still checks current consent for the invoice artist. Customer search includes phone, email, and name. The customer dialog constrains long content and inputs to its viewport.
+
+Connected Stripe appointment payment links expose their actual session expiration to the AI tool, with instructions to communicate that deadline. This expiration is separate from standalone invoice due terms. No database migration is required.

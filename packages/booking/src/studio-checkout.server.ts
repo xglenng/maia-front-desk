@@ -21,5 +21,5 @@ export async function studioCheckout(organizationId:string,appointmentId:string,
  if((session.ui_mode||'hosted')!==uiMode)throw Error('A different checkout is already open. Finish or expire it before changing payment methods.');
  if(session.status!=='open'||(uiMode==='hosted'?!session.url:!session.client_secret))throw new Error('Checkout is completed or expired. Refresh the appointment payment status.');
  await db.update(payments).set({providerCheckoutSessionId:session.id,checkoutUrl:session.url,updatedAt:new Date()}).where(and(eq(payments.id,payment.id),eq(payments.organizationId,organizationId)));
- return {checkoutUrl:session.url||'',sessionId:session.id,amountCents:payment.amountCents,tipCents:payment.tipCents,...(uiMode==='embedded'?{clientSecret:session.client_secret!,publishableKey:process.env.STRIPE_PUBLISHABLE_KEY!,stripeAccountId:connection.stripeAccountId}:{})};
+ return {expiresAt:new Date(session.expires_at*1000).toISOString(),checkoutUrl:session.url||'',sessionId:session.id,amountCents:payment.amountCents,tipCents:payment.tipCents,...(uiMode==='embedded'?{clientSecret:session.client_secret!,publishableKey:process.env.STRIPE_PUBLISHABLE_KEY!,stripeAccountId:connection.stripeAccountId}:{})};
 }

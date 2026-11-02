@@ -24,7 +24,7 @@ async function post(request:NextRequest){
   const input=invoiceInput.safeParse(body);if(!input.success)return NextResponse.json({error:'Check client details, prices, quantities, and due days.'},{status:400,headers});
   if(!await allowed(user,input.data.artistId))return NextResponse.json({error:'Artist not found.'},{status:404,headers});
   const {requestId,artistId,clientId,clientName,clientEmail,dueDays,note,lines}=input.data;
-  if(clientId&&!await invoiceClient(user.organization_id,artistId,clientId))return NextResponse.json({error:'Client not found for this artist.'},{status:404,headers});
+  if(clientId&&!await invoiceClient(user.organization_id,artistId,clientId,user.role==='OWNER'))return NextResponse.json({error:'Client not found for this artist.'},{status:404,headers});
   const [invoice]=await db.insert(studioInvoices).values({organizationId:user.organization_id,createdByUserId:user.id,requestId,artistId,clientId,clientName,clientEmail,dueDays,note,lines,totalCents:lines.reduce((sum,line)=>sum+line.quantity*line.unitCents,0)}).onConflictDoNothing().returning();
   if(invoice)return NextResponse.json({invoice},{status:201,headers});
   const [existing]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.requestId,requestId),eq(studioInvoices.createdByUserId,user.id),eq(studioInvoices.artistId,artistId)));
@@ -46,7 +46,7 @@ async function post(request:NextRequest){
   if(remote.livemode!==counterCardConfiguration().livemode||remote.currency!=='usd'||remote.metadata?.artistId!==row.artistId||remote.metadata?.maiaInvoiceId!==row.id||remote.metadata?.organizationId!==user.organization_id||remote.total!==row.totalCents)throw Error('Invoice reference mismatch.');
   if(action.data.action==='SEND_SMS'){
    if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
-   try{return NextResponse.json(await sendInvoiceSms(row),{headers});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice SMS.'},{status:409,headers});}
+   try{return NextResponse.json(await sendInvoiceSms(row,undefined,remote.due_date),{headers});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice SMS.'},{status:409,headers});}
   }
   const status=remote.status==='paid'?'PAID':remote.status==='void'?'VOID':remote.status==='uncollectible'?'UNCOLLECTIBLE':remote.status==='draft'?'ISSUING':'OPEN';
   const [invoice]=await db.update(studioInvoices).set({status,hostedUrl:remote.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id))).returning();
