@@ -122,8 +122,9 @@ export default function InboxPage() {
   useEffect(() => { void loadList(); const timer = window.setInterval(loadList, 15_000); return () => window.clearInterval(timer); }, [loadList]);
   useEffect(() => {
     const organizationId = session?.organization_id ?? "";
-    if (!organizationId) return;
-    const dismissedKey = `maia:inbox-setup-shortcuts-dismissed:${organizationId}`;
+    const userId = session?.id ?? "";
+    if (!organizationId || !userId) return;
+    const dismissedKey = `maia:inbox-setup-shortcuts-dismissed:${organizationId}:${userId}`;
     setSetupShortcutsDismissed(window.localStorage.getItem(dismissedKey) === "true");
     let active = true;
     async function loadSetupStatus() {
@@ -137,7 +138,7 @@ export default function InboxPage() {
           json<{ connections: Array<unknown> }>(socialResponse),
         ]);
         if (active) setSetupShortcuts({
-          sms: !sms.artists.some(artist => artist.account || artist.messagingService || artist.phoneNumber),
+          sms: sms.artists.some(artist => !artist.account && !artist.messagingService && !artist.phoneNumber),
           social: social.connections.length === 0,
         });
       } catch (cause) {
@@ -146,10 +147,10 @@ export default function InboxPage() {
     }
     void loadSetupStatus();
     return () => { active = false; };
-  }, [session?.organization_id]);
+  }, [session?.organization_id, session?.id]);
   function dismissSetupShortcuts() {
-    if (!session?.organization_id) return;
-    window.localStorage.setItem(`maia:inbox-setup-shortcuts-dismissed:${session.organization_id}`, "true");
+    if (!session?.organization_id || !session.id) return;
+    window.localStorage.setItem(`maia:inbox-setup-shortcuts-dismissed:${session.organization_id}:${session.id}`, "true");
     setSetupShortcutsDismissed(true);
   }
   useEffect(() => {
