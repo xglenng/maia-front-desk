@@ -20,7 +20,7 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
   const organizationId = user?.organization_id ?? "";
   const [artistId, setArtistId] = useState("");
   const [artists, setArtists] = useState<ArtistStatus[]>([]);
-  const temporaryForm = useRef<HTMLFormElement>(null);
+  const newNumberForm = useRef<HTMLFormElement>(null);
   const [choice, setChoice] = useState<"new" | "port">("new");
   const [areaCode, setAreaCode] = useState("");
   const [existingNumber, setExistingNumber] = useState("");
@@ -67,11 +67,11 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
       const res = await fetch("/api/twilio/provision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, ...(areaCode ? { areaCode } : {}) }) });
       const data = await res.json();
       setResult(data);
-      setMessage(res.ok ? (data.message || "Temporary Twilio number is ready.") : data.error ?? "Provisioning failed.");
+      setMessage(res.ok ? (data.message || "Your new phone number is ready.") : data.error ?? "Unable to create the number.");
       if (res.ok) await status(artistId);
     } catch (error) {
-      console.error("Temporary number provisioning failed", error);
-      setMessage("The temporary number request could not be completed. Check your connection and try again.");
+      console.error("Phone number creation failed", error);
+      setMessage("The new number request could not be completed. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -107,31 +107,31 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
   return <Container style={{ maxWidth: 920, margin: "0 auto", padding: embedded ? "0" : "40px 20px 80px", fontFamily: "Arial, sans-serif", color: "#181716" }}>
     {!embedded&&<p><a href="/settings/sms">← SMS setup</a></p>}
     <Heading>Twilio phone setup</Heading>
-    <p>Choose whether this artist starts with a temporary Twilio number or moves an established business number into the app.</p>
+    <p>Create a new business number for this artist or move an existing business number into Maia.</p>
 
     <section style={card}>
       <label style={label}>Artist<select required value={artistId} onChange={e => { setArtistId(e.target.value); setPortability(null); }} style={field}>
         <option value="">Select an artist</option>{artists.map(row => <option key={row.artist.id} value={row.artist.id}>{row.artist.displayName}{row.phoneNumber ? ` — ${row.phoneNumber.phoneNumber}` : " — no number"}</option>)}
       </select></label>
-      {selected?.phoneNumber && <p style={{fontSize:13}}>Primary number: <strong>{selected.phoneNumber.phoneNumber}</strong> · {selected.phoneNumber.lifecycleRole} · {selected.phoneNumber.complianceStatus}</p>}
-      <div style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>{setChoice("new"); requestAnimationFrame(()=>temporaryForm.current?.scrollIntoView({behavior:"smooth",block:"start"}));}}>Get a temporary number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} onClick={()=>setChoice("port")}>Port an existing number</button></div>
+      {selected?.phoneNumber && <p style={{fontSize:13}}>Primary number: <strong>{selected.phoneNumber.phoneNumber}</strong> · {selected.phoneNumber.lifecycleRole === "TEMPORARY" ? "New number" : selected.phoneNumber.lifecycleRole} · {selected.phoneNumber.complianceStatus}</p>}
+      <div style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>{setChoice("new"); requestAnimationFrame(()=>newNumberForm.current?.scrollIntoView({behavior:"smooth",block:"start"}));}}>Create a new number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} onClick={()=>setChoice("port")}>Port an existing number</button></div>
     </section>
 
     {message && <div role="status" aria-live="polite" style={{...card,borderColor:"#c9ada4"}}>{message}</div>}
     <button type="button" disabled={loading} onClick={()=>void status()} style={{...button,marginTop:16}}>Refresh phone status</button>
 
-    {choice === "new" && <form ref={temporaryForm} onSubmit={provision} style={card}>
-      <h2 style={{marginTop:0}}>Temporary number</h2><p>Use this number while registration and porting are completed. It will not be released automatically.</p>
+    {choice === "new" && <form ref={newNumberForm} onSubmit={provision} style={card}>
+      <h2 style={{marginTop:0}}>New business number</h2><p>Keep this as your main business number, or use it while moving an existing number to Maia. SMS sending requires registration approval.</p>
       <label style={label}>Preferred US area code (optional)<input value={areaCode} onChange={e => setAreaCode(e.target.value.replace(/\D/g, ""))} maxLength={3} inputMode="numeric" style={field} /></label>
-      <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>{loading ? "Checking phone setup…" : "Provision temporary number"}</button>
+      <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>{loading ? "Checking phone setup…" : "Create number"}</button>
       {!artistId && <p>Select an artist above to continue.</p>}
       {selected?.provisioned && <p>This artist already has a number. Refresh phone status if it was recently removed.</p>}
     </form>}
 
     {choice === "port" && <>
       <section style={card}><h2 style={{marginTop:0}}>Move the existing business number</h2>
-        {!selected?.provisioned && <p style={{color:"#8f2f22"}}>Provision the temporary testing number first. It keeps the studio reachable throughout the carrier transfer.</p>}
-        {selected?.provisioned && !["APPROVED","MOCK_APPROVED"].includes(selected.phoneNumber?.complianceStatus || "") && <p style={{color:"#8f2f22"}}>Complete A2P approval and test the temporary number before beginning the port.</p>}
+        {!selected?.provisioned && <p style={{color:"#8f2f22"}}>Create a new number first to use during the carrier transfer.</p>}
+        {selected?.provisioned && !["APPROVED","MOCK_APPROVED"].includes(selected.phoneNumber?.complianceStatus || "") && <p style={{color:"#8f2f22"}}>Complete A2P approval and test the new number before beginning the port.</p>}
         <label style={label}>Existing US business number<input placeholder="+14355551212" value={existingNumber} onChange={e=>{setExistingNumber(e.target.value);setPortability(null);}} style={field} /></label>
         <button type="button" disabled={loading || !artistId || !selected?.provisioned || !["APPROVED","MOCK_APPROVED"].includes(selected.phoneNumber?.complianceStatus || "") || !existingNumber} onClick={checkNumber} style={{...button,marginTop:16}}>Check portability</button>
       </section>
