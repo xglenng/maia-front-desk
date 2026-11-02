@@ -1,5 +1,5 @@
 "use client";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
 
 type ArtistStatus = { artist: { id: string; displayName: string }; provisioned: boolean; phoneNumber: { phoneNumber: string; active: boolean; complianceStatus: string; lifecycleRole: string } | null };
@@ -20,6 +20,7 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
   const organizationId = user?.organization_id ?? "";
   const [artistId, setArtistId] = useState("");
   const [artists, setArtists] = useState<ArtistStatus[]>([]);
+  const temporaryForm = useRef<HTMLFormElement>(null);
   const [choice, setChoice] = useState<"new" | "port">("new");
   const [areaCode, setAreaCode] = useState("");
   const [existingNumber, setExistingNumber] = useState("");
@@ -35,14 +36,19 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
   async function status(selectedArtistId = artistId) {
     if (!organizationId) return;
     setLoading(true);
-    const q = new URLSearchParams({ organizationId }); if (selectedArtistId) q.set("artistId", selectedArtistId);
-    const res = await fetch(`/api/twilio/status?${q}`); const data = await res.json();
-    if (res.ok) {
-      const rows = (data.artists ?? []) as ArtistStatus[];
-      if (!selectedArtistId) setArtists(rows); else setArtists(current => current.map(row => rows.find(next => next.artist.id === row.artist.id) ?? row));
-      if (!selectedArtistId && rows.length === 1) setArtistId(rows[0].artist.id);
-    } else setMessage(data.error ?? "Unable to load phone status.");
-    setLoading(false);
+    try {
+      const q = new URLSearchParams({ organizationId }); if (selectedArtistId) q.set("artistId", selectedArtistId);
+      const res = await fetch(`/api/twilio/status?${q}`); const data = await res.json();
+      if (res.ok) {
+        const rows = (data.artists ?? []) as ArtistStatus[];
+        if (!selectedArtistId) setArtists(rows); else setArtists(current => current.map(row => rows.find(next => next.artist.id === row.artist.id) ?? row));
+        if (!selectedArtistId && rows.length === 1) setArtistId(rows[0].artist.id);
+      } else setMessage(data.error ?? "Unable to load phone status.");
+    } catch {
+      setMessage("Unable to load phone status. Refresh the status and try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadPorts(selectedArtistId = artistId) {
@@ -108,13 +114,18 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
         <option value="">Select an artist</option>{artists.map(row => <option key={row.artist.id} value={row.artist.id}>{row.artist.displayName}{row.phoneNumber ? ` — ${row.phoneNumber.phoneNumber}` : " — no number"}</option>)}
       </select></label>
       {selected?.phoneNumber && <p style={{fontSize:13}}>Primary number: <strong>{selected.phoneNumber.phoneNumber}</strong> · {selected.phoneNumber.lifecycleRole} · {selected.phoneNumber.complianceStatus}</p>}
-      <div style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} onClick={()=>setChoice("new")}>Get a temporary number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} onClick={()=>setChoice("port")}>Port an existing number</button></div>
+      <div style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>{setChoice("new"); requestAnimationFrame(()=>temporaryForm.current?.scrollIntoView({behavior:"smooth",block:"start"}));}}>Get a temporary number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} onClick={()=>setChoice("port")}>Port an existing number</button></div>
     </section>
 
-    {choice === "new" && <form onSubmit={provision} style={card}>
-      <h2 style={{marginTop:0}}>Temporary testing number</h2><p>Use this number while registration and porting are completed. It will not be released automatically.</p>
+    {message && <div role="status" aria-live="polite" style={{...card,borderColor:"#c9ada4"}}>{message}</div>}
+    <button type="button" disabled={loading} onClick={()=>void status()} style={{...button,marginTop:16}}>Refresh phone status</button>
+
+    {choice === "new" && <form ref={temporaryForm} onSubmit={provision} style={card}>
+      <h2 style={{marginTop:0}}>Temporary number</h2><p>Use this number while registration and porting are completed. It will not be released automatically.</p>
       <label style={label}>Preferred US area code (optional)<input value={areaCode} onChange={e => setAreaCode(e.target.value.replace(/\D/g, ""))} maxLength={3} inputMode="numeric" style={field} /></label>
-      <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>Provision temporary number</button>
+      <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>{loading ? "Checking phone setup…" : "Provision temporary number"}</button>
+      {!artistId && <p>Select an artist above to continue.</p>}
+      {selected?.provisioned && <p>This artist already has a number. Refresh phone status if it was recently removed.</p>}
     </form>}
 
     {choice === "port" && <>
@@ -158,7 +169,6 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
     </>}
 
     <div style={{...card,fontSize:13}}><strong>Important:</strong> Do not cancel the existing carrier service until Twilio reports the port completed and calls and texts have been tested. Twilio&apos;s Porting API is currently a public beta.</div>
-    {message && <div style={{...card,borderColor:"#c9ada4"}}>{message}</div>}
     {result !== null && <details style={card}><summary>Technical status</summary><pre style={{overflow:"auto",whiteSpace:"pre-wrap",fontSize:12}}>{JSON.stringify(result,null,2)}</pre></details>}
   </Container>;
 }
