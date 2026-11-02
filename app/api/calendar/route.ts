@@ -2,9 +2,9 @@ import { calendarClientSchema } from '@/packages/studio/calendar-client-schema';
 import { ONBOARDING_PREVIEW_CLIENT_NOTE } from '@/packages/onboarding/readiness';
 import { NextRequest,NextResponse } from 'next/server';
 import { z } from 'zod';
-import { and,asc,eq,gt,gte,isNull,lt,ne,or,sql } from 'drizzle-orm';
+import { and,asc,eq,inArray,gt,gte,isNull,lt,ne,or,sql } from 'drizzle-orm';
 import { db } from '@/packages/db/src';
-import { calendarTimeOff,appointments,artists,availabilityRules,calendarConnections,clients,organizations,schedulingConnections,services } from '@/packages/db/src/schema';
+import { calendarTimeOff,retailItems,appointments,artists,availabilityRules,calendarConnections,clients,organizations,schedulingConnections,services } from '@/packages/db/src/schema';
 import { identity,protectedRoute } from '@/packages/auth/server';
 import { localDateTimeToUtc } from '@/packages/booking/src/time';
 import { addCalendarDate,calendarDate,calendarHoursSchema,nativeDeposit,rescheduleSchema,canRescheduleNative } from '@/packages/studio/native-calendar-policy';
@@ -24,13 +24,13 @@ async function get(request:NextRequest){
  const [rows,serviceRows,clientRows,rules,provider,timeOff]=await Promise.all([
   db.select({id:appointments.id,startsAt:appointments.startsAt,endsAt:appointments.endsAt,status:appointments.status,holdExpiresAt:appointments.holdExpiresAt,depositCents:appointments.depositCents,depositStatus:appointments.depositStatus,scheduleRevision:appointments.scheduleRevision,priceCents:appointments.priceCents,client:clients.firstName,lastName:clients.lastName,service:services.name}).from(appointments).innerJoin(clients,and(eq(clients.id,appointments.clientId),eq(clients.organizationId,organizationId))).leftJoin(services,and(eq(services.id,appointments.serviceId),eq(services.organizationId,organizationId))).where(and(eq(appointments.organizationId,organizationId),eq(appointments.artistId,artistId),lt(appointments.startsAt,to),gte(appointments.endsAt,from))).orderBy(asc(appointments.startsAt)),
   db.select({id:services.id,name:services.name,durationMinutes:services.durationMinutes,basePriceCents:services.basePriceCents,depositType:services.depositType,depositAmountCents:services.depositAmountCents,depositPercent:services.depositPercent}).from(services).where(and(eq(services.organizationId,organizationId),eq(services.artistId,artistId),eq(services.active,true))).orderBy(asc(services.name)),
-  db.select({id:clients.id,firstName:clients.firstName,lastName:clients.lastName}).from(clients).where(and(eq(clients.organizationId,organizationId),or(isNull(clients.notes),ne(clients.notes,ONBOARDING_PREVIEW_CLIENT_NOTE)),...(user.role==='ARTIST'?[sql`(EXISTS (SELECT 1 FROM appointments a WHERE a.client_id=${clients.id} AND a.organization_id=${organizationId} AND a.artist_id=${artistId}) OR EXISTS (SELECT 1 FROM conversations c WHERE c.client_id=${clients.id} AND c.organization_id=${organizationId} AND c.artist_id=${artistId} AND c.channel<>'WEB_TEST'))`]:[]))).orderBy(asc(clients.firstName)).limit(500),
+  db.select({id:clients.id,firstName:clients.firstName,lastName:clients.lastName,phone:clients.phone,email:clients.email}).from(clients).where(and(eq(clients.organizationId,organizationId),or(isNull(clients.notes),ne(clients.notes,ONBOARDING_PREVIEW_CLIENT_NOTE)),...(user.role==='ARTIST'?[sql`(EXISTS (SELECT 1 FROM appointments a WHERE a.client_id=${clients.id} AND a.organization_id=${organizationId} AND a.artist_id=${artistId}) OR EXISTS (SELECT 1 FROM conversations c WHERE c.client_id=${clients.id} AND c.organization_id=${organizationId} AND c.artist_id=${artistId} AND c.channel<>'WEB_TEST'))`]:[]))).orderBy(asc(clients.firstName)).limit(500),
   db.select().from(availabilityRules).where(and(eq(availabilityRules.organizationId,organizationId),eq(availabilityRules.artistId,artistId),eq(availabilityRules.active,true))).orderBy(asc(availabilityRules.dayOfWeek),asc(availabilityRules.startMinute)),nativeProvider(organizationId,artistId),
   db.select().from(calendarTimeOff).where(and(eq(calendarTimeOff.organizationId,organizationId),eq(calendarTimeOff.artistId,artistId),lt(calendarTimeOff.startsAt,to),gte(calendarTimeOff.endsAt,from))),
  ]);
  return NextResponse.json({timeOff,appointments:rows,services:serviceRows,clients:clientRows,hours:rules,timezone,provider});
 }
-const booking=z.object({...scope,requestId:z.string().uuid(),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:calendarClientSchema.optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000)}).refine(input=>Boolean(input.clientId)!==Boolean(input.newClient),'Choose an existing client or enter a new client.');
+const booking=z.object({...scope,requestId:z.string().uuid(),plannedItemIds:z.array(z.string().uuid()).max(50).default([]),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:calendarClientSchema.optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000)}).refine(input=>Boolean(input.clientId)!==Boolean(input.newClient),'Choose an existing client or enter a new client.');
 async function post(request:NextRequest){
  if((await request.clone().json()).action==='TIME_OFF')return timeOff(request);
  const parsed=booking.safeParse(await request.json());if(!parsed.success)return NextResponse.json({error:parsed.error.issues.find(issue=>issue.path.includes('phone'))?.message || 'Check client, service, date, duration and price.'},{status:400});
@@ -48,6 +48,10 @@ async function post(request:NextRequest){
   if(existing){if(existing.artistId!==input.artistId||existing.serviceId!==input.serviceId||existing.startsAt.getTime()!==startsAt.getTime()||existing.endsAt.getTime()!==endsAt.getTime()||existing.priceCents!==input.priceCents||(input.clientId&&existing.clientId!==input.clientId))throw new Error('This request was already used for another appointment.');if(input.newClient){const [priorClient]=await tx.select().from(clients).where(and(eq(clients.id,existing.clientId),eq(clients.organizationId,input.organizationId)));if(!priorClient||priorClient.firstName!==input.newClient.firstName||(priorClient.phone||'')!==(input.newClient.phone||''))throw new Error('This request was already used for another client.');}return {appointment:existing,duplicate:true};}
   const [service]=await tx.select().from(services).where(and(eq(services.id,input.serviceId),eq(services.artistId,input.artistId),eq(services.organizationId,input.organizationId),eq(services.active,true)));
   if(!service)throw new Error('Active service not found for this artist.');
+  const plannedIds=[...new Set(input.plannedItemIds)];
+  const plannedItems=plannedIds.length?await tx.select({id:retailItems.id,name:retailItems.name}).from(retailItems).where(and(eq(retailItems.organizationId,input.organizationId),eq(retailItems.artistId,input.artistId),eq(retailItems.active,true),inArray(retailItems.id,plannedIds))):[];
+  if(plannedItems.length!==plannedIds.length)throw new Error('A planned item is no longer available for this artist.');
+  const plannedNote=plannedItems.length?'\nPlanned items — collect payment at checkout:\n'+plannedItems.map(item=>'• '+item.name).join('\n'):'';
   const depositCents=nativeDeposit(service,input.priceCents);
   if(!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt))throw new Error('That time is outside bookable hours or is no longer available.');
   let clientId=input.clientId;
@@ -60,7 +64,7 @@ async function post(request:NextRequest){
     if(!found.rowCount)throw new Error('Client is not assigned to this artist.');
    }
   }else clientId=(await tx.insert(clients).values({organizationId:input.organizationId,...input.newClient!}).returning({id:clients.id}))[0].id;
-  const [appointment]=await tx.insert(appointments).values({id:input.requestId,organizationId:input.organizationId,artistId:input.artistId,serviceId:service.id,clientId,startsAt,endsAt,status:depositCents?'PAYMENT_PENDING':'CONFIRMED',priceCents:input.priceCents,depositCents:depositCents||null,depositStatus:depositCents?'PENDING':'WAIVED',paymentProvider:service.paymentProvider,schedulingProvider:'INTERNAL',notes:'Created manually in Maia calendar. Deposit-required slots are not reserved until payment is confirmed.'}).returning();
+  const [appointment]=await tx.insert(appointments).values({id:input.requestId,organizationId:input.organizationId,artistId:input.artistId,serviceId:service.id,clientId,startsAt,endsAt,status:depositCents?'PAYMENT_PENDING':'CONFIRMED',priceCents:input.priceCents,depositCents:depositCents||null,depositStatus:depositCents?'PENDING':'WAIVED',paymentProvider:service.paymentProvider,schedulingProvider:'INTERNAL',notes:'Created manually in Maia calendar. Deposit-required slots are not reserved until payment is confirmed.'+plannedNote}).returning();
   return {appointment,duplicate:false};
  });
  if(result.appointment.status==='CONFIRMED')await scheduleConfirmedAppointmentAutomations(result.appointment.id);
