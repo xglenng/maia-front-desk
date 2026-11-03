@@ -35,3 +35,19 @@ test('studio staff can inspect only its scoped account creation intents without 
   const response=await GET(req(org),undefined);assert.equal(response.status,200);assert.equal((await response.json()).automaticRetryAllowed,false);
   assert.equal((await GET(req(foreign),undefined)).status,403);role='ARTIST';assert.equal((await GET(req(org),undefined)).status,200);role='UNKNOWN';assert.equal((await GET(req(org),undefined)).status,403);assert.equal(reports,2);
 });
+
+test('provider credential rejection preserves intent and logs only safe numeric diagnostics',async t=>{
+  const org='11111111-1111-4111-8111-111111111111';
+  const settings={TWILIO_PROVISION_MODE:'live',TWILIO_ACCOUNT_CREATION_ENABLED:'true',MAIA_STAGING_ISOLATED:'0',TWILIO_WEBHOOK_BASE_URL:'https://example.com',TWILIO_ENCRYPTION_KEY:Buffer.alloc(32,7).toString('base64'),TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),TWILIO_AUTH_TOKEN:'synthetic-secret'};
+  const prior=Object.fromEntries(Object.keys(settings).map(k=>[k,process.env[k]]));Object.assign(process.env,settings);
+  t.after(()=>{for(const [key,value] of Object.entries(prior)){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+  const queries:string[]=[],logs:unknown[][]=[];
+  const client={release(){},async query(sql:string){queries.push(sql);if(sql.includes('SELECT legal_name'))return {rows:[{legal_name:'Synthetic'}]};if(sql.includes('AS present'))return {rows:[{present:false}]};if(sql.includes('RETURNING id')||sql.includes('FROM users')||sql.includes('FROM artists'))return {rows:[{id:org}]};return {rows:[]};}};
+  t.mock.method(pool,'connect',(async()=>client) as never);
+  t.mock.method(console,'error',(...args:unknown[])=>{logs.push(args);});
+  t.mock.method(globalThis,'fetch',async()=>Response.json({code:20003,message:'sensitive provider details synthetic-secret'},{status:401}));
+  const {createFirstLegalAccount}=await import('../first-account.server');
+  await assert.rejects(createFirstLegalAccount({id:org,organization_id:org,role:'OWNER',name:'Synthetic',email:'test@example.test'},{artistId:org,legalCustomerId:org}),/Twilio rejected the messaging account credentials/);
+  assert.deepEqual(logs,[['TWILIO_FIRST_ACCOUNT_FAILED',{phase:'PROVIDER_CREATE',httpStatus:401,providerCode:20003}]]);
+  assert.ok(!queries.some(sql=>sql.startsWith('DELETE')));assert.equal(queries.at(-1),'ROLLBACK');
+});

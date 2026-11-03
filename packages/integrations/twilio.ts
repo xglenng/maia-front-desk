@@ -10,6 +10,12 @@ function authHeader(accountSid: string, authToken: string) {
   return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
 }
 
+export class TwilioApiError extends Error {
+  constructor(public readonly status: number, public readonly code: number | null, message: string) {
+    super(message); this.name = 'TwilioApiError';
+  }
+}
+
 async function twilioRequest<T>(input: { baseUrl: string; path: string; accountSid: string; authToken: string; method?: string; form?: Record<string, string> }) {
   const headers: Record<string, string> = { Authorization: authHeader(input.accountSid, input.authToken) };
   let body: URLSearchParams | undefined;
@@ -21,7 +27,10 @@ async function twilioRequest<T>(input: { baseUrl: string; path: string; accountS
   const text = await res.text();
   let data: unknown;
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-  if (!res.ok) throw new Error(`Twilio API ${res.status}: ${typeof data === 'object' && data && 'message' in data ? String((data as {message:string}).message) : text}`);
+  if (!res.ok) {
+    const code = typeof data === 'object' && data && 'code' in data && typeof data.code === 'number' ? data.code : null;
+    throw new TwilioApiError(res.status, code, `Twilio API ${res.status}: ${typeof data === 'object' && data && 'message' in data ? String((data as {message:string}).message) : 'Request rejected'}`);
+  }
   return data as T;
 }
 

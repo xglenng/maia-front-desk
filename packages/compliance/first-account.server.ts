@@ -1,6 +1,6 @@
 import { pool } from '@db';
 import type { Identity } from '@/packages/auth/server';
-import { createTwilioSubaccount,encryptSecret } from '@integrations/twilio';
+import { createTwilioSubaccount,encryptSecret,TwilioApiError } from '@integrations/twilio';
 import { twilioProvisionPreflight } from '@integrations/twilio-provision-preflight';
 export class FirstAccountConflict extends Error {}
 /** Deliberately disabled by default, including mock/staging. No implicit fallback. */
@@ -28,9 +28,11 @@ export async function createFirstLegalAccount(actor:Identity,input:{legalCustome
     await client.query('COMMIT');
   } catch(error) {await client.query('ROLLBACK');client.release();throw error;}
   // Intent is committed before remote work. All uncertain outcomes remain blocked.
+  let phase: 'PROVIDER_CREATE' | 'SAVE_ACCOUNT' = 'PROVIDER_CREATE';
   try {
     const created=await createTwilioSubaccount(`Maia ${legalName}`);
     if(!/^AC[0-9a-f]{32}$/i.test(created.sid) || created.sid===process.env.TWILIO_ACCOUNT_SID || !created.auth_token?.trim())throw new FirstAccountConflict('Account creation outcome needs review.');
+    phase='SAVE_ACCOUNT';
     const encrypted=encryptSecret(created.auth_token);
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`legal-customer:${actor.organization_id}`]);
@@ -39,5 +41,13 @@ export async function createFirstLegalAccount(actor:Identity,input:{legalCustome
     await client.query(`UPDATE twilio_account_creation_intents SET status='COMPLETED',completed_at=now(),twilio_account_id=$1 WHERE id=$2 AND organization_id=$3`,[account.rows[0].id,intentId,actor.organization_id]);
     await client.query('COMMIT');
     return {accountId:account.rows[0].id,legalCustomerId:input.legalCustomerId,status:'ACCOUNT_CREATED',registrationApproved:false};
-  } catch(error) {await client.query('ROLLBACK');throw error;} finally {client.release();}
+  } catch(error) {
+    await client.query('ROLLBACK');
+    // Numeric provider codes and a fixed phase only: no tokens, request bodies or SQL details.
+    console.error('TWILIO_FIRST_ACCOUNT_FAILED', {phase, ...(error instanceof TwilioApiError ? {httpStatus:error.status,providerCode:error.code} : {})});
+    if(error instanceof TwilioApiError && [401,403].includes(error.status)) {
+      throw new FirstAccountConflict('Twilio rejected the messaging account credentials. Maia support must verify the account connection and review this attempt before retrying.');
+    }
+    throw error;
+  } finally {client.release();}
 }
