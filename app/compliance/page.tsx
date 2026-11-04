@@ -90,7 +90,12 @@ export default function CompliancePage() {
       <h2 style={{ marginTop: 0 }}>Next steps for SMS</h2>
       {!profile.smsEnabled ? <p>Enable SMS and save your business information above to continue.</p>
         : !legalReady ? <p>Generate, review, and publish both legal pages above before continuing to campaign registration.</p>
-        : <p>Your legal pages are published. <a href="/settings/sms?tab=campaign">Open campaign registration</a> to complete the remaining details or check the review status.</p>}
+        : <>
+          <p>Your legal pages are published. Continue to complete your campaign details or check the review status.</p>
+          <a href="/settings/sms?tab=campaign" style={{ ...button, display: "inline-flex", alignItems: "center", minHeight: 44, textDecoration: "none" }}>
+            Continue to campaign registration →
+          </a>
+        </>}
       <p>A purchased number and campaign approval are separate steps. <a href="/settings/sms?tab=phone">Open Phone setup</a> to see your assigned number and its messaging status.</p>
     </section>}
 
