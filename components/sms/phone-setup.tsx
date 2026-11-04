@@ -118,7 +118,7 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
       <div role="group" aria-label="Phone number setup option" style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>setChoice("new")}>New number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} aria-pressed={choice === "port"} onClick={()=>setChoice("port")}>Port existing number</button></div>
     </section>
 
-    {selected?.provisioned && selected.phoneNumber?.active && <NumberConfirmation artistName={selected.artist.displayName} phoneNumber={selected.phoneNumber.phoneNumber} complianceStatus={selected.phoneNumber.complianceStatus} />}
+    {selected?.provisioned && selected.phoneNumber && <NumberConfirmation artistName={selected.artist.displayName} phoneNumber={selected.phoneNumber.phoneNumber} complianceStatus={selected.phoneNumber.complianceStatus} />}
 
     {message && <div role="status" aria-live="polite" style={{...card,borderColor:"#c9ada4"}}>{message}</div>}
     <button type="button" disabled={loading} onClick={()=>void status()} style={{...button,marginTop:16}}>Refresh phone status</button>
