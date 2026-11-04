@@ -1,6 +1,6 @@
 import React from "react";
 
-export function LegalDocument({ title, content, effectiveDate }: { title: string; content: string; effectiveDate: string }) {
+export function LegalDocument({ title, content, effectiveDate, privacyPolicyHref }: { title: string; content: string; effectiveDate: string; privacyPolicyHref?: string }) {
   const body = content.replace(/^# .*\n\n/, "").replace(/^\*\*Effective date:\*\* .*\n\n/, "");
   // A heading and its paragraph may share a block in generated documents.
   const blocks = body.replace(/^(## [^\n]+)\n(?!\n)/gm, "$1\n\n").split(/\n\n+/);
@@ -13,6 +13,7 @@ export function LegalDocument({ title, content, effectiveDate }: { title: string
         if (lines[0]?.startsWith("## ")) return <h2 key={i} className="pt-3 text-2xl font-semibold">{lines[0].slice(3)}</h2>;
         return <p key={i}>{lines.map((line, j) => <span key={j}>{line.replace(/^\*\*(.*?)\*\*$/, "$1")} {j < lines.length - 1 && <br />}</span>)}</p>;
       })}
+      {privacyPolicyHref && <p><a className="underline" href={privacyPolicyHref}>Read the Privacy Policy</a></p>}
     </div>
   </article></main>;
 }

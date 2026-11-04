@@ -10,5 +10,7 @@ export default async function TermsPage({ params }: { params: Promise<{ slug: st
   if (!org) notFound();
   const [doc] = await db.select().from(legalDocuments).where(and(eq(legalDocuments.organizationId, org.id), eq(legalDocuments.type, "TERMS"), eq(legalDocuments.status, "PUBLISHED"))).orderBy(desc(legalDocuments.version)).limit(1);
   if (!doc) notFound();
-  return <LegalDocument title={doc.title} content={doc.content} effectiveDate={doc.effectiveDate} />;
+  const [privacy] = await db.select({ id: legalDocuments.id }).from(legalDocuments).where(and(eq(legalDocuments.organizationId, org.id), eq(legalDocuments.type, "PRIVACY"), eq(legalDocuments.status, "PUBLISHED"))).limit(1);
+  const privacyPolicyHref = privacy ? `/legal/${encodeURIComponent(slug)}/privacy` : undefined;
+  return <LegalDocument privacyPolicyHref={privacyPolicyHref} title={doc.title} content={doc.content} effectiveDate={doc.effectiveDate} />;
 }

@@ -82,8 +82,16 @@ export default function CompliancePage() {
       <StatusRow ok={Boolean(profile.termsUrl)} label="Terms & Conditions" href={profile.termsUrl || undefined} />
       <StatusRow ok={profile.smsEnabled} label="Hosted SMS consent / appointment form" note={profile.smsEnabled ? "Created automatically for each artist. Open the business page and choose an artist to test it." : "SMS is disabled."} />
       {hosted && <p style={{ marginTop: 18 }}><a href={profile.websiteUrl} target="_blank">Open Maia-hosted business page →</a></p>}
-      <p style={{ marginTop: 18, fontWeight: 700 }}>Status: {profile.status}</p>
+      <p style={{ marginTop: 18, fontWeight: 700 }}>Business compliance status: {profile.status.replaceAll("_", " ").toLowerCase()}</p>
       {!legalReady && <p style={{ color: "#8f2f22" }}>Publish both legal documents before using the hosted SMS consent form for registration evidence.</p>}
+    </section>}
+
+    {profile && <section style={card}>
+      <h2 style={{ marginTop: 0 }}>Next steps for SMS</h2>
+      {!profile.smsEnabled ? <p>Enable SMS and save your business information above to continue.</p>
+        : !legalReady ? <p>Generate, review, and publish both legal pages above before continuing to campaign registration.</p>
+        : <p>Your legal pages are published. <a href="/settings/sms?tab=campaign">Open campaign registration</a> to complete the remaining details or check the review status.</p>}
+      <p>A purchased number and campaign approval are separate steps. <a href="/settings/sms?tab=phone">Open Phone setup</a> to see your assigned number and its messaging status.</p>
     </section>}
 
     {message && <div style={{ ...card, borderColor: "#cfc8c1" }}>{message}</div>}
