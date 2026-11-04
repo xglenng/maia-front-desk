@@ -1,6 +1,7 @@
 "use client";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { settingsArtistId } from "@/packages/studio/artist-selection";
+import { NumberConfirmation } from "./number-confirmation";
 import { useSession } from "@/components/session-gate";
 
 type ArtistStatus = { artist: { id: string; displayName: string }; provisioned: boolean; phoneNumber: { phoneNumber: string; active: boolean; complianceStatus: string; lifecycleRole: string } | null };
@@ -67,7 +68,7 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
       const res = await fetch("/api/twilio/provision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, ...(areaCode ? { areaCode } : {}) }) });
       const data = await res.json();
       setResult(data);
-      setMessage(res.ok ? (data.message || "Your new phone number is ready.") : data.error ?? "Unable to create the number.");
+      setMessage(res.ok ? "" : data.error ?? "Unable to create the number.");
       if (res.ok) await status(artistId);
     } catch (error) {
       console.error("Phone number creation failed", error);
@@ -117,12 +118,14 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
       <div role="group" aria-label="Phone number setup option" style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>setChoice("new")}>New number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} aria-pressed={choice === "port"} onClick={()=>setChoice("port")}>Port existing number</button></div>
     </section>
 
+    {selected?.provisioned && selected.phoneNumber?.active && <NumberConfirmation artistName={selected.artist.displayName} phoneNumber={selected.phoneNumber.phoneNumber} complianceStatus={selected.phoneNumber.complianceStatus} />}
+
     {message && <div role="status" aria-live="polite" style={{...card,borderColor:"#c9ada4"}}>{message}</div>}
     <button type="button" disabled={loading} onClick={()=>void status()} style={{...button,marginTop:16}}>Refresh phone status</button>
 
-    <p>Before creating a number, complete <a href="/settings/sms?tab=business">Business setup</a> to connect your legal business to a live Twilio account.</p>
+    {!selected?.provisioned && <p>Before creating a number, complete <a href="/settings/sms?tab=business">Business setup</a> to connect your legal business to a live Twilio account.</p>}
 
-    {choice === "new" && <form onSubmit={provision} style={card}>
+    {choice === "new" && !selected?.provisioned && <form onSubmit={provision} style={card}>
       <h2 style={{marginTop:0}}>New business number</h2><p>Keep this as your main business number, or use it while moving an existing number to Maia. SMS sending requires registration approval.</p>
       <label style={label}>Preferred US area code (optional)<input value={areaCode} onChange={e => setAreaCode(e.target.value.replace(/\D/g, ""))} maxLength={3} inputMode="numeric" style={field} /></label>
       <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>{loading ? "Checking phone setup…" : "Create number"}</button>
@@ -170,7 +173,7 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
       </section>)}
     </>}
 
-    <div style={{...card,fontSize:13}}><strong>Important:</strong> Do not cancel the existing carrier service until Twilio reports the port completed and calls and texts have been tested. Twilio&apos;s Porting API is currently a public beta.</div>
+    {choice === "port" && <div style={{...card,fontSize:13}}><strong>Important:</strong> Do not cancel the existing carrier service until Twilio reports the port completed and calls and texts have been tested. Twilio&apos;s Porting API is currently a public beta.</div>}
     {result !== null && <details style={card}><summary>Technical status</summary><pre style={{overflow:"auto",whiteSpace:"pre-wrap",fontSize:12}}>{JSON.stringify(result,null,2)}</pre></details>}
   </Container>;
 }

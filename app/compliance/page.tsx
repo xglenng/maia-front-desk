@@ -12,7 +12,9 @@ const secondary: React.CSSProperties = { ...button, background: "#fff", color: "
 
 export default function CompliancePage() {
   const user = useSession();
-  const [form, setForm] = useState({ organizationId: "", businessName: "", businessAddress: "", contactEmail: "", websiteUrl: "", hasWebsite: true, smsEnabled: true });
+  const [form, setForm] = useState({ organizationId: "", businessName: "", businessAddress: "", contactEmail: "", websiteUrl: "", hasWebsite: false, smsEnabled: true });
+  const [hostedWebsiteUrl, setHostedWebsiteUrl] = useState("");
+  const [initialLoading, setInitialLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [docs, setDocs] = useState<Document[]>([]);
   const [accept, setAccept] = useState(false);
@@ -23,10 +25,13 @@ export default function CompliancePage() {
   const update = (key: string, value: string | boolean) => setForm((f) => ({ ...f, [key]: value }));
   async function load() {
     if (!form.organizationId) return;
+    try {
     const res = await fetch(`/api/compliance/documents?organizationId=${encodeURIComponent(form.organizationId)}`);
     const data = await res.json();
-    if (res.ok) { setProfile(data.profile); setDocs(data.documents ?? []); setForm((f) => ({ ...f, businessName: data.profile.businessName, businessAddress: data.profile.businessAddress, contactEmail: data.profile.contactEmail, websiteUrl: data.profile.websiteUrl, hasWebsite: !data.profile.websiteUrl.includes(`/a/`), smsEnabled: data.profile.smsEnabled })); }
+    if (res.ok) { setProfile(data.profile); setDocs(data.documents ?? []); const { hostedWebsiteUrl, ...defaults } = data.defaults; setHostedWebsiteUrl(hostedWebsiteUrl); setForm((f) => ({ ...f, ...defaults })); }
     else setMessage(data.error ?? "Unable to load compliance data");
+    } catch { setMessage("Unable to load business information. Please refresh and try again."); }
+    finally { setInitialLoading(false); }
   }
   useEffect(() => { if (user) setForm(f => ({ ...f, organizationId: user.organization_id })); }, [user]);
   useEffect(() => { if (form.organizationId) void load(); }, [form.organizationId]);
@@ -38,7 +43,7 @@ export default function CompliancePage() {
 
   const privacy = docs.find(d => d.type === "PRIVACY" && d.status === "DRAFT");
   const terms = docs.find(d => d.type === "TERMS" && d.status === "DRAFT");
-  const hosted = profile?.websiteUrl.includes("/a/");
+  const hosted = Boolean(profile && profile.websiteUrl.replace(/\/$/, "") === hostedWebsiteUrl);
   const legalReady = Boolean(profile?.privacyPolicyUrl && profile?.termsUrl);
 
   return <main style={{ minHeight: "100vh", background: "#f7f5f2", color: "#181716", padding: "44px 20px", fontFamily: "Arial, sans-serif" }}><div style={{ maxWidth: 980, margin: "0 auto" }}>
@@ -49,13 +54,13 @@ export default function CompliancePage() {
 
     <form onSubmit={saveBusiness} style={card}>
       <h2 style={{ marginTop: 0 }}>1. Business information</h2>
-      <div style={{ display: "grid", gap: 12 }}>
+      <fieldset disabled={initialLoading || loading} style={{ display: "grid", gap: 12, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {([['businessName','Business name'],['businessAddress','Business address'],['contactEmail','Contact email']] as const).map(([key,label]) => <label key={key} style={{ display: "grid", gap: 6, fontWeight: 700 }}>{label}<input required style={input} value={form[key]} onChange={e=>update(key,e.target.value)} /></label>)}
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={form.hasWebsite} onChange={e=>update('hasWebsite',e.target.checked)} /> I already have a business website</label>
-        {form.hasWebsite ? <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>Business website<input required style={input} placeholder="https://…" value={form.websiteUrl} onChange={e=>update('websiteUrl',e.target.value)} /></label> : <div style={{ padding: 14, borderRadius: 8, background: "#f7f5f2", color: "#5f5a55" }}>No website required. Maia creates a public branded business page that can be used as the compliance web presence.</div>}
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={form.hasWebsite} onChange={e=>update('hasWebsite',e.target.checked)} /> Use a different business website</label>
+        {form.hasWebsite ? <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>Business website<input required style={input} placeholder="https://…" value={form.websiteUrl} onChange={e=>update('websiteUrl',e.target.value)} /></label> : <div style={{ padding: 14, borderRadius: 8, background: "#f7f5f2", color: "#5f5a55" }}>Maia hosts your business website. Use this address for SMS registration.<div style={{ marginTop: 8, overflowWrap: "anywhere", fontWeight: 700 }}>{hostedWebsiteUrl || "Loading your Maia website…"}</div></div>}
         <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={form.smsEnabled} onChange={e=>update('smsEnabled',e.target.checked)} /> Enable SMS</label>
-        <div><button disabled={loading} style={{ ...button, opacity: loading ? .55 : 1 }}>Save business information</button></div>
-      </div>
+        <div><button disabled={loading || initialLoading} style={{ ...button, opacity: loading || initialLoading ? .55 : 1 }}>Save business information</button></div>
+      </fieldset>
     </form>
 
     {profile && <section style={card}>
