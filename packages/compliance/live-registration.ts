@@ -1,6 +1,6 @@
 import { resolveLegalCustomerAccount } from "./legal-customer.server";
 import { registrationAccountResources } from "./account-boundary";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@db";
 import { a2pCampaigns, artistConsentForms, complianceEvents, complianceProfiles, organizations, phoneNumbers, twilioAccounts, twilioMessagingServices } from "@db/schema";
 import { decryptComplianceSecret } from "./secrets";
@@ -173,6 +173,44 @@ async function createA2pProfile(profile: Profile, credentials: TwilioCredentials
   const submitted = await submitTrustProduct(credentials, trustProductSid);
   await saveProfile(profile.organizationId, { status: "A2P_PROFILE_PENDING", trustProductStatus: status(submitted.status), statusMessage: "A2P Messaging Profile submitted to Twilio.", providerErrors: null });
   await audit(profile.organizationId, "A2P_PROFILE", "SUBMIT", "SUCCESS", trustProductSid);
+}
+
+// Check existing profiles without advancing registration or creating Twilio resources.
+export async function trackBusinessProfileReviews() {
+  if (process.env.TWILIO_COMPLIANCE_MODE === "mock") return 0;
+  const profiles = await db.select().from(complianceProfiles).where(and(
+    eq(complianceProfiles.smsEnabled, true),
+    inArray(complianceProfiles.status, ["CUSTOMER_PROFILE_PENDING", "CUSTOMER_PROFILE_REJECTED"]),
+    isNotNull(complianceProfiles.twilioCustomerProfileSid),
+    sql`coalesce(${complianceProfiles.customerProfileStatus}, '') not in ('TWILIO_APPROVED', 'TWILIO_REJECTED', 'APPROVED', 'REJECTED', 'VERIFIED')`,
+  )).orderBy(sql`${complianceProfiles.lastStatusCheckedAt} asc nulls first`).limit(20);
+
+  const results = await Promise.allSettled(profiles.map(async profile => {
+    const profileSid = profile.twilioCustomerProfileSid!;
+    let values: Partial<typeof complianceProfiles.$inferInsert> = {};
+    try {
+      const [primary] = await resources(profile.organizationId);
+      const customer = await getCustomerProfile(primary.credentials, profileSid);
+      const customerStatus = status(customer.status);
+      if (approved(customerStatus) || ["PENDING_REVIEW", "IN_REVIEW"].includes(customerStatus)) {
+        values = { status: "CUSTOMER_PROFILE_PENDING", customerProfileStatus: customerStatus, providerErrors: null,
+          statusMessage: approved(customerStatus) ? "Business profile approved. Continue campaign registration." : "Business profile is in review." };
+      } else if (rejected(customerStatus)) {
+        values = { status: "CUSTOMER_PROFILE_REJECTED", customerProfileStatus: customerStatus,
+          providerErrors: providerErrors(customer) as object, statusMessage: "Twilio rejected the business profile." };
+      }
+    } finally {
+      await db.update(complianceProfiles).set({ ...values, lastStatusCheckedAt: new Date() }).where(and(
+        eq(complianceProfiles.organizationId, profile.organizationId),
+        eq(complianceProfiles.twilioCustomerProfileSid, profileSid),
+        eq(complianceProfiles.status, profile.status),
+        eq(complianceProfiles.updatedAt, profile.updatedAt),
+      ));
+    }
+  }));
+  const failures = results.filter(result => result.status === "rejected").length;
+  if (failures) console.warn("Twilio business profile review checks failed", { failures });
+  return profiles.length - failures;
 }
 
 export async function syncLiveRegistration(profile: Profile) {
