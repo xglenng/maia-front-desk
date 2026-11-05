@@ -47,6 +47,16 @@ export function createEndUser(credentials: TwilioCredentials, input: { friendlyN
   return request<TwilioObject>({ base: trust, path: "/v1/EndUsers", ...credentials, method: "POST", form: { FriendlyName: input.friendlyName, Type: input.type, Attributes: JSON.stringify(input.attributes) } });
 }
 
+export function updateEndUser(credentials: TwilioCredentials, sid: string, input: { friendlyName: string; attributes: Record<string, unknown> }) {
+  return request<TwilioObject>({
+    base: trust,
+    path: `/v1/EndUsers/${encodeURIComponent(sid)}`,
+    ...credentials,
+    method: "POST",
+    form: { FriendlyName: input.friendlyName, Attributes: JSON.stringify(input.attributes) },
+  });
+}
+
 export function createAddress(credentials: TwilioCredentials, input: { customerName: string; street: string; streetSecondary?: string; city: string; region: string; postalCode: string; isoCountry: string }) {
   return request<TwilioObject>({ base: api, path: `/2010-04-01/Accounts/${encodeURIComponent(credentials.accountSid)}/Addresses.json`, ...credentials, method: "POST", form: { CustomerName: input.customerName, Street: input.street, ...(input.streetSecondary ? { StreetSecondary: input.streetSecondary } : {}), City: input.city, Region: input.region, PostalCode: input.postalCode, IsoCountry: input.isoCountry, EmergencyEnabled: "false" } });
 }

@@ -9,7 +9,7 @@ import { assertCampaignPublicUrls, campaignPreview } from "@/packages/compliance
 import { decryptSecret } from "@integrations/twilio";
 import {
   assignCustomerProfileEntity, assignTrustProductEntity, createAddress, createBrand, createCampaign,
-  createCustomerProfile, createEndUser, createSupportingDocument, createTrustProduct, evaluateCustomerProfile,
+  createCustomerProfile, createEndUser, updateEndUser, createSupportingDocument, createTrustProduct, evaluateCustomerProfile,
   evaluateTrustProduct, getBrand, getCampaign, getCustomerProfile, getTrustProduct, submitCustomerProfile,
   submitTrustProduct, type TwilioCredentials
 } from "@integrations/twilio-compliance";
@@ -91,12 +91,23 @@ export async function startLiveRegistration(profile: Profile) {
       artifacts = { ...artifacts, businessAssigned: true }; await saveProfile(current.organizationId, { twilioArtifacts: artifacts });
       await audit(current.organizationId, "CUSTOMER_PROFILE", "ATTACH_BUSINESS", "SUCCESS", artifacts.businessEndUserSid);
     }
-    if (!artifacts.representativeEndUserSid) {
-      const created = await createEndUser(credentials, { friendlyName: `${current.contactFirstName} ${current.contactLastName}`, type: "authorized_representative_1", attributes: {
-        first_name: current.contactFirstName, last_name: current.contactLastName, email: current.contactEmail, phone_number: current.contactPhone,
-        business_title: current.representativeBusinessTitle, job_position: current.representativeJobPosition
-      }});
-      artifacts = { ...artifacts, representativeEndUserSid: created.sid }; await saveProfile(current.organizationId, { twilioArtifacts: artifacts });
+    const representative = {
+      friendlyName: `${current.contactFirstName} ${current.contactLastName}`,
+      attributes: {
+        first_name: current.contactFirstName,
+        last_name: current.contactLastName,
+        email: current.contactEmail,
+        phone_number: current.contactPhone,
+        business_title: current.representativeBusinessTitle,
+        job_position: current.representativeJobPosition,
+      },
+    };
+    if (artifacts.representativeEndUserSid) {
+      await updateEndUser(credentials, artifacts.representativeEndUserSid, representative);
+    } else {
+      const created = await createEndUser(credentials, { ...representative, type: "authorized_representative_1" });
+      artifacts = { ...artifacts, representativeEndUserSid: created.sid };
+      await saveProfile(current.organizationId, { twilioArtifacts: artifacts });
     }
     if (!artifacts.representativeAssigned) {
       await assignCustomerProfileEntity(credentials, current.twilioCustomerProfileSid!, artifacts.representativeEndUserSid!);
