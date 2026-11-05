@@ -24,8 +24,8 @@ export function sameOrigin(req: Request) {
 export async function identity(req: NextRequest): Promise<Identity | null> {
   const raw = req.cookies.get(cookieName)?.value;
   if (!raw || !/^[a-f0-9]{64}$/.test(raw)) return null;
-  const result = await pool.query(`SELECT u.id,u.organization_id,u.role,u.name,u.email FROM auth_sessions s
-    JOIN users u ON u.id=s.user_id JOIN auth_credentials c ON c.user_id=u.id
+  const result = await pool.query(`SELECT u.id,u.organization_id,u.role,u.name,u.email,o.slug AS organization_slug FROM auth_sessions s
+    JOIN users u ON u.id=s.user_id JOIN organizations o ON o.id=u.organization_id JOIN auth_credentials c ON c.user_id=u.id
     WHERE s.token_hash=$1 AND s.expires_at>now() AND c.active=true`, [digest(raw)]);
   return result.rows[0] || null;
 }

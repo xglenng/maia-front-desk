@@ -5,8 +5,8 @@ import { db } from "@db";
 import { artistConsentForms, artists, complianceProfiles, organizations, phoneNumbers, services } from "@db/schema";
 import { appBaseUrl, formOptInUrl } from "@/packages/consent";
 
-export default async function PublicBusinessPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string }>; params: Promise<{ slug: string }> }) {
-  const { fromSmsSetup } = await searchParams;
+export default async function PublicBusinessPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string; from?: string }>; params: Promise<{ slug: string }> }) {
+  const { fromSmsSetup, from } = await searchParams;
   const backToSetup = typeof fromSmsSetup === "string"
     ? `/settings/sms?tab=consent&artistId=${encodeURIComponent(fromSmsSetup)}`
     : null;
@@ -38,7 +38,8 @@ export default async function PublicBusinessPage({ params, searchParams }: { sea
 
   return <main className={styles.site}>
     <div className={styles.container}>
-{backToSetup && <p><a href={backToSetup}>← Back to SMS setup</a></p>}
+{from === "settings" && <p><a href="/settings">← Back to Settings</a></p>}
+      {backToSetup && <p><a href={backToSetup}>← Back to SMS setup</a></p>}
       <header className={styles.hero}>
         <span className={styles.eyebrow}>Studio service menu</span>
         <h1>{businessName}</h1>

@@ -22,6 +22,10 @@ export default function SettingsPage() {
       <a href="/settings/sms" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="message" />SMS setup</strong><p>Manage phone setup and porting, campaign registration, and client consent in one place.</p></a>
       <a href="/settings/automations" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="clock" />Automated response timing</strong><p>Set the SMS and social reply delay for each artist.</p></a>
       <a href="/settings/studio" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="settings" />Studio Configuration</strong><p>Manage public studio details, locations, hours, policies, FAQs, aftercare, and Maia&apos;s receptionist preferences.</p></a>
+      {user.organization_slug && <a href={`/a/${encodeURIComponent(user.organization_slug)}?from=settings`} style={card}>
+        <strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="eye" />Studio website</strong>
+        <p>Open your public studio website and browse services by artist.</p>
+      </a>}
       <a href="/settings/services" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="services" />Services &amp; Pricing</strong><p>Configure the services, durations, and prices Maia can share with clients.</p></a>
       <a href="/settings/scheduling" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="calendar" />Scheduling</strong><p>Use Maia’s native calendar and availability, or optionally connect an existing Square account.</p></a>
 

@@ -6,7 +6,7 @@ import SetupReturn from './setup-return';
 import './session-gate.css';
 import {ownerSettingsPage} from '@/packages/auth/settings-policy';
 
-export type SessionUser = { id: string; name: string; email: string; organization_id: string; role: 'OWNER' | 'ARTIST' };
+export type SessionUser = { id: string; name: string; email: string; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
 const SessionContext = createContext<SessionUser | null>(null);
 export function useSession() { return useContext(SessionContext); }
 
