@@ -17,11 +17,11 @@ export default async function PublicBusinessPage({ params, searchParams }: { sea
   const [[profile], artistRows, serviceRows, [number], consentRows] = await Promise.all([
     db.select().from(complianceProfiles).where(eq(complianceProfiles.organizationId, org.id)).limit(1),
     db.select({ id: artists.id, displayName: artists.displayName, bio: artists.bio }).from(artists).where(eq(artists.organizationId, org.id)),
-    db.select({ name: services.name, description: services.description, serviceType: services.serviceType, category: services.category })
+    db.select({ id: services.id, artistId: services.artistId, name: services.name, description: services.description, durationMinutes: services.durationMinutes })
       .from(services).where(and(eq(services.organizationId, org.id), eq(services.active, true))).orderBy(asc(services.sortOrder)),
     db.select({ phoneNumber: phoneNumbers.phoneNumber }).from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, org.id), eq(phoneNumbers.isPrimary, true))).limit(1),
-    db.select({ form: artistConsentForms, artistName: artists.displayName })
-      .from(artistConsentForms).innerJoin(artists, eq(artistConsentForms.artistId, artists.id))
+    db.select({ form: artistConsentForms, artistId: artists.id })
+      .from(artistConsentForms).innerJoin(artists, and(eq(artistConsentForms.artistId, artists.id), eq(artistConsentForms.organizationId, artists.organizationId)))
       .where(and(eq(artistConsentForms.organizationId, org.id), eq(artistConsentForms.active, true)))
   ]);
   const businessName = profile?.businessName || org.name;
@@ -29,28 +29,53 @@ export default async function PublicBusinessPage({ params, searchParams }: { sea
   const contactEmail = profile?.contactEmail || null;
   const smsEnabled = profile?.smsEnabled ?? false;
 
-  const hasBooking = smsEnabled && consentRows.length > 0;
+  const menu = artistRows.map(artist => ({
+    ...artist,
+    services: serviceRows.filter(service => service.artistId === artist.id),
+    form: smsEnabled ? consentRows.find(row => row.artistId === artist.id)?.form : undefined,
+  }));
+  const hasMenu = menu.some(artist => artist.services.length || artist.form);
 
   return <main className={styles.site}>
     <div className={styles.container}>
 {backToSetup && <p><a href={backToSetup}>← Back to SMS setup</a></p>}
       <header className={styles.hero}>
-        <span className={styles.eyebrow}>Studio &amp; appointments</span>
+        <span className={styles.eyebrow}>Studio service menu</span>
         <h1>{businessName}</h1>
         {businessAddress && <p>{businessAddress}</p>}
-        <a className={styles.action} href={hasBooking ? "#appointments" : "#contact"}>
-          {hasBooking ? "Request an appointment" : "Contact the studio"}
+        <a className={styles.action} href={hasMenu ? "#appointments" : "#contact"}>
+          {hasMenu ? "Explore services" : "Contact the studio"}
         </a>
       </header>
 
-      {hasBooking && <section id="appointments" className={styles.section}>
-        <h2>Request an appointment</h2>
-        <p style={{fontSize:13,color:"#6f6b66",lineHeight:1.6}}>Choose your artist to open Maia&apos;s secure appointment request form. SMS consent is optional, unchecked by default, and is not required to submit a request or purchase services.</p>
-        {consentRows.map(({form, artistName}) => <p key={form.id}><a className={styles.bookingLink} href={formOptInUrl(form, appBaseUrl(), org.slug)}>Request with {artistName}</a></p>)}
+      {hasMenu && <section id="appointments" className={styles.section}>
+        <h2>Services by artist</h2>
+        {menu.filter(artist => artist.services.length || artist.form).map(artist => (
+          <section key={artist.id} className={styles.artist}>
+            <div className={styles.artistHeader}>
+              <div>
+                <h3>{artist.displayName}</h3>
+                {artist.bio && <p>{artist.bio}</p>}
+              </div>
+              {artist.form && <a className={styles.bookingLink} href={formOptInUrl(artist.form, appBaseUrl(), org.slug)}>
+                Request with {artist.displayName}
+              </a>}
+            </div>
+            {artist.services.length > 0 && <ul className={styles.serviceList}>
+              {artist.services.map(service => <li key={service.id} className={styles.service}>
+                <div>
+                  <strong>{service.name}</strong>
+                  {service.description && <p>{service.description}</p>}
+                </div>
+                <span>{service.durationMinutes} min</span>
+              </li>)}
+            </ul>}
+          </section>
+        ))}
+        {menu.some(artist => artist.form) && <p className={styles.menuNote}>
+          SMS consent is optional and is not required to request an appointment or purchase services.
+        </p>}
       </section>}
-
-      {artistRows.length > 0 && <section className={styles.section}><h2>Artists</h2>{artistRows.map(a => <div key={a.id} style={{marginTop:14}}><strong>{a.displayName}</strong>{a.bio && <p style={{color:"#6f6b66",lineHeight:1.6}}>{a.bio}</p>}</div>)}</section>}
-      {serviceRows.length > 0 && <section className={styles.section}><h2>Services</h2>{serviceRows.map((s,i) => <div key={`${s.name}-${i}`} style={{marginTop:14}}><strong>{s.name}</strong>{s.description && <p style={{margin:"5px 0",color:"#6f6b66"}}>{s.description}</p>}</div>)}</section>}
 
       <section id="contact" className={styles.section}>
         <h2>Contact</h2>

@@ -79,3 +79,52 @@
 .footer span {
   margin-inline-start: auto;
 }
+
+.artist + .artist {
+  border-top: 1px solid #ded2c8;
+  margin-top: 28px;
+  padding-top: 28px;
+}
+
+.artistHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.artistHeader h3 {
+  margin: 0;
+  font: 500 1.55rem/1.2 Georgia, serif;
+}
+
+.artistHeader p, .service p {
+  margin: 6px 0 0;
+  color: #64564e;
+  line-height: 1.5;
+}
+
+.serviceList {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.service {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  border-top: 1px solid #eee1d5;
+  padding: 12px 0;
+}
+
+.service span, .menuNote {
+  color: #64564e;
+  font-size: 0.875rem;
+}
+
+.service span {
+  white-space: nowrap;
+}
