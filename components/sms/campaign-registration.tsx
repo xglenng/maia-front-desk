@@ -7,6 +7,31 @@ type Readiness = { ready: boolean; missing: string[]; completed: number; total: 
 type Profile = { status: string; statusMessage?: string | null; providerErrors?: unknown; readiness: Readiness; hasBusinessRegistrationNumber: boolean; businessRegistrationNumberLast4?: string | null; [key: string]: unknown };
 type Event = { id: string; phase: string; action: string; status: string; providerSid?: string | null; details?: { messagingServiceSid?: string; senders?: Array<{ sid?: string; phoneNumber?: string }> } | null; createdAt: string };
 
+function registrationStatus(profile: Profile) {
+  const { status } = profile;
+  if (status === "APPROVED") return { title: "Registration approved", detail: "Twilio approved your SMS campaign.", error: false };
+  if (status.startsWith("MOCK_")) return { title: "Test registration", detail: "This registration was simulated in Maia.", error: false };
+  if (status === "CUSTOMER_PROFILE_PENDING") {
+    return {
+      title: "Business profile in review",
+      detail: "Twilio received your business profile. Campaign review comes later. Use Sync Twilio status to check for updates.",
+      error: false,
+    };
+  }
+  if (status.endsWith("_PENDING")) {
+    return { title: "Submitted to Twilio", detail: "Your registration is in review. Use Sync Twilio status to check for updates.", error: false };
+  }
+  if (status === "CUSTOMER_PROFILE_REJECTED") {
+    return { title: "Business details need attention", detail: "Twilio could not validate your business profile. Review your business and representative details, then submit again.", error: true };
+  }
+  if (status.endsWith("REJECTED") || status === "SUBMISSION_ERROR") {
+    return { title: "Registration needs attention", detail: "Twilio registration could not advance. Check your registration status and contact Maia support if you need help.", error: true };
+  }
+  return profile.readiness.ready
+    ? { title: "Ready to submit", detail: "Submit your registration to start Twilio review.", error: false }
+    : { title: "Setup incomplete", detail: "Complete the remaining requirements before submitting.", error: false };
+}
+
 const field = { width: "100%", boxSizing: "border-box" as const, padding: 12, border: "1px solid #ddd7d0", borderRadius: 8, font: "inherit" };
 const label = { display: "grid", alignContent: "start", minWidth: 0, gap: 6, fontSize: 13, fontWeight: 600 };
 const card = { background: "white", border: "1px solid #e8e4df", borderRadius: 12, padding: 22, marginTop: 16 };
@@ -30,6 +55,9 @@ export default function A2pRegistrationPage({embedded=false,includeBusinessSetup
     if (providerErrors) console.warn("Twilio registration review", providerErrors);
   }, [providerErrors]);
   const [message, setMessage] = useState("");
+  const [submission, setSubmission] = useState<{ text: string; error: boolean } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const statusSummary = profile && registrationStatus(profile);
   const [mode, setMode] = useState<"mock" | "live">("live");
   const [events, setEvents] = useState<Event[]>([]);
   const [busy, setBusy] = useState(false);
@@ -58,19 +86,19 @@ export default function A2pRegistrationPage({embedded=false,includeBusinessSetup
 
   useEffect(() => {
     loadRequestId.current += 1;
-    setProfile(null); setMessage(""); setMode("live"); setEvents([]);
+    setProfile(null); setMessage(""); setSubmission(null); setSubmitting(false); setMode("live"); setEvents([]);
     setAdoptMessagingServiceSid(""); setBusy(false); setForm({ ...initialForm });
     if (organizationId) void load();
   }, [organizationId]);
 
-  async function saveIntake(requestId: number) {
+  async function saveIntake(requestId: number, reportError: (text: string) => void) {
     const { sample1, sample2, optInKeywords, businessRegistrationNumber, ...fields } = form;
     const payload = { ...fields, organizationId, ...(businessRegistrationNumber ? { businessRegistrationNumber } : {}), sampleMessages: [sample1, sample2], optInKeywords: optInKeywords.split(",").map(x => x.trim().toUpperCase()).filter(Boolean) };
     const res = await fetch("/api/compliance/registration", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const data = await res.json();
     if (requestId !== loadRequestId.current) return;
     if (!res.ok) {
-      setMessage(typeof data.error === "string" ? data.error : "Review the highlighted registration fields.");
+      reportError(typeof data.error === "string" ? data.error : "Review the highlighted registration fields.");
       return;
     }
     setProfile(data.profile); setForm(old => ({
@@ -101,14 +129,17 @@ export default function A2pRegistrationPage({embedded=false,includeBusinessSetup
     const requestId = loadRequestId.current;
     setBusy(true);
     setMessage("");
+    setSubmission(null);
+    setSubmitting(submit);
+    const reportError = (text: string) => submit ? setSubmission({ text, error: true }) : setMessage(text);
     let saved = false;
     try {
-      const savedProfile = await saveIntake(requestId);
+      const savedProfile = await saveIntake(requestId, reportError);
       if (!savedProfile || requestId !== loadRequestId.current) return;
       saved = true;
       if (!submit) return setMessage("Registration intake saved.");
       if (!savedProfile.readiness.ready) {
-        return setMessage(`Intake saved. Still required: ${savedProfile.readiness.missing.join(", ")}`);
+        return reportError(`Intake saved. Still required: ${savedProfile.readiness.missing.join(", ")}`);
       }
       const res = await fetch("/api/compliance/registration", {
         method: "POST",
@@ -117,15 +148,18 @@ export default function A2pRegistrationPage({embedded=false,includeBusinessSetup
       });
       const data = await res.json();
       if (requestId !== loadRequestId.current) return;
-      if (!res.ok) return setMessage(data.missing?.length ? `Still required: ${data.missing.join(", ")}` : data.error || "Submission failed.");
+      if (!res.ok) {
+        return reportError(data.missing?.length ? `Still required: ${data.missing.join(", ")}` : "Maia could not complete the submission. Refresh this page to check the registration status before retrying.");
+      }
       setProfile(data.profile);
-      setMessage(data.status === "already_submitted" ? "This registration has already been submitted." : "Registration processed. Check the status above for the next step.");
+      const result = registrationStatus(data.profile);
+      setSubmission({ text: `${result.title}. ${result.detail}`, error: result.error });
     } catch {
       if (requestId === loadRequestId.current) {
-        setMessage(saved ? "Intake saved. Check the registration status before retrying." : "Could not save registration intake. Try again.");
+        reportError(saved ? "Intake saved. Refresh this page to check the registration status before retrying." : "Could not save registration intake. Try again.");
       }
     } finally {
-      if (requestId === loadRequestId.current) setBusy(false);
+      if (requestId === loadRequestId.current) { setBusy(false); setSubmitting(false); }
     }
   }
 
@@ -141,7 +175,7 @@ export default function A2pRegistrationPage({embedded=false,includeBusinessSetup
   }
 
   async function sync() {
-    const requestId = loadRequestId.current; setBusy(true); setMessage("");
+    const requestId = loadRequestId.current; setBusy(true); setMessage(""); setSubmission(null);
     const res = await fetch("/api/compliance/registration/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId }) });
     const data = await res.json();
     if (requestId !== loadRequestId.current) return;
@@ -158,7 +192,7 @@ export default function A2pRegistrationPage({embedded=false,includeBusinessSetup
     {!profile && <section style={card}><h2>{message ? 'Registration setup needed' : 'Loading your studio registration…'}</h2><p>{message || "Your signed-in studio is selected automatically."}</p></section>}
 
     {profile && <>
-      {adoptedExisting && profile.status === "APPROVED" ? <section style={{...card,borderColor:"#b9d8c4"}}><h2 style={{marginTop:0}}>Existing Twilio Registration — Approved</h2><p style={{fontSize:14,lineHeight:1.6}}><strong>Outbound messaging is active.</strong> Maia adopted the studio&apos;s existing approved A2P registration and will not create duplicate registration resources.</p><div style={{display:"grid",gap:8,fontSize:13,marginTop:16}}>{Boolean(adoptedMessagingServiceSid) && <div><strong>Messaging Service:</strong> <code>{String(adoptedMessagingServiceSid)}</code></div>}{Boolean(profile.twilioCampaignSid) && <div><strong>Campaign:</strong> <code>{String(profile.twilioCampaignSid)}</code></div>}{Boolean(profile.twilioBrandSid) && <div><strong>Brand:</strong> <code>{String(profile.twilioBrandSid)}</code></div>}{adoptedSenders.length > 0 && <div><strong>Sender:</strong> {adoptedSenders.map(sender => sender.phoneNumber).join(", ")}</div>}<div><strong>Twilio status:</strong> APPROVED · <strong>Mode:</strong> {mode}</div></div>{Boolean(profile.statusMessage) && <p style={{color:"#5f6f64",fontSize:13,marginTop:16}}>{String(profile.statusMessage)}</p>}<button disabled={busy} onClick={sync} style={{marginTop:8,padding:"11px 18px"}}>Sync Twilio status</button></section> : <section style={card}><h2 style={{ marginTop: 0 }}>Readiness</h2><p><strong>{profile.readiness.completed}/{profile.readiness.total}</strong> requirements complete · Status: <strong>{profile.status}</strong> · Mode: <strong>{mode}</strong></p>{Boolean(profile.statusMessage) && <p>{String(profile.statusMessage)}</p>}{profile.readiness.missing.length > 0 && <p style={{ color: "#8f2f22" }}>Still required: {profile.readiness.missing.join(", ")}</p>}</section>}
+      {adoptedExisting && profile.status === "APPROVED" ? <section style={{...card,borderColor:"#b9d8c4"}}><h2 style={{marginTop:0}}>Existing Twilio Registration — Approved</h2><p style={{fontSize:14,lineHeight:1.6}}><strong>Outbound messaging is active.</strong> Maia adopted the studio&apos;s existing approved A2P registration and will not create duplicate registration resources.</p><div style={{display:"grid",gap:8,fontSize:13,marginTop:16}}>{Boolean(adoptedMessagingServiceSid) && <div><strong>Messaging Service:</strong> <code>{String(adoptedMessagingServiceSid)}</code></div>}{Boolean(profile.twilioCampaignSid) && <div><strong>Campaign:</strong> <code>{String(profile.twilioCampaignSid)}</code></div>}{Boolean(profile.twilioBrandSid) && <div><strong>Brand:</strong> <code>{String(profile.twilioBrandSid)}</code></div>}{adoptedSenders.length > 0 && <div><strong>Sender:</strong> {adoptedSenders.map(sender => sender.phoneNumber).join(", ")}</div>}<div><strong>Twilio status:</strong> APPROVED · <strong>Mode:</strong> {mode}</div></div>{Boolean(profile.statusMessage) && <p style={{color:"#5f6f64",fontSize:13,marginTop:16}}>{String(profile.statusMessage)}</p>}<button disabled={busy} onClick={sync} style={{marginTop:8,padding:"11px 18px"}}>Sync Twilio status</button></section> : <section style={card}><h2 style={{ marginTop: 0 }}>Registration status</h2><p style={{ color: statusSummary?.error ? "#a12621" : undefined }}><strong>{statusSummary?.title}</strong></p><p>{statusSummary?.detail}</p>{profile.readiness.missing.length > 0 && <p style={{ color: "#8f2f22" }}>Still required: {profile.readiness.missing.join(", ")}</p>}</section>}
       {!adoptedExisting && <form onSubmit={save} style={card}>
         <h2 style={{ marginTop: 0 }}>Business and campaign details</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))", gap: 14 }}>
@@ -180,7 +214,9 @@ export default function A2pRegistrationPage({embedded=false,includeBusinessSetup
         <div style={{ display: "grid", gap: 8, marginTop: 16, fontSize: 13 }}><label><input type="checkbox" checked={form.hasEmbeddedLinks} onChange={e=>set("hasEmbeddedLinks",e.target.checked)} /> Messages contain links</label><label><input type="checkbox" checked={form.hasEmbeddedPhoneNumbers} onChange={e=>set("hasEmbeddedPhoneNumbers",e.target.checked)} /> Messages contain phone numbers</label><label><input type="checkbox" checked={form.subscriberOptIn} onChange={e=>set("subscriberOptIn",e.target.checked)} /> Internal Maia safety acknowledgement: outbound SMS is limited to affirmative consent or permitted contextual replies</label></div>
         <button disabled={busy} style={{ marginTop: 18, padding: "11px 18px", borderRadius: 8, border: 0, background: "#181716", color: "white" }}>Save registration intake</button>
         <div style={{ marginTop: 12 }}>
-          <button type="button" disabled={!/^\+[1-9]\d{7,14}$/.test(form.contactPhone) || mode !== "live" || busy || ["CUSTOMER_PROFILE_PENDING","A2P_PROFILE_PENDING","BRAND_PENDING","CAMPAIGN_PENDING","APPROVED","MOCK_PENDING","MOCK_APPROVED"].includes(profile.status)} onClick={event => { if (event.currentTarget.form?.reportValidity()) void saveAndMaybeSubmit(true); }} style={{ padding: "11px 18px", borderRadius: 8, border: 0, background: mode === "live" ? "#8f2f22" : "#aaa", color: "white" }}>Submit registration to Twilio</button>
+          <button type="button" disabled={!/^\+[1-9]\d{7,14}$/.test(form.contactPhone) || mode !== "live" || busy || ["CUSTOMER_PROFILE_PENDING","A2P_PROFILE_PENDING","BRAND_PENDING","CAMPAIGN_PENDING","APPROVED","MOCK_PENDING","MOCK_APPROVED"].includes(profile.status)} onClick={event => { if (event.currentTarget.form?.reportValidity()) void saveAndMaybeSubmit(true); }} style={{ padding: "11px 18px", borderRadius: 8, border: 0, background: mode === "live" ? "#8f2f22" : "#aaa", color: "white" }}>{submitting ? "Submitting…" : "Submit registration to Twilio"}</button>
+          <div role="status">{submitting && "Saving your details and contacting Twilio…"}{submission && !submission.error && <p style={{ color: "#206043" }}>{submission.text}</p>}</div>
+          <div role="alert">{submission?.error && <p style={{ color: "#a12621" }}>{submission.text}</p>}</div>
           {mode !== "live" && <p>Live submission is unavailable while Maia is in test mode.</p>}
         </div>
       </form>}
