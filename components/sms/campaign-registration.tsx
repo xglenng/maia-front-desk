@@ -7,7 +7,7 @@ type Readiness = { ready: boolean; missing: string[]; completed: number; total: 
 type Profile = { status: string; statusMessage?: string | null; providerErrors?: unknown; readiness: Readiness; hasBusinessRegistrationNumber: boolean; businessRegistrationNumberLast4?: string | null; [key: string]: unknown };
 type Event = { id: string; phase: string; action: string; status: string; providerSid?: string | null; details?: { messagingServiceSid?: string; senders?: Array<{ sid?: string; phoneNumber?: string }> } | null; createdAt: string };
 
-function registrationStatus(profile: Profile) {
+export function registrationStatus(profile: Pick<Profile, "status" | "readiness"> & { [key: string]: unknown }) {
   const { status } = profile;
   if (status === "APPROVED") return { title: "Registration approved", detail: "Twilio approved your SMS campaign.", error: false };
   if (status.startsWith("MOCK_")) return { title: "Test registration", detail: "This registration was simulated in Maia.", error: false };
