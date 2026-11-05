@@ -15,7 +15,7 @@ const intakeSchema = z.object({
   businessType: z.enum(["SOLE_PROPRIETOR", "LLC", "PARTNERSHIP", "CORPORATION", "NON_PROFIT"]),
   businessRegistrationNumber: z.string().min(4).max(30).regex(/^[A-Za-z0-9 -]+$/).optional(),
   contactFirstName: z.string().min(1).max(80), contactLastName: z.string().min(1).max(80),
-  contactPhone: z.string().min(7).max(30),
+  contactPhone: z.string().regex(/^\+[1-9]\d{7,14}$/, "Enter the contact phone with its country code, such as +12025550123."),
   industry: z.enum(["AGRICULTURE","AUTOMOTIVE","BANKING","CONSUMER","CONSTRUCTION","EDUCATION","ENGINEERING","ENERGY","OIL_AND_GAS","FAST_MOVING_CONSUMER_GOODS","FINANCIAL","FINTECH","FOOD_AND_BEVERAGE","GOVERNMENT","HEALTHCARE","HOSPITALITY","INSURANCE","LEGAL","MANUFACTURING","MEDIA","ONLINE","RAW_MATERIALS","REAL_ESTATE","RELIGION","RETAIL","JEWELRY","TECHNOLOGY","TELECOMMUNICATIONS","TRANSPORTATION","TRAVEL","ELECTRONICS","NOT_FOR_PROFIT"]),
   representativeBusinessTitle: z.string().min(2).max(80), representativeJobPosition: z.enum(["Director","GM","VP","CEO","CFO","General Counsel","Other"]),
   addressLine1: z.string().min(3).max(120), addressLine2: z.string().max(120).optional(),
@@ -155,6 +155,9 @@ async function handlePOST(req: Request) {
   if (["CUSTOMER_PROFILE_PENDING", "A2P_PROFILE_PENDING", "BRAND_PENDING", "CAMPAIGN_PENDING", "APPROVED", "MOCK_PENDING", "MOCK_APPROVED"].includes(profile.status)) return NextResponse.json({ profile: registrationProfile(profile, consentForms.ready, consentForms.rows), status: "already_submitted" });
 
   if (process.env.TWILIO_COMPLIANCE_MODE !== "mock") {
+    if (!/^\+[1-9]\d{7,14}$/.test(profile.contactPhone ?? "")) {
+      return NextResponse.json({ error: "Save the contact phone with its country code before submitting." }, { status: 409 });
+    }
     try {
       await startLiveRegistration(profile);
       const [updated] = await db.select().from(complianceProfiles).where(eq(complianceProfiles.organizationId, parsed.data.organizationId)).limit(1);
