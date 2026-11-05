@@ -4,7 +4,11 @@ import { PublicBookingForm } from "@/components/public-booking-form";
 import { db } from "@db";
 import { artistConsentForms, artists, legalDocuments, organizations, services } from "@db/schema";
 
-export default async function BookingPage({ params }: { params: Promise<{ organizationSlug: string; formSlug: string }> }) {
+export default async function BookingPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string }>; params: Promise<{ organizationSlug: string; formSlug: string }> }) {
+  const { fromSmsSetup } = await searchParams;
+  const backToSetup = typeof fromSmsSetup === "string"
+    ? `/settings/sms?tab=consent&artistId=${encodeURIComponent(fromSmsSetup)}`
+    : null;
   const { organizationSlug, formSlug } = await params;
   const [surface] = await db.select({ form: artistConsentForms, artistName: artists.displayName, businessName: organizations.name, organizationSlug: organizations.slug })
     .from(artistConsentForms).innerJoin(artists, and(eq(artistConsentForms.artistId, artists.id), eq(artistConsentForms.organizationId, artists.organizationId))).innerJoin(organizations, eq(artistConsentForms.organizationId, organizations.id))
@@ -13,5 +17,6 @@ export default async function BookingPage({ params }: { params: Promise<{ organi
   const published = await db.select({ type: legalDocuments.type }).from(legalDocuments).where(and(eq(legalDocuments.organizationId, surface.form.organizationId), eq(legalDocuments.status, "PUBLISHED"))).orderBy(desc(legalDocuments.version));
   if (!published.some(d => d.type === "PRIVACY") || !published.some(d => d.type === "TERMS")) notFound();
   const options = await db.select({ id: services.id, name: services.name }).from(services).where(and(eq(services.organizationId, surface.form.organizationId), eq(services.artistId, surface.form.artistId), eq(services.active, true)));
-  return <main style={{ minHeight: "100vh", background: "#f5f1ed", padding: "48px 18px", fontFamily: "Arial, sans-serif", color: "#181716" }}><div style={{ maxWidth: 760, margin: "0 auto" }}><PublicBookingForm organizationSlug={surface.organizationSlug} formSlug={surface.form.slug} businessName={surface.businessName} artistName={surface.artistName} disclosure={surface.form.disclosureText} privacyUrl={`/legal/${surface.organizationSlug}/privacy`} termsUrl={`/legal/${surface.organizationSlug}/terms`} services={options} /></div></main>;
+  return <main style={{ minHeight: "100vh", background: "#f5f1ed", padding: "48px 18px", fontFamily: "Arial, sans-serif", color: "#181716" }}><div style={{ maxWidth: 760, margin: "0 auto" }}>{backToSetup && <p><a href={backToSetup}>← Back to SMS setup</a></p>}
+<PublicBookingForm organizationSlug={surface.organizationSlug} formSlug={surface.form.slug} businessName={surface.businessName} artistName={surface.artistName} disclosure={surface.form.disclosureText} privacyUrl={`/legal/${surface.organizationSlug}/privacy`} termsUrl={`/legal/${surface.organizationSlug}/terms`} services={options} /></div></main>;
 }

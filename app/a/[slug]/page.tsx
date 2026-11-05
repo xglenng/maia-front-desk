@@ -5,7 +5,11 @@ import { db } from "@db";
 import { artistConsentForms, artists, complianceProfiles, organizations, phoneNumbers, services } from "@db/schema";
 import { appBaseUrl, formOptInUrl } from "@/packages/consent";
 
-export default async function PublicBusinessPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function PublicBusinessPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string }>; params: Promise<{ slug: string }> }) {
+  const { fromSmsSetup } = await searchParams;
+  const backToSetup = typeof fromSmsSetup === "string"
+    ? `/settings/sms?tab=consent&artistId=${encodeURIComponent(fromSmsSetup)}`
+    : null;
   const { slug } = await params;
   const [org] = await db.select().from(organizations).where(eq(organizations.slug, slug)).limit(1);
   if (!org) notFound();
@@ -29,6 +33,7 @@ export default async function PublicBusinessPage({ params }: { params: Promise<{
 
   return <main className={styles.site}>
     <div className={styles.container}>
+{backToSetup && <p><a href={backToSetup}>← Back to SMS setup</a></p>}
       <header className={styles.hero}>
         <span className={styles.eyebrow}>Studio &amp; appointments</span>
         <h1>{businessName}</h1>

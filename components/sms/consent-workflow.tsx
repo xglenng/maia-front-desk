@@ -4,7 +4,7 @@ import { useSession } from "@/components/session-gate";
 
 type Artist = { id: string; displayName: string };
 type ConsentMode = "HOSTED" | "EXTERNAL" | "INBOUND_SMS_CONFIRMATION";
-type FormData = { form: { id: string; mode: ConsentMode; externalUrl?: string | null; publicCallToActionUrl?: string | null; externalVerifiedAt?: string | null; inboundFlowVerifiedAt?: string | null; disclosureText: string; confirmationText?: string | null } | null; publicUrl: string | null; ready: boolean; artistName: string; organizationName: string };
+type FormData = { form: { id: string; mode: ConsentMode; externalUrl?: string | null; publicCallToActionUrl?: string | null; externalVerifiedAt?: string | null; inboundFlowVerifiedAt?: string | null; disclosureText: string; confirmationText?: string | null } | null; publicUrl: string | null; ready: boolean; artistName: string; organizationName: string; organizationSlug: string };
 const field = { width: "100%", boxSizing: "border-box" as const, padding: 12, border: "1px solid #d9d3cc", borderRadius: 8, font: "inherit" };
 const card = { background: "white", border: "1px solid #e4dfda", borderRadius: 12, padding: 22, marginTop: 16 };
 
@@ -22,7 +22,11 @@ export default function ConsentFormsPage({embedded=false}:{embedded?:boolean}={}
     setArtists(value.artists || artists); const nextId = selected || value.selectedArtistId || ""; if (!selected && nextId) { setArtistId(nextId); return void load(nextId); }
     if (selected) { setData(value); setMode(value.form.mode); setExternalUrl(value.form.externalUrl || ""); setPublicCallToActionUrl(value.form.publicCallToActionUrl || ""); setAttested(value.form.mode === "INBOUND_SMS_CONFIRMATION" ? Boolean(value.form.inboundFlowVerifiedAt) : Boolean(value.form.externalVerifiedAt)); }
   }
-  useEffect(() => { void load(""); }, [organizationId]);
+  useEffect(() => {
+    const selected = new URLSearchParams(window.location.search).get("artistId") || "";
+    setArtistId(selected);
+    void load(selected);
+  }, [organizationId]);
   async function save() {
     setMessage(""); setToken(null); const response = await fetch("/api/consent-forms", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, mode, externalUrl, externalAttested: mode === "EXTERNAL" && attested, publicCallToActionUrl, inboundFlowAttested: mode === "INBOUND_SMS_CONFIRMATION" && attested }) }); const value = await response.json();
     if (!response.ok) return setMessage(typeof value.error === "string" ? value.error : "Complete the required form settings."); setData(value); setMessage("SMS consent form saved.");
@@ -32,11 +36,16 @@ export default function ConsentFormsPage({embedded=false}:{embedded?:boolean}={}
     if (!response.ok) return setMessage(value.error || "Unable to create token."); setToken(value);
   }
   if (!user) return null;
+  const websiteUrl = data ? `/a/${encodeURIComponent(data.organizationSlug)}?fromSmsSetup=${encodeURIComponent(artistId)}` : null;
+  const previewUrl = data?.form?.mode === "HOSTED" && data.publicUrl
+    ? `${new URL(data.publicUrl).pathname}?fromSmsSetup=${encodeURIComponent(artistId)}`
+    : null;
   return <Container style={{ maxWidth: 850, margin: "0 auto", padding: embedded ? "0" : "40px 20px 80px", color: "#181716" }}>{!embedded&&<a href="/settings/sms">← SMS setup</a>}<Heading>SMS consent workflow</Heading><p>Configure how each artist obtains and records permission for appointment-related text messages.</p>
-    <section style={card}><label style={{ display: "grid", gap: 7, fontWeight: 700 }}>Artist<select style={field} value={artistId} onChange={event => { setArtistId(event.target.value); void load(event.target.value); }}><option value="">Choose an artist</option>{artists.map(artist => <option key={artist.id} value={artist.id}>{artist.displayName}</option>)}</select></label></section>
+    <section style={card}><label style={{ display: "grid", gap: 7, fontWeight: 700 }}>Artist<select style={field} value={artistId} onChange={event => { setArtistId(event.target.value); setData(null); void load(event.target.value); }}><option value="">Choose an artist</option>{artists.map(artist => <option key={artist.id} value={artist.id}>{artist.displayName}</option>)}</select></label></section>
     {data?.form && <section style={card}><h2 style={{ marginTop: 0 }}>{data.artistName}</h2><p>Status: <strong>{data.ready ? "Ready for Twilio review" : "Action required"}</strong></p>
+      {websiteUrl && <p><a href={websiteUrl}>Open Maia-hosted studio website →</a></p>}
       <label style={{ display: "grid", gap: 7, fontWeight: 700 }}>Consent method<select value={mode} onChange={event => { setMode(event.target.value as ConsentMode); setAttested(false); }} style={field}><option value="INBOUND_SMS_CONFIRMATION">Client texts first, then replies YES (recommended for this studio)</option><option value="HOSTED">Maia-hosted booking form checkbox</option><option value="EXTERNAL">Verified external form checkbox</option></select></label>
-      {mode === "HOSTED" && <div><p><strong>Public opt-in URL</strong></p><p style={{ overflowWrap: "anywhere" }}><a href={data.publicUrl || "#"} target="_blank">{data.publicUrl}</a></p><p>The checkbox is separate, optional, and unchecked by default. Booking still works without SMS consent.</p></div>}
+      {mode === "HOSTED" && <div><p><strong>Public opt-in URL</strong></p>{previewUrl ? <><p><a href={previewUrl}>Preview public opt-in form →</a></p><p style={{ overflowWrap: "anywhere" }}>{data.publicUrl}</p></> : <p>Save the hosted consent method to get its public link.</p>}<p>The checkbox is separate, optional, and unchecked by default. Booking still works without SMS consent.</p></div>}
       {mode === "EXTERNAL" && <div style={{ display: "grid", gap: 12, marginTop: 14 }}><label style={{ fontWeight: 700 }}>Public external form URL<input type="url" value={externalUrl} onChange={event => { setExternalUrl(event.target.value); setAttested(false); }} placeholder="https://…" style={field} /></label><label style={{ display: "flex", gap: 9, alignItems: "flex-start" }}><input type="checkbox" checked={attested} onChange={event => setAttested(event.target.checked)} /><span>I verified this page has a separate SMS checkbox that is visible and unchecked by default, displays the disclosure below with Privacy Policy and Terms links, allows submission without SMS consent, and records the customer&apos;s choice.</span></label></div>}
       {mode === "INBOUND_SMS_CONFIRMATION" && <div style={{ display: "grid", gap: 12, marginTop: 14 }}><label style={{ fontWeight: 700 }}>Public page displaying the shop number and SMS disclosure<input type="url" value={publicCallToActionUrl} onChange={event => { setPublicCallToActionUrl(event.target.value); setAttested(false); }} placeholder="https://www.example.com/contact" style={field} /></label><label style={{ display: "flex", gap: 9, alignItems: "flex-start" }}><input type="checkbox" checked={attested} onChange={event => setAttested(event.target.checked)} /><span>I verified this public page invites clients to text the studio and displays message purpose, variable frequency, message/data rates, STOP, HELP, consent-not-required wording, and Privacy Policy and Terms links. Maia will require an affirmative YES before booking, deposit, reminder, or waiver-link messages.</span></label></div>}
       {mode === "INBOUND_SMS_CONFIRMATION" && <details style={{ marginTop: 16 }} open><summary>Disclosure to display beside the shop phone number</summary><p style={{ padding: 12, background: "#f7f4f1", lineHeight: 1.5 }}>{data.form.disclosureText}</p><p style={{fontSize:13}}>Place visible Privacy Policy and Terms links beside this disclosure.</p></details>}
