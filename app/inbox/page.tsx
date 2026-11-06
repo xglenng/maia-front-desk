@@ -38,7 +38,16 @@ type Detail = {
 };
 
 type Filter = "all" | "unread" | "quotes" | "human" | "ai" | "closed";
-type SetupShortcuts = { sms: boolean; social: boolean };
+type SetupShortcuts = { sms: boolean; social: boolean; smsNumber: string | null };
+type SmsSetupStatus = {
+  defaultArtistId: string | null;
+  artists: Array<{
+    artist: { id: string };
+    account: unknown | null;
+    messagingService: unknown | null;
+    phoneNumber: { phoneNumber: string; active: boolean; complianceStatus: string } | null;
+  }>;
+};
 type DismissedSetupShortcuts = { sms: boolean; social: boolean };
 
 async function json<T>(response: Response): Promise<T> {
@@ -138,11 +147,16 @@ export default function InboxPage() {
           fetch("/api/channels", { cache: "no-store" }),
         ]);
         const [sms, social] = await Promise.all([
-          json<{ artists: Array<{ account: unknown | null; messagingService: unknown | null; phoneNumber: unknown | null }> }>(smsResponse),
+          json<SmsSetupStatus>(smsResponse),
           json<{ connections: Array<unknown> }>(socialResponse),
         ]);
+        const ownSetup = sms.artists.find(({ artist }) => artist.id === sms.defaultArtistId);
+        const number = ownSetup?.phoneNumber;
+        const smsNumber = number?.active && number.complianceStatus === "APPROVED" ? number.phoneNumber : null;
+        const relevantSetups = ownSetup ? [ownSetup] : sms.artists;
         if (active) setSetupShortcuts({
-          sms: sms.artists.some(artist => !artist.account && !artist.messagingService && !artist.phoneNumber),
+          smsNumber,
+          sms: !smsNumber && relevantSetups.some(artist => !artist.account && !artist.messagingService && !artist.phoneNumber),
           social: social.connections.length === 0,
         });
       } catch (cause) {
@@ -298,6 +312,9 @@ export default function InboxPage() {
 
     {schedulingNotice && <div className="inbox-alert" role="status">{schedulingNotice}</div>}
     {error && <div className="inbox-alert" role="alert">{error}<button onClick={() => setError(null)}>×</button></div>}
+    {setupShortcuts?.smsNumber && <div className="inbox-setup-shortcut">
+      <a href="/settings/sms?tab=phone"><strong>Your SMS number</strong><span>{setupShortcuts.smsNumber}</span></a>
+    </div>}
     {setupShortcuts && ((setupShortcuts.sms && !dismissedSetupShortcuts.sms) || (setupShortcuts.social && !dismissedSetupShortcuts.social)) && <section className="inbox-setup-shortcuts" aria-label="Messaging setup shortcuts">
       {setupShortcuts.sms && !dismissedSetupShortcuts.sms && <div className="inbox-setup-shortcut">
         <a href="/settings/sms"><strong>Set up SMS</strong><span>Connect SMS to receive text conversations.</span></a>
