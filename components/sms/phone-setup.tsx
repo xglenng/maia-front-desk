@@ -15,7 +15,7 @@ const button = { padding: "10px 14px", borderRadius: 7, border: "1px solid #aaa"
 
 function defaultTargetDate() { const date = new Date(); date.setDate(date.getDate() + 14); return date.toISOString().slice(0, 10); }
 
-export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={}) {
+export default function TwilioSetupPage({embedded=false,onArtistChange}:{embedded?:boolean;onArtistChange?:(artistId:string)=>void}={}) {
   const Container=embedded?'section':'main';
   const Heading=embedded?'h2':'h1';
   const user = useSession();
@@ -61,6 +61,7 @@ export default function TwilioSetupPage({embedded=false}:{embedded?:boolean}={})
 
   useEffect(() => { if (organizationId) void status(""); }, [organizationId]);
   useEffect(() => { if (artistId) void loadPorts(artistId); }, [artistId]);
+  useEffect(() => { if (artistId) onArtistChange?.(artistId); }, [artistId]);
 
   async function provision(event: FormEvent) {
     event.preventDefault(); setLoading(true); setMessage(""); setResult(null);
