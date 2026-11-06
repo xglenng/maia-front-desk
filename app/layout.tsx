@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./maia-ui.css";
 import SessionGate from '@/components/session-gate';
+import { ThemeSync, themeInitScript } from '@/components/theme';
 
 export const metadata: Metadata = {
   title: "Maia Front Desk",
@@ -13,8 +14,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body style={{ margin: 0, fontFamily: "Arial, sans-serif", background: "#fff" }}>
+    <html lang="en" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: themeInitScript }} /></head>
+      <body style={{ margin: 0, fontFamily: "Arial, sans-serif", background: "transparent" }}>
+        <ThemeSync />
         <SessionGate>{children}</SessionGate>
       </body>
     </html>

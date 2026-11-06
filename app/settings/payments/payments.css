@@ -1,0 +1,40 @@
+.payments-page{max-width:900px;margin:0 auto;padding:40px 20px 80px;color:#181716;font-family:Arial,sans-serif}
+.payments-page h1{font-size:36px;margin:24px 0 8px}
+.payments-page .payments-lede{color:#77736e;line-height:1.5;margin:0 0 24px}
+.payments-card{padding:22px;border:1px solid #e4dfda;border-radius:12px;background:#fff;margin-top:16px}
+.payments-card h2{font-size:22px;margin:0 0 6px}
+.payments-card p{line-height:1.5}
+.payments-card p:last-child{margin-bottom:0}
+.payments-muted{color:#77736e}
+.payments-status{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;justify-content:space-between}
+.payments-status-main{display:flex;align-items:flex-start;gap:14px;min-width:0;flex:1 1 380px}
+.payments-status-icon{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;font-size:22px;font-weight:700}
+.payments-status h2{margin:0;font-size:24px}
+.payments-status p{margin:4px 0 0}
+.payments-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 12px;font-size:13px;font-weight:700;border:1px solid transparent;margin-bottom:6px}
+.payments-ready{border-color:#b9d8c4}.payments-ready .payments-status-icon,.payments-badge.payments-ready{background:#eef7f1;color:#17402c;border-color:#b9d8c4}
+.payments-pending{border-color:#e6cf9b}.payments-pending .payments-status-icon,.payments-badge.payments-pending{background:#fdf6e3;color:#6b4a07;border-color:#e6cf9b}
+.payments-idle .payments-status-icon,.payments-badge.payments-idle{background:#f3f2f0;color:#4d4944;border-color:#e4dfda}
+.payments-badge.payments-alert{background:#fbeeea;color:#8d3326;border-color:#e3b7ac}
+.payments-actions{display:flex;flex-wrap:wrap;gap:12px}
+.payments-button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 22px;border-radius:999px;border:1px solid #181716;background:#181716;color:#fff;font:600 15px/1.2 Arial,sans-serif;text-decoration:none;cursor:pointer}
+.payments-button.payments-secondary{background:#fff;color:#181716;border-color:#d7d1cb}
+.payments-button:disabled{opacity:.5;cursor:default}
+.payments-notice{padding:14px 16px;border:1px solid #e6cf9b;background:#fdf6e3;color:#4f3805;border-radius:12px;margin-top:16px;line-height:1.5}
+.payments-notice p{margin:0}
+.payments-notice .payments-button{margin-top:12px}
+.payments-error{border-color:#e3b7ac;background:#fbeeea;color:#8d3326}
+.payments-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;margin-top:16px}
+.payments-grid .payments-card{margin-top:0}
+.payments-link-card{display:block;text-decoration:none;color:inherit}
+.payments-link-card strong{display:flex;align-items:center;gap:12px;font-size:18px}
+.payments-link-card p{margin:8px 0 0;color:#77736e}
+.payments-link-card:hover{border-color:#b98b7f}
+.payments-review-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.payments-review-head .payments-badge{margin:0}
+.payments-review-list{list-style:none;margin:16px 0 0;padding:0}
+.payments-review-list li{display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;align-items:center;padding:14px 0;border-top:1px solid #eee8e2}
+.payments-review-list a{font-weight:700;color:#181716}
+.payments-review-list span{color:#77736e;font-size:14px}
+.payments-page a:focus-visible,.payments-page button:focus-visible{outline:3px solid #006aff;outline-offset:3px}
+@media(max-width:600px){.payments-page{padding:24px 16px 100px}.payments-page h1{font-size:30px}.payments-card{padding:18px}.payments-button{width:100%}.payments-actions{flex-direction:column}}

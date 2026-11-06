@@ -1,5 +1,11 @@
 /* Shared Maia interface: bold typography, white surfaces and touch-sized controls. */
 :root{--maia-ink:#111;--maia-muted:#64686b;--maia-line:#e4e5e6;--maia-soft:#f3f3f3}
+/* Appearance: the dark theme inverts the rendered light UI so every surface, form control, dialog and badge
+   keeps its tested contrast. Media is flipped back so photos and artist colours look natural. */
+html{background:#fff}
+html[data-theme=dark]{background:#f2f2f2;filter:invert(1) hue-rotate(180deg)}
+html[data-theme=dark] :is(img,video,canvas,iframe,picture,[style*="background-image"],[data-keep-colors],.artist-dot,.color-swatch){filter:invert(1) hue-rotate(180deg)}
+
 body{color:var(--maia-ink);-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit}button,a,input,select,textarea{-webkit-tap-highlight-color:transparent}
 button{cursor:pointer}button:disabled{cursor:default;opacity:.5}a{color:inherit}h1,h2,h3{letter-spacing:-.035em}
