@@ -11,6 +11,10 @@ export function sameOrigin(req: Request) {
   if (!origin) return false;
 
   const allowedOrigins = new Set([new URL(req.url).origin]);
+  for (const configured of (process.env.MAIA_ADDITIONAL_APP_ORIGINS || '').split(',')) {
+    const value = configured.trim();
+    if (value) allowedOrigins.add(value);
+  }
   if (process.env.NEXT_PUBLIC_APP_URL) {
     try {
       allowedOrigins.add(new URL(process.env.NEXT_PUBLIC_APP_URL).origin);
