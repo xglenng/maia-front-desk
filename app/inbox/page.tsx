@@ -1,5 +1,6 @@
 "use client";
 
+import { liveSmsNumber, type SmsNumberRecord } from '@/packages/onboarding/sms-number';
 import { CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import "./inbox.css";
@@ -45,7 +46,7 @@ type SmsSetupStatus = {
     artist: { id: string };
     account: unknown | null;
     messagingService: unknown | null;
-    phoneNumber: { phoneNumber: string; active: boolean; complianceStatus: string } | null;
+    phoneNumber: SmsNumberRecord;
   }>;
 };
 type DismissedSetupShortcuts = { sms: boolean; social: boolean };
@@ -142,22 +143,19 @@ export default function InboxPage() {
     let active = true;
     async function loadSetupStatus() {
       try {
-        const [smsResponse, socialResponse] = await Promise.all([
-          fetch(`/api/twilio/status?organizationId=${encodeURIComponent(organizationId)}`, { cache: "no-store" }),
-          fetch("/api/channels", { cache: "no-store" }),
+        const [sms, social] = await Promise.allSettled([
+          fetch(`/api/twilio/status?organizationId=${encodeURIComponent(organizationId)}`, { cache: "no-store" }).then(json<SmsSetupStatus>),
+          fetch("/api/channels", { cache: "no-store" }).then(json<{ connections: Array<unknown> }>),
         ]);
-        const [sms, social] = await Promise.all([
-          json<SmsSetupStatus>(smsResponse),
-          json<{ connections: Array<unknown> }>(socialResponse),
-        ]);
-        const ownSetup = sms.artists.find(({ artist }) => artist.id === sms.defaultArtistId);
-        const number = ownSetup?.phoneNumber;
-        const smsNumber = number?.active && number.complianceStatus === "APPROVED" ? number.phoneNumber : null;
-        const relevantSetups = ownSetup ? [ownSetup] : sms.artists;
+        const ownSetup = sms.status === "fulfilled"
+          ? sms.value.artists.find(({ artist }) => artist.id === sms.value.defaultArtistId)
+          : undefined;
+        const smsNumber = liveSmsNumber(ownSetup?.phoneNumber);
+        const relevantSetups = ownSetup ? [ownSetup] : sms.status === "fulfilled" ? sms.value.artists : [];
         if (active) setSetupShortcuts({
           smsNumber,
           sms: !smsNumber && relevantSetups.some(artist => !artist.account && !artist.messagingService && !artist.phoneNumber),
-          social: social.connections.length === 0,
+          social: social.status === "fulfilled" && social.value.connections.length === 0,
         });
       } catch (cause) {
         if (active) setError(cause instanceof Error ? cause.message : "Unable to check messaging setup");
