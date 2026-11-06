@@ -109,6 +109,7 @@ export default function Home() {
           )}
         </nav>
         <div className="sidebar-bottom">
+          <a href="/invoices" aria-label="Invoices" title="Invoices" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon"><UiIcon name="inbox" /></span><span className="nav-label">Invoices</span></a>
           <a href={`/checkout?artistId=${encodeURIComponent(selectedArtistId||data?.artist.id||'')}`} className="nav-item" style={{textDecoration:'none'}}><span className="nav-icon"><UiIcon name="checkout"/></span><span className="nav-label">Checkout</span></a>
           <a href={`/items?artistId=${encodeURIComponent(selectedArtistId||data?.artist.id||'')}`} className="nav-item" style={{textDecoration:'none'}}><span className="nav-icon"><UiIcon name="more"/></span><span className="nav-label">Items & services</span></a>
           {user?.role === 'OWNER' && <a href="/onboarding" aria-label="Activation" title="Activation" className="nav-item" style={{ textDecoration: 'none' }}><span className="nav-icon"><UiIcon name="check" /></span><span className="nav-label">Activation</span></a>}
