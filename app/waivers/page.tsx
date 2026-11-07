@@ -20,6 +20,9 @@ export default function WaiversPage() {
   const [apiKey, setApiKey] = useState("");
   const [region, setRegion] = useState("STANDARD");
   const [custom, setCustom] = useState({ name: "", formUrl: "", category: "GENERAL", audience: "ANY", artistId:"" });
+  const customDialog = useRef<HTMLDialogElement>(null);
+  const [customError,setCustomError]=useState<{field?:string;message:string}|null>(null);
+  const [customSaving,setCustomSaving]=useState(false);
   const [formLinks,setFormLinks]=useState<Record<string,string>>({});
   const [appointmentMessages,setAppointmentMessages]=useState<Record<string,string>>({});
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
@@ -33,7 +36,8 @@ export default function WaiversPage() {
         readJson<{ appointments: AppointmentRow[] }>(await fetch("/api/waiver-assignments", { cache: "no-store" })),
       ]);
       setSetup(configuration); setAppointments(schedule.appointments);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load waiver setup"); }
+      return true;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load waiver setup"); return false; }
   }, []);
   useEffect(() => { void refresh(); if (new URLSearchParams(window.location.search).get("created") === "1") setMessage("Consent form created. It is now available in Current forms."); }, [refresh]);
 
@@ -46,11 +50,23 @@ export default function WaiversPage() {
   }
 
   async function addCustom(event: FormEvent) {
-    event.preventDefault(); setBusy(true);
+    event.preventDefault(); if(customSaving)return; setCustomSaving(true);setCustomError(null);
     try {
-      await readJson(await fetch("/api/waiver-integrations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ADD_CUSTOM_FORM", ...custom, priority: 100, collectsMedicalData: false }) }));
-      setCustom({ name: "", formUrl: "", category: "GENERAL", audience: "ANY", artistId:"" }); setMessage("Custom form added."); await refresh();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to add form"); } finally { setBusy(false); }
+      const response=await fetch("/api/waiver-integrations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ADD_CUSTOM_FORM", ...custom, priority: 100, collectsMedicalData: false }) });
+      const data=await response.json();
+      if(!response.ok){
+        const fields=data.error?.fieldErrors;
+        if(fields&&typeof fields==="object"){
+          const entry=Object.entries(fields).find(([,messages])=>Array.isArray(messages)&&typeof messages[0]==="string");
+          if(entry){setCustomError({field:entry[0],message:(entry[1] as string[])[0]});return;}
+        }
+        throw new Error(typeof data.error==="string"?data.error:"Unable to add form. Check the form details and try again.");
+      }
+      customDialog.current?.close();
+      setCustom({ name: "", formUrl: "", category: "GENERAL", audience: "ANY", artistId:"" });
+      const refreshed=await refresh();
+      setMessage(refreshed?"Existing form added.": "Existing form added, but the list could not be refreshed. Refresh the page to see it.");
+    } catch (error) { setCustomError({message:error instanceof Error ? error.message : "Unable to add form"}); } finally { setCustomSaving(false); }
   }
 
   async function sync(connectionId: string) {
@@ -86,13 +102,16 @@ export default function WaiversPage() {
     setBusy(true); try { await readJson(await fetch(`/api/waiver-assignments/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) })); await refresh(); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to update waiver"); } finally { setBusy(false); }
   }
 
+  function customFieldError(field:string) {
+    return customError?.field===field?<span id="existing-form-error" className="existing-field-error" role="alert">{customError.message}</span>:null;
+  }
+
   return <main className="waiver-admin">
-    <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Manage the consent forms available to your artists and send them to clients.</p></header>
+    <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Manage the consent forms available to your artists and send them to clients.</p><div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new">+ Create form</a><button type="button" className="consent-add-link" disabled={busy||customSaving} onClick={()=>{setCustomError(null);customDialog.current?.showModal();}}>+ Add existing form</button><a href="/waivers/archive">View signed forms →</a></div></header>
     {message && <div className="waiver-notice" role="status">{message}</div>}
 
-    <div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new">+ Create form</a><a href="/waivers/archive">View signed forms →</a></div>
     <section className="waiver-section"><div className="section-heading"><div><h2>Current forms</h2><p>Your available consent forms. Edit a form to choose when it is used and whether it is active.</p></div><strong>{setup.forms.length} forms</strong></div>{setup.forms.length === 0 ? <div className="empty">No forms yet. Create a Maia form or add an existing form link.</div> : <div className="form-list">{setup.forms.map(form => <FormEditor key={form.id} form={form} setup={setup} busy={busy} onSaved={refresh} />)}</div>}</section>
-    <details className="waiver-section consent-connections"><summary>Add an existing form or connect Jotform</summary><section className="waiver-grid">
+    {setup.isOwner&&<details className="waiver-section consent-connections"><summary>Connect Jotform</summary><section className="waiver-grid">
       {setup.isOwner&&<form className="waiver-card" onSubmit={connect}>
         <div className="card-title"><div><h2>Connect Jotform</h2><p>API credentials are encrypted and never displayed again.</p></div><span className="provider-pill">Full integration</span></div>
         <label>API region<select value={region} onChange={event => setRegion(event.target.value)}><option value="STANDARD">Standard</option><option value="EU">European Union</option><option value="HIPAA">HIPAA</option></select></label>
@@ -100,15 +119,19 @@ export default function WaiversPage() {
         <button disabled={busy || !apiKey}>Connect and import forms</button>
         {setup.connections.map(connection => <div className="connection" key={connection.id}><div><strong>{connection.label}</strong><small>{connection.status} · {connection.lastSyncedAt ? `Synced ${new Date(connection.lastSyncedAt).toLocaleString()}` : "Not synced"}</small></div><div><button type="button" className="secondary" disabled={busy} onClick={() => sync(connection.id)}>Sync</button><button type="button" className="secondary" disabled={busy} onClick={() => rotateWebhook(connection.id)}>New webhook URL</button></div></div>)}
       </form>}
-      <form className="waiver-card" onSubmit={addCustom}>
-        <div className="card-title"><div><h2>Bring your existing form</h2><p>Paste a Jotform, Google Forms, Typeform, Square, or another public form link. Your form stays with that provider; completion is recorded manually unless a verified integration is connected.</p></div><span className="provider-pill neutral">Custom link</span></div>
-        <label>Form name<input value={custom.name} onChange={event => setCustom({ ...custom, name: event.target.value })} required /></label>
-        <label>Artist<select required value={custom.artistId} onChange={event=>setCustom({...custom,artistId:event.target.value})}><option value="">Choose an artist</option>{setup.artists.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-        <label>Public form URL<input type="url" placeholder="https://…" value={custom.formUrl} onChange={event => setCustom({ ...custom, formUrl: event.target.value })} required /></label>
-        <div className="two-fields"><label>Category<input value={custom.category} onChange={event => setCustom({ ...custom, category: event.target.value })} /></label><label>Audience<select value={custom.audience} onChange={event => setCustom({ ...custom, audience: event.target.value })}><option value="ANY">Any age</option><option value="ADULT">Adult</option><option value="MINOR">Minor</option></select></label></div>
-        <button disabled={busy}>Add form link</button>
+    </section></details>}
+    <dialog ref={customDialog} className="routing-dialog existing-form-dialog" aria-labelledby="existing-form-title" onCancel={event=>{if(customSaving)event.preventDefault();}} onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();if(!customSaving)customDialog.current?.close();}}}>
+      <form className="waiver-card" onSubmit={addCustom} onChangeCapture={()=>setCustomError(null)}>
+        <div className="routing-dialog-heading"><h2 id="existing-form-title">Add existing form</h2><button type="button" className="routing-edit" aria-label="Close add existing form" disabled={customSaving} onClick={()=>customDialog.current?.close()}>×</button></div>
+        <div className="card-title"><div><h3>Bring your existing form</h3><p>Paste a Jotform, Google Forms, Typeform, Square, or another public form link. Your form stays with that provider; completion is recorded manually unless a verified integration is connected.</p></div><span className="provider-pill neutral">Custom link</span></div>
+        <label>Form name<input autoFocus maxLength={160} value={custom.name} onChange={event => setCustom({ ...custom, name: event.target.value })} required aria-invalid={customError?.field==="name"} aria-describedby={customError?.field==="name"?"existing-form-error":undefined} />{customFieldError("name")}</label>
+        <label>Artist<select required value={custom.artistId} onChange={event=>setCustom({...custom,artistId:event.target.value})} aria-invalid={customError?.field==="artistId"} aria-describedby={customError?.field==="artistId"?"existing-form-error":undefined}><option value="">Choose an artist</option>{setup.artists.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select>{customFieldError("artistId")}</label>
+        <label>Public form URL<input type="url" maxLength={2000} placeholder="https://…" value={custom.formUrl} onChange={event => setCustom({ ...custom, formUrl: event.target.value })} required aria-invalid={customError?.field==="formUrl"} aria-describedby={customError?.field==="formUrl"?"existing-form-error":undefined} />{customFieldError("formUrl")}</label>
+        <div className="two-fields"><label>Category<input maxLength={40} value={custom.category} onChange={event => setCustom({ ...custom, category: event.target.value })} aria-invalid={customError?.field==="category"} aria-describedby={customError?.field==="category"?"existing-form-error":undefined} />{customFieldError("category")}</label><label>Audience<select value={custom.audience} onChange={event => setCustom({ ...custom, audience: event.target.value })} aria-invalid={customError?.field==="audience"} aria-describedby={customError?.field==="audience"?"existing-form-error":undefined}><option value="ANY">Any age</option><option value="ADULT">Adult</option><option value="MINOR">Minor</option></select>{customFieldError("audience")}</label></div>
+        {customError&&!["name","artistId","formUrl","category","audience"].includes(customError.field||"")&&<p className="form-save-feedback error" role="alert">{customError.message}</p>}
+        <footer><button type="button" className="routing-edit" disabled={customSaving} onClick={()=>customDialog.current?.close()}>Cancel</button><button type="submit" disabled={customSaving}>{customSaving?"Saving…":"Add form link"}</button></footer>
       </form>
-    </section></details>
+    </dialog>
 
     {webhookUrl && <section className="webhook-callout"><h2>Finish Jotform setup</h2><ol><li>Add a hidden field to each form with the unique name <code>waiverToken</code>.</li><li>Add this webhook URL to each imported form, replacing any older waiver webhook URL:</li></ol><input readOnly value={webhookUrl} onFocus={event => event.currentTarget.select()} /><p>Store this URL now. Its secret is intentionally shown only when created.</p></section>}
 
@@ -118,7 +141,7 @@ export default function WaiversPage() {
   </main>;
 }
 
-function FormEditor({ form, setup, busy, onSaved }: { form: FormRow; setup: Setup; busy: boolean; onSaved: () => Promise<void> }) {
+function FormEditor({ form, setup, busy, onSaved }: { form: FormRow; setup: Setup; busy: boolean; onSaved: () => Promise<boolean> }) {
   const [value, setValue] = useState(form);
   const [saving,setSaving]=useState(false);
   const [feedback,setFeedback]=useState<{text:string;error:boolean}|null>(null);

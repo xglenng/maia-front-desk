@@ -173,3 +173,12 @@
 .waiver-admin .consent-connections>summary{cursor:pointer;font-weight:700;min-height:28px}
 .waiver-admin .consent-connections .waiver-grid{margin-top:20px}
 @media(max-width:600px){.waiver-admin .consent-page-actions{gap:16px}.waiver-admin .consent-create-link{flex:1;text-align:center}}
+.waiver-admin .consent-add-link{min-height:44px;padding:12px 20px;border:1px solid #d7d7d7;border-radius:9px;background:#fff;color:#111;font-weight:700}
+.waiver-admin .consent-add-link:hover{background:#f7f7f7}
+.waiver-admin .existing-form-dialog .waiver-card{padding:0;border:0;border-radius:0}
+.waiver-admin .existing-form-dialog .card-title{margin:18px 0 0}
+.waiver-admin .existing-form-dialog .card-title h3{margin:0 0 6px;font-size:17px}
+.waiver-admin .existing-form-dialog .form-save-feedback{margin:12px 0}
+.waiver-admin .existing-field-error{color:#9b2f20;font-size:13px;font-weight:400;line-height:1.4}
+.waiver-admin .existing-form-dialog footer{margin-top:20px}
+@media(max-width:600px){.waiver-admin .consent-page-actions{gap:10px}.waiver-admin .consent-add-link{flex:1}.waiver-admin .existing-form-dialog footer{margin-top:auto}}
