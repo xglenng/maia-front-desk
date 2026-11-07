@@ -1,3 +1,4 @@
+import {testPlatformFee} from '@/packages/integrations/stripe-platform-fee';
 import 'server-only';
 import {and,eq,sql} from 'drizzle-orm';
 import {db} from '@/packages/db/src';
@@ -27,7 +28,7 @@ export async function studioTerminalIntent(organizationId:string,appointmentId:s
  const context=await studioTerminalContext(organizationId,stripe);
  const {payment,connection}=await reserveStudioPayment(organizationId,appointmentId,'BALANCE','stripe_terminal',stripe);
  if(context.accountId!==connection.stripeAccountId)throw Error('Studio payment account changed.');
- const intent=payment.providerPaymentIntentId?await stripe.paymentIntents.retrieve(payment.providerPaymentIntentId,{stripeAccount:context.accountId}):await stripe.paymentIntents.create({amount:payment.amountCents,currency:payment.currency,payment_method_types:['card_present'],capture_method:'automatic',metadata:{organizationId,appointmentId,paymentId:payment.id,flow:'TERMINAL_BALANCE'}},{stripeAccount:context.accountId,idempotencyKey:`studio-terminal:${payment.id}`});
+ const intent=payment.providerPaymentIntentId?await stripe.paymentIntents.retrieve(payment.providerPaymentIntentId,{stripeAccount:context.accountId}):await stripe.paymentIntents.create({amount:payment.amountCents,currency:payment.currency,payment_method_types:['card_present'],capture_method:'automatic',...testPlatformFee(payment.amountCents, false),metadata:{organizationId,appointmentId,paymentId:payment.id,flow:'TERMINAL_BALANCE'}},{stripeAccount:context.accountId,idempotencyKey:`studio-terminal:${payment.id}`});
  if(intent.livemode||intent.amount!==payment.amountCents||intent.currency!==payment.currency||!intent.client_secret||!['requires_payment_method','requires_confirmation'].includes(intent.status))throw Error('Refresh the payment status before trying again.');
  await db.update(payments).set({providerPaymentIntentId:intent.id,updatedAt:new Date()}).where(and(eq(payments.id,payment.id),eq(payments.organizationId,organizationId)));
  return {clientSecret:intent.client_secret,paymentId:payment.id,amountCents:payment.amountCents,locationId:context.locationId,testMode:true};

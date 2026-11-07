@@ -9,6 +9,32 @@ const money=(cents:number)=>new Intl.NumberFormat('en-US',{style:'currency',curr
 
 export default function StudioPayments(){
  const [data,setData]=useState<PaymentsData|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [fromTrial,setFromTrial]=useState(false);
+ const [trialEnabled,setTrialEnabled]=useState(false),[trialBusy,setTrialBusy]=useState(false);
+ useEffect(()=>{
+  setFromTrial(new URLSearchParams(window.location.search).get("trial")==="1");
+  const controller=new AbortController();
+  void fetch('/api/billing',{signal:controller.signal,cache:'no-store'})
+   .then(async response=>{if(response.ok)setTrialEnabled((await response.json()).enabled===true);})
+   .catch(()=>{});
+  return ()=>controller.abort();
+ },[]);
+
+ async function openBilling(){
+  setTrialBusy(true);
+  setError('');
+  try{
+   const response=await fetch('/api/billing',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+   const result=await response.json();
+   if(!response.ok)throw new Error(result.error||'Billing could not be opened.');
+   const destination=new URL(result.url);
+   if(destination.protocol!=='https:'||!['checkout.stripe.com','billing.stripe.com'].includes(destination.hostname))throw new Error('Invalid billing destination.');
+   window.location.assign(destination.href);
+  }catch(error){
+   setError(error instanceof Error?error.message:'Billing could not be opened.');
+   setTrialBusy(false);
+  }
+ }
  const load=useCallback(async()=>{const r=await fetch('/api/payments/connect',{cache:'no-store'});const body=await r.json();if(!r.ok)throw new Error(body.error||'Unable to load payment settings.');setData(body);},[]);
  useEffect(()=>{void load().catch(e=>setError(e.message));},[load]);
 
@@ -35,6 +61,12 @@ export default function StudioPayments(){
   <a href="/settings">← Settings</a>
   <h1>Studio payments</h1>
   <p className="payments-lede">Manage the studio’s Stripe connection and review payment activity.</p>
+  <section aria-label="Planned Maia pricing">
+   <h2>Planned Maia pricing</h2>
+   <p>Maia Studio starts with a 30-day free trial, then costs $69 USD per month. A 1.5% platform fee applies to every payment the studio processes through Stripe, online or in person, including during the trial. Stripe processing fees are separate.</p>
+   {fromTrial&&trialEnabled&&<p>Your studio is created. Open Stripe to start the test trial, or <a href="/onboarding">continue studio setup</a>.</p>}
+   {trialEnabled&&<button type="button" className="payments-button" disabled={trialBusy} onClick={()=>void openBilling()}>{trialBusy?'Opening Stripe…':'Open test trial or manage billing'}</button>}
+  </section>
   {error&&<p className="payments-notice payments-error" role="alert">{error}</p>}
   {!data&&!error&&<p role="status" className="payments-muted">Loading payment status…</p>}
   {data&&state&&<>

@@ -1,6 +1,6 @@
 # Embellished Studios mock-account retirement
 
-Prepared maintenance only; not applied to production.
+Applied to production on 2026-11-02 with explicit user approval. Read-only inspection and apply both reported exactly one account, one service, and one number. The apply result was `applied:true`; the legal business remained saved. Normal startup was restored. No Twilio provider calls were made. Live account creation remained disabled and requires a separate configuration decision.
 
 Target: Render service `srv-dbd4k6qvcj2c73es2n30`, internal database host `dpg-dbd69j7b9u1s73dgmev0-a`, database `maia_render_production`. Target verification reuses the existing maintenance target check. The studio is resolved from Val's fixed artist ID and its name must match Embellished Studios.
 

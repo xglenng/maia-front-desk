@@ -47,7 +47,13 @@ export default function SignupPage() {
         return;
       }
 
-      router.push("/onboarding");
+      const wantsTrial = new URLSearchParams(window.location.search).get("plan") === "studio";
+      const billing = wantsTrial
+        ? await fetch("/api/billing", { cache: "no-store" })
+            .then(async (result) => result.ok && (await result.json()).enabled === true)
+            .catch(() => false)
+        : false;
+      router.push(billing ? "/settings/payments?trial=1" : "/onboarding");
       router.refresh();
     } catch {
       setError("Unable to create your studio.");

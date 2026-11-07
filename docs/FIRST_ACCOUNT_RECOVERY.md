@@ -28,3 +28,24 @@ recovery, do not restore an intent if a later creation attempt has started; use 
 archived evidence for manual reconciliation rather than replaying a creation request.
 
 Production recovery and live integration verification have NOT yet been performed.
+
+## Production inspection — November 3, 2026
+
+Patch `1c64e64` deployed to Render. The read-only check authenticated against the
+configured, fingerprint-verified main account and received HTTP 401 from Twilio.
+Inventory could not be verified, so recovery did not run and no intent was cleared.
+The normal start command was restored and its deployment verified live.
+Operator must correct the main account live Auth Token before repeating inspection.
+User has approved deployment and conditional guarded recovery; no new account,
+phone purchase, registration submission or SMS send is authorized by this run.
+
+## Approved recovery — November 3, 2026, after token correction
+
+The user updated the main account Auth Token in Render. Both the read-only inspection
+and the separate guarded apply invocation then authenticated successfully and returned
+`safeToClear: true`, `recentSubaccountCount: 0`, `subaccountCount: 5` for the pending
+attempt created at `2026-11-03T21:49:17.000Z`. Apply returned `applied: true`.
+The original intent was archived before removal. No provider creation, phone purchase,
+registration submission or SMS send occurred. Production SMS business setup was
+verified to show Val and the saved business name, with the explicit account creation
+authorization step restored. Normal startup command restored afterward.

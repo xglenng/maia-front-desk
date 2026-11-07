@@ -1,3 +1,4 @@
+import {testPlatformFee} from '@/packages/integrations/stripe-platform-fee';
 import 'server-only';
 import {createHash} from 'node:crypto';
 import {and,eq} from 'drizzle-orm';
@@ -54,7 +55,7 @@ export async function openCardCheckout(attempt:typeof checkoutCardAttempts.$infe
  const expiresAt=Math.floor(attempt.createdAt.getTime()/1000)+31*60;
  if(!attempt.sessionId&&expiresAt<Date.now()/1000+60)throw Error('Card payment preparation timed out. Contact the studio owner before starting another payment.');
  const returnUrl=`${origin}/checkout?artistId=${attempt.artistId}&cardRequest=${attempt.requestId}`;
- const session=attempt.sessionId?await stripe.checkout.sessions.retrieve(attempt.sessionId,{stripeAccount:attempt.stripeAccountId}):await stripe.checkout.sessions.create({mode:'payment',payment_method_types:['card'],line_items:[{price_data:{currency:'usd',unit_amount:attempt.totalCents,product_data:{name:'Studio services & merchandise',description:`Includes $${(attempt.taxCents/100).toFixed(2)} item tax and $${(attempt.tipCents/100).toFixed(2)} tip.`}},quantity:1}],metadata:{flow:'COUNTER_CHECKOUT',checkoutAttemptId:attempt.id,organizationId:attempt.organizationId},payment_intent_data:{metadata:{flow:'COUNTER_CHECKOUT',checkoutAttemptId:attempt.id}},expires_at:expiresAt,success_url:returnUrl,cancel_url:returnUrl},{stripeAccount:attempt.stripeAccountId,idempotencyKey:`counter-checkout:${attempt.id}`});
+ const session=attempt.sessionId?await stripe.checkout.sessions.retrieve(attempt.sessionId,{stripeAccount:attempt.stripeAccountId}):await stripe.checkout.sessions.create({mode:'payment',payment_method_types:['card'],line_items:[{price_data:{currency:'usd',unit_amount:attempt.totalCents,product_data:{name:'Studio services & merchandise',description:`Includes $${(attempt.taxCents/100).toFixed(2)} item tax and $${(attempt.tipCents/100).toFixed(2)} tip.`}},quantity:1}],metadata:{flow:'COUNTER_CHECKOUT',checkoutAttemptId:attempt.id,organizationId:attempt.organizationId},payment_intent_data:{...testPlatformFee(attempt.totalCents, livemode),metadata:{flow:'COUNTER_CHECKOUT',checkoutAttemptId:attempt.id}},expires_at:expiresAt,success_url:returnUrl,cancel_url:returnUrl},{stripeAccount:attempt.stripeAccountId,idempotencyKey:`counter-checkout:${attempt.id}`});
  if(!cardSessionMatches({...attempt,sessionId:session.id},session,attempt.stripeAccountId))throw Error('Unexpected card checkout response.');
  await db.update(checkoutCardAttempts).set({sessionId:session.id,updatedAt:new Date()}).where(eq(checkoutCardAttempts.id,attempt.id));
  if(session.status!=='open'||!session.url)throw Error('This card checkout is closed. Check its payment status.');

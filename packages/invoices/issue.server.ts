@@ -1,3 +1,4 @@
+import {testPlatformFee} from '@/packages/integrations/stripe-platform-fee';
 import {and,eq} from 'drizzle-orm';
 import type Stripe from 'stripe';
 import {db} from '@/packages/db/src';
@@ -81,7 +82,7 @@ export async function issueInvoice(row:typeof studioInvoices.$inferSelect,stripe
    const checked=await provider.invoices.retrieve(invoiceId,{stripeAccount:account.stripeAccountId});
    if(checked.total!==row.totalCents)throw new InvoiceIssueError('This invoice total needs support review before retrying. Do not create a replacement invoice.','total_mismatch');
    stage='set_due_date';
-   await provider.invoices.update(invoiceId,{due_date:Math.floor(Date.now()/1000)+row.dueDays*86400},{stripeAccount:account.stripeAccountId});
+   await provider.invoices.update(invoiceId,{...testPlatformFee(row.totalCents, livemode),due_date:Math.floor(Date.now()/1000)+row.dueDays*86400},{stripeAccount:account.stripeAccountId});
    stage='finalize';
    invoice=await provider.invoices.finalizeInvoice(invoiceId,{auto_advance:false},options('finalize'));
   }

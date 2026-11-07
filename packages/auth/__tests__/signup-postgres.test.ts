@@ -5,6 +5,8 @@ import {Pool} from 'pg';
 import {NextRequest} from 'next/server';
 import {pool} from '../../db/src';
 import {POST as signup} from '../../../app/api/auth/signup/route';
+import {POST as startBilling} from '../../../app/api/billing/route';
+import {getStripe} from '../../integrations/payments';
 import {POST as login} from '../../../app/api/auth/login/route';
 
 // Opt-in only: never fall back to DATABASE_URL or a remotely reachable database.
@@ -76,6 +78,36 @@ test('signup PostgreSQL transactions, identity constraints, and concurrency', {s
       assert.equal((await local.query("SELECT count(*)::int AS n FROM users WHERE email='rollback@example.com'")).rows[0].n,0);
       assert.equal((await local.query('SELECT count(*)::int AS n FROM auth_credentials')).rows[0].n,3);
       assert.equal((await local.query('SELECT count(*)::int AS n FROM auth_sessions')).rows[0].n,4);
+    });
+    await t.test('new owner can open and reuse Stripe sandbox trial checkout', {
+      skip: !process.env.MAIA_STRIPE_TRIAL_TEST_PRICE_ID || !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? ''),
+    }, async () => {
+      const response = await signup(request('signup', details('billing@example.com', 'Billing Sandbox')));
+      assert.equal(response.status, 201);
+      const cookie = response.headers.get('set-cookie')?.split(';')[0];
+      assert.ok(cookie);
+      const billingRequest = () => new NextRequest('http://localhost/api/billing', {
+        method: 'POST',
+        headers: { origin: 'http://localhost', cookie, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const first = await startBilling(billingRequest(), undefined);
+      assert.equal(first.status, 200);
+      const { url } = await first.json();
+      assert.equal(new URL(url).hostname, 'checkout.stripe.com');
+      const sessionId = new URL(url).pathname.split('/').at(-1)!;
+      assert.match(sessionId, /^cs_test_/);
+      const stripe = getStripe();
+      try {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        assert.equal(session.mode, 'subscription');
+        assert.equal(session.livemode, false);
+        const second = await startBilling(billingRequest(), undefined);
+        assert.equal(second.status, 200);
+        assert.equal((await second.json()).url, url);
+      } finally {
+        await stripe.checkout.sessions.expire(sessionId);
+      }
     });
   } finally {await local.end();}
 });
