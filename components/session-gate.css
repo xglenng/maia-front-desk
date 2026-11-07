@@ -18,3 +18,7 @@ button.session-icon:disabled{opacity:1;cursor:progress}
 .session-appearance input{accent-color:#604697;width:16px;height:16px;margin:0}
 .session-account-panel .session-appearance+button{margin-top:12px}
 @media(max-width:900px){.session-refresh-status{top:52px}.session-refresh-error{top:52px;padding:10px 12px;flex-wrap:wrap}}
+.session-sms-number{display:flex;align-items:center;justify-content:space-between;gap:8px;clear:both;padding:10px 8px;font-size:12px;color:#625b55}
+.session-sms-number strong{margin-top:4px;color:#292522;font-size:13px}
+.session-account-panel .session-sms-number button{width:auto;min-height:36px;margin:0;padding:6px 9px;border:1px solid #d9d2cc;border-radius:8px;color:#604697;font-size:12px;font-weight:600}
+.session-sms-number button:focus-visible{outline:2px solid #68509b;outline-offset:2px}

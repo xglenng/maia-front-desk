@@ -7,6 +7,7 @@ import './session-gate.css';
 import { RefreshContext, usePageRefreshController } from './page-refresh';
 import { THEME_OPTIONS, useThemePreference } from './theme';
 import {ownerSettingsPage} from '@/packages/auth/settings-policy';
+import {approvedLiveSmsNumber} from '@/packages/onboarding/sms-number';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
 const SessionContext = createContext<SessionUser | null>(null);
@@ -31,6 +32,9 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
+  const [accountOpen,setAccountOpen]=useState(false);
+  const [smsNumber,setSmsNumber]=useState<string|null>(null);
+  const [smsNumberMessage,setSmsNumberMessage]=useState('');
   const pageRefresh = usePageRefreshController(path);
   const [themePreference, chooseTheme] = useThemePreference();
   useEffect(() => {
@@ -45,6 +49,18 @@ export default function SessionGate({ children }: { children: ReactNode }) {
     }).catch(() => {});
     return () => { active = false; };
   }, [publicPage, ownerPage, path]);
+  useEffect(()=>{
+    if(!accountOpen||!user)return;
+    const controller=new AbortController();
+    setSmsNumber(null);setSmsNumberMessage('');
+    fetch(`/api/twilio/status?organizationId=${encodeURIComponent(user.organization_id)}`,{cache:'no-store',signal:controller.signal})
+      .then(async response=>{if(!response.ok)throw Error();return response.json();})
+      .then(data=>{
+        const number=data.artists?.find((item:{artist:{id:string}})=>item.artist.id===data.defaultArtistId)?.phoneNumber;
+        setSmsNumber(approvedLiveSmsNumber(number));
+      }).catch(()=>{if(!controller.signal.aborted)setSmsNumberMessage('Unable to load your SMS number.');});
+    return ()=>controller.abort();
+  },[accountOpen,user?.id,user?.organization_id]);
   if (publicPage) return <>{children}</>;
   if (!user) return <p style={{ padding: 24 }}>Checking your session… <a href="/login">Sign in</a></p>;
   return <SessionContext.Provider value={user}><RefreshContext.Provider value={pageRefresh.registry}>
@@ -55,12 +71,13 @@ export default function SessionGate({ children }: { children: ReactNode }) {
         <a href="/help" className="session-icon" aria-label="Help & support" title="Help & support"><UiIcon name="help" /></a>
         <a href="/" className="session-icon" aria-label="Dashboard" title="Dashboard"><UiIcon name="dashboard" /></a>
         <a href="/settings" className="session-icon" aria-label="Settings" title="Settings"><UiIcon name="settings" /></a>
-        <details className="session-account" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+        <details className="session-account" onToggle={event=>setAccountOpen(event.currentTarget.open)} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
           <summary aria-label="Account and sign out" title={user.name}>{user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'M'}</summary>
           <div className="session-account-panel"><strong>{user.name}</strong><small>{user.role === 'OWNER' ? 'Studio owner' : 'Artist'}</small>
             <fieldset className="session-appearance"><legend>Appearance</legend>
-              {THEME_OPTIONS.map(option => <label key={option.value}><input type="radio" name="maia-appearance" value={option.value} checked={themePreference === option.value} onChange={() => chooseTheme(option.value)} /><UiIcon name={option.value === 'light' ? 'sun' : option.value === 'dark' ? 'moon' : 'monitor'} width={16} height={16} /><span>{option.label}</span></label>)}
+              {THEME_OPTIONS.map(option => <Fragment key={option.value}>{option.value==='dark'&&smsNumber&&<div className="session-sms-number"><span>My SMS number<strong>{smsNumber}</strong></span><button type="button" onClick={()=>void navigator.clipboard.writeText(smsNumber).then(()=>setSmsNumberMessage('SMS number copied.')).catch(()=>setSmsNumberMessage('Unable to copy. Select the number to copy it.'))}>Copy</button></div>}<label><input type="radio" name="maia-appearance" value={option.value} checked={themePreference === option.value} onChange={() => chooseTheme(option.value)} /><UiIcon name={option.value === 'light' ? 'sun' : option.value === 'dark' ? 'moon' : 'monitor'} width={16} height={16} /><span>{option.label}</span></label></Fragment>)}
             </fieldset>
+            {smsNumberMessage&&<p role="status">{smsNumberMessage}</p>}
             <button disabled={signingOut} onClick={async () => {
               setSigningOut(true); setSignOutError('');
               try { const response = await fetch('/api/auth/session', { method: 'DELETE' }); if (!response.ok) throw new Error(); window.location.assign('/login'); }

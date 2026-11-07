@@ -26,6 +26,10 @@ Invoice creation uses expandable customer and line-item sections, payment terms,
 
 The Add customer action opens a native dialog (full screen on small devices) with client search, explicit loading/error/empty states, and a Use customer confirmation. Closing it discards unconfirmed edits. Entered customer details stay on the invoice; they do not create a CRM client or grant SMS consent. Changing artists clears the selected customer and ignores stale client-list responses.
 
+The customer picker keeps its confirmation action visible while the results scroll. In review, an authorized user can add a missing phone number to the linked client; it is normalized, cannot replace an existing number, and does not create consent or send an SMS. The review checks current consent evidence for the invoice artist and phone, and sending remains a separate explicit action. SMS delivery is read from the recorded message status: submission is not delivery, and failed or uncertain sends must be investigated before retrying. Refresh SMS status checks for newer delivery updates.
+
+Preview PDF is read-only and scoped to the invoice's studio and authorized artist. Unissued drafts generate a PDF marked as a draft; issued invoices use the PDF retrieved from the connected Stripe account when available. Invoice list labels distinguish Draft, Link ready, Sent (submitted to the provider), and Paid, while preserving terminal states. Copying a link or previewing a PDF does not send anything or change the invoice status. No schema migration is required.
+
 ### Invoice customers and payment timing
 New invoice drafts default to one day (24 hours) after issue; the artist can choose another supported term. Existing drafts keep their saved terms. Maia sets the Stripe due timestamp immediately before finalization so time spent recovering a draft does not consume its payment window; invoice SMS includes the provider timestamp in UTC. A due date does not automatically expire or void a Stripe invoice.
 
