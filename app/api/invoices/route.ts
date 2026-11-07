@@ -6,7 +6,7 @@ import {artists,studioInvoices} from '@/packages/db/src/schema';
 import {identity,protectedRoute,type Identity} from '@/packages/auth/server';
 import {invoiceClient,sendInvoiceSms} from '@/packages/invoices/sms.server';
 import {invoiceInput} from '@/packages/invoices/input';
-import {issueInvoice} from '@/packages/invoices/issue.server';
+import {InvoiceIssueError,invoiceErrorDetails,issueInvoice} from '@/packages/invoices/issue.server';
 import {counterCardConfiguration} from '@/packages/checkout/card-config.server';
 import {getStripe} from '@/packages/integrations/payments';
 const headers={'Cache-Control':'private, no-store'};
@@ -30,16 +30,18 @@ async function post(request:NextRequest){
   const [existing]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.requestId,requestId),eq(studioInvoices.createdByUserId,user.id),eq(studioInvoices.artistId,artistId)));
   return existing?NextResponse.json({invoice:existing},{headers}):NextResponse.json({error:'Invoice request unavailable.'},{status:409,headers});
  }
- const action=z.object({action:z.enum(['ISSUE','SYNC','SEND_SMS']),invoiceId:z.string().uuid()}).safeParse(body);
+ const action=z.object({action:z.enum(['ISSUE','SYNC','SEND_SMS']),invoiceId:z.string().uuid(),customerEmail:z.string().trim().email().max(254).optional()}).safeParse(body);
  if(!action.success)return NextResponse.json({error:'Invalid invoice action.'},{status:400,headers});
  const lock=await pool.connect();
+ let authorized=false;
  try{
   await lock.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[`${user.organization_id}:invoice:${action.data.invoiceId}`]);
   const [row]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,action.data.invoiceId)));
   if(!row||!await allowed(user,row.artistId))return NextResponse.json({error:'Invoice not found.'},{status:404,headers});
+  authorized=true;
   if(action.data.action==='ISSUE'){
-   if(!['DRAFT','ISSUING'].includes(row.status))return NextResponse.json({invoice:row},{headers});
-   return NextResponse.json({invoice:await issueInvoice(row)},{headers});
+   if(!['DRAFT','ISSUING'].includes(row.status)&&!(row.status==='OPEN'&&!row.hostedUrl&&row.stripeInvoiceId))return NextResponse.json({invoice:row},{headers});
+   return NextResponse.json({invoice:await issueInvoice(row,undefined,action.data.customerEmail)},{headers});
   }
   if(!row.stripeInvoiceId||!row.stripeAccountId)return NextResponse.json({error:'Create the payment link first.'},{status:409,headers});
   const stripe=getStripe(),remote=await stripe.invoices.retrieve(row.stripeInvoiceId,{stripeAccount:row.stripeAccountId});
@@ -51,7 +53,15 @@ async function post(request:NextRequest){
   const status=remote.status==='paid'?'PAID':remote.status==='void'?'VOID':remote.status==='uncollectible'?'UNCOLLECTIBLE':remote.status==='draft'?'ISSUING':'OPEN';
   const [invoice]=await db.update(studioInvoices).set({status,hostedUrl:remote.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id))).returning();
   return NextResponse.json({invoice},{headers});
- }catch{return NextResponse.json({error:'Invoice action could not complete. Retry the same invoice; do not create a duplicate. Check studio Stripe setup if this continues.'},{status:409,headers});}
+ }catch(error){
+  console.error('Invoice action failed', {action:action.data.action,...invoiceErrorDetails(error)});
+  let invoice;
+  if(authorized){
+   try{[invoice]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,action.data.invoiceId)));}
+   catch{console.error('Invoice recovery state could not be loaded');}
+  }
+  return NextResponse.json({error:error instanceof InvoiceIssueError?error.message:'Invoice action could not complete. Retry the same invoice; do not create a duplicate.',...(invoice?{invoice}:{})},{status:409,headers});
+ }
  finally{await lock.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[`${user.organization_id}:invoice:${action.data.invoiceId}`]).catch(()=>{});lock.release();}
 }
 export const GET=protectedRoute(get);

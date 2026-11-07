@@ -74,15 +74,81 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
    await local.query("INSERT INTO studio_payment_accounts(organization_id,stripe_account_id,livemode,charges_enabled,payouts_enabled,details_submitted) VALUES($1,'acct_synthetic',false,true,true,true)",[org]);
    let creates=0,customerCreates=0,fail=true;const items:Array<any>=[];
    const remote:any={id:'in_synthetic',customer:'cus_synthetic',status:'draft',currency:'usd',livemode:false,total:2000,hosted_invoice_url:'https://invoice.stripe.com/synthetic',metadata:{maiaInvoiceId:own.id,organizationId:org,artistId:artist}};
-   const stripe:any={accounts:{retrieve:async()=>({charges_enabled:true,payouts_enabled:true,details_submitted:true})},customers:{create:async()=>{customerCreates++;return {id:'cus_synthetic'};}},invoices:{create:async(body:any,options:any)=>{creates++;assert.equal(options.stripeAccount,'acct_synthetic');assert.equal(body.auto_advance,false);assert.equal(body.collection_method,'send_invoice');return remote;},retrieve:async()=>remote,finalizeInvoice:async()=>{if(fail){fail=false;throw Error('Synthetic provider timeout');}remote.status='open';return remote;}},invoiceItems:{list:async()=>({data:items,has_more:false}),create:async(body:any)=>{items.push(body);return body;}}};
+   const stripe:any={accounts:{retrieve:async()=>({charges_enabled:true,payouts_enabled:true,details_submitted:true})},customers:{create:async()=>{customerCreates++;return {id:'cus_synthetic'};}},invoices:{create:async(body:any,options:any)=>{creates++;assert.equal(options.stripeAccount,'acct_synthetic');assert.equal(body.auto_advance,false);assert.equal(body.collection_method,'send_invoice');return remote;},retrieve:async()=>remote,update:async()=>remote,finalizeInvoice:async()=>{if(fail){fail=false;throw Error('Synthetic provider timeout');}remote.status='open';return remote;}},invoiceItems:{list:async()=>({data:items,has_more:false}),create:async(body:any)=>{items.push(body);return body;}}};
    const {issueInvoice}=await import('../../invoices/issue.server');
    const {db}=await import('../../db/src');const {studioInvoices}=await import('../../db/src/schema');const {eq}=await import('drizzle-orm');
    let [draft]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,own.id));
-   await assert.rejects(issueInvoice(draft,stripe),/Synthetic provider timeout/);
+   await assert.rejects(issueInvoice(draft,stripe),/Retry this same invoice/);
    [draft]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,own.id));
    assert.equal(draft.status,'ISSUING');assert.equal(draft.stripeInvoiceId,'in_synthetic');
    const issued=await issueInvoice(draft,stripe);assert.equal(issued.status,'OPEN');assert.equal(creates,1);assert.equal(customerCreates,1);assert.equal(items.length,1);assert.equal(items[0].amount,2000);
+
+   const missingEmail=(await (await POST(request('/api/invoices','b',{...input,requestId:randomUUID(),clientEmail:'',dueDays:1,lines:[{name:'Service',quantity:1,unitCents:6500}]}),undefined)).json()).invoice;
+   await local.query("UPDATE studio_invoices SET status='ISSUING',issuing_at=now(),stripe_account_id='acct_synthetic' WHERE id=$1",[missingEmail.id]);
+   let [recoverable]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,missingEmail.id));
+   await assert.rejects(issueInvoice(recoverable,stripe),/email/);
+   const recoveredItems:Array<any>=[];let invoiceCreations=0,updates=0,timeoutCreate=true,timeoutFinalize=true;
+   const recovered:any={id:'in_recovery',customer:'cus_recovery',status:'draft',currency:'usd',livemode:false,total:6500,hosted_invoice_url:null,metadata:{maiaInvoiceId:recoverable.id,organizationId:org,artistId:artist}};
+   const recoveryStripe:any={
+    accounts:{retrieve:async()=>({charges_enabled:true,payouts_enabled:true,details_submitted:true})},
+    customers:{create:async(body:any)=>{assert.equal(body.email,undefined);return {id:'cus_recovery'};},update:async(_id:string,body:any)=>{assert.equal(body.email,'synthetic@example.test');updates++;}},
+    invoices:{
+     create:async(body:any,options:any)=>{assert.equal(body.days_until_due,1);assert.equal(body.auto_advance,false);if(options.idempotencyKey.endsWith(':create'))throw Object.assign(Error('The customer needs a valid email when `collection_method=send_invoice`.'),{type:'StripeInvalidRequestError',statusCode:400});assert.match(options.idempotencyKey,/:create-after-email$/);if(timeoutCreate){timeoutCreate=false;invoiceCreations++;throw Error('Synthetic timeout after creation');}return recovered;},
+     retrieve:async()=>recovered,
+     update:async(_id:string,body:any)=>{assert.ok(body.due_date>=Math.floor(Date.now()/1000)+86390);return recovered;},
+     finalizeInvoice:async(_id:string,body:any)=>{assert.equal(body.auto_advance,false);recovered.status='open';recovered.hosted_invoice_url='https://invoice.stripe.com/recovery';if(timeoutFinalize){timeoutFinalize=false;throw Error('Synthetic timeout after finalization');}return recovered;}
+    },
+    invoiceItems:{list:async()=>({data:recoveredItems,has_more:false}),create:async(body:any)=>{recoveredItems.push(body);}}
+   };
+   await assert.rejects(issueInvoice(recoverable,recoveryStripe,'synthetic@example.test'),/Retry this same invoice/);
+   [recoverable]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,missingEmail.id));assert.equal(recoverable.stripeInvoiceId,null);assert.equal(recoverable.clientEmail,'');
+   await assert.rejects(issueInvoice(recoverable,recoveryStripe,'synthetic@example.test'),/Retry this same invoice/);
+   [recoverable]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,missingEmail.id));assert.equal(recoverable.stripeInvoiceId,'in_recovery');assert.equal(recoverable.clientEmail,'synthetic@example.test');
+   const recoveredResult=await issueInvoice(recoverable,recoveryStripe);assert.equal(recoveredResult.status,'OPEN');assert.equal(recoveredResult.hostedUrl,'https://invoice.stripe.com/recovery');assert.equal(invoiceCreations,1);assert.equal(recoveredItems.length,1);assert.equal(updates,2);
+   const unavailableStripe:any={accounts:{retrieve:async()=>({charges_enabled:false,payouts_enabled:false,details_submitted:false})}};
+   await assert.rejects(issueInvoice({...draft,status:'DRAFT',stripeInvoiceId:null},unavailableStripe),/Finish the studio’s Stripe setup/);
+   await assert.rejects(issueInvoice({...recoverable,status:'ISSUING',stripeInvoiceId:null,issuingAt:new Date(Date.now()-24*60*60*1000)},recoveryStripe),/support review/);
   }finally{keys.forEach((key,index)=>{if(previous[index]===undefined)delete process.env[key];else process.env[key]=previous[index];});}
+  if(process.env.MAIA_REAL_STRIPE_INVOICE_TEST==='1'){
+   assert.match(process.env.STRIPE_SECRET_KEY||'',/^sk_test_[A-Za-z0-9]+$/);
+   const Stripe=(await import('stripe')).default;
+   const stripe=new Stripe(process.env.STRIPE_SECRET_KEY!);
+   const available=await stripe.accounts.list({limit:100});
+   const account=available.data.find(a=>a.charges_enabled&&a.payouts_enabled&&a.details_submitted);
+   assert.ok(account,'An eligible Stripe test account is required.');
+   await local.query('UPDATE studio_payment_accounts SET stripe_account_id=$1 WHERE organization_id=$2',[account.id,org]);
+   const created=await (await POST(request('/api/invoices','b',{...input,requestId:randomUUID(),clientName:'Synthetic invoice test',clientEmail:'',dueDays:1,lines:[{name:'Synthetic test service',quantity:1,unitCents:6500}]}),undefined)).json();
+   const {db}=await import('../../db/src');const {studioInvoices}=await import('../../db/src/schema');const {eq}=await import('drizzle-orm');const {issueInvoice,invoiceErrorDetails}=await import('../../invoices/issue.server');
+   await local.query("UPDATE studio_invoices SET status='ISSUING',issuing_at=now(),stripe_account_id=$1 WHERE id=$2",[account.id,created.invoice.id]);
+   let [row]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,created.invoice.id));
+   const options=(operation:string)=>({stripeAccount:account.id,idempotencyKey:`maia-invoice:${row.id}:${operation}`});
+   const customer=await stripe.customers.create({name:row.clientName,email:undefined,metadata:{maiaInvoiceId:row.id}},options('customer'));
+   const params:any={customer:customer.id,collection_method:'send_invoice',days_until_due:1,auto_advance:false,pending_invoice_items_behavior:'exclude',description:undefined,payment_settings:{payment_method_types:['card']},metadata:{maiaInvoiceId:row.id,organizationId:org,artistId:artist}};
+   await assert.rejects(stripe.invoices.create(params,options('create')),(error:any)=>error.type==='StripeInvalidRequestError'&&error.statusCode===400&&error.message==='The customer needs a valid email when `collection_method=send_invoice`.');
+   let failCreate=true,failFinalize=true;
+   const provider:any={accounts:stripe.accounts,customers:stripe.customers,invoiceItems:stripe.invoiceItems,invoices:{
+    retrieve:stripe.invoices.retrieve.bind(stripe.invoices),
+    update:stripe.invoices.update.bind(stripe.invoices),
+    create:async(...args:any[])=>{const result=await stripe.invoices.create(args[0],args[1]);if(failCreate){failCreate=false;throw Error('Synthetic timeout after Stripe created invoice');}return result;},
+    finalizeInvoice:async(...args:any[])=>{const result=await stripe.invoices.finalizeInvoice(args[0],args[1],args[2]);if(failFinalize){failFinalize=false;throw Error('Synthetic timeout after Stripe finalized invoice');}return result;}
+   }};
+   await assert.rejects(issueInvoice(row,provider,'synthetic-invoice@example.test'),/Retry this same invoice/);
+   [row]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,row.id));assert.equal(row.stripeInvoiceId,null);
+   await assert.rejects(issueInvoice(row,provider,'synthetic-invoice@example.test'),/Retry this same invoice/);
+   [row]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,row.id));assert.ok(row.stripeInvoiceId);
+   const issued=await issueInvoice(row,provider);assert.equal(issued.status,'OPEN');assert.ok(issued.hostedUrl);
+   const remote=await stripe.invoices.retrieve(issued.stripeInvoiceId!,{stripeAccount:account.id});
+   assert.equal(remote.livemode,false);assert.equal(remote.status,'open');assert.equal(remote.auto_advance,false);assert.equal(remote.total,6500);assert.ok(remote.due_date!-remote.status_transitions.finalized_at!>=86390&&remote.due_date!-remote.status_transitions.finalized_at!<=86400);
+   const matching=(await stripe.invoices.list({customer:customer.id,limit:100},{stripeAccount:account.id})).data.filter(invoice=>invoice.metadata?.maiaInvoiceId===row.id);
+   assert.equal(matching.length,1);
+   await local.query("UPDATE studio_payment_accounts SET stripe_account_id='acct_unavailable_synthetic' WHERE organization_id=$1",[org]);
+   await assert.rejects(issueInvoice({...row,status:'DRAFT',stripeInvoiceId:null,stripeAccountId:null},stripe),(error:unknown)=>{
+    assert.match(error instanceof Error?error.message:'',/Stripe connection/);
+    const details=invoiceErrorDetails(error);assert.equal(details.stage,'account_retrieve');assert.equal(details.statusCode,403);assert.equal(details.code,'account_invalid');console.log('Unavailable Stripe connection:',JSON.stringify(details));
+    return true;
+   });
+   console.log('Stripe test mode: cached missing-email error, create/finalize timeouts, one hosted invoice, 24-hour due window, and unavailable account verified.');
+  }
   const clientId=randomUUID(),peerClient=randomUUID(),formId=randomUUID();
   for(const [id,who] of [[clientId,artist],[peerClient,peer]]){
    await local.query("INSERT INTO clients(id,organization_id,first_name,phone,sms_opt_in,sms_consent_status) VALUES($1,$2,'Synthetic client',$3,false,'NOT_REQUESTED')",[id,org,id===clientId?'+15555550101':'+15555550102']);
