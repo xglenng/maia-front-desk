@@ -12,9 +12,13 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
  const [saving,setSaving]=useState(false),[message,setMessage]=useState('');
  const [fields,setFields]=useState<NativeField[]>([]),[brand,setBrand]=useState('');
  const [logoSelected,setLogoSelected]=useState(false),[pickerOpen,setPickerOpen]=useState(false);
+ const [previewing,setPreviewing]=useState(false),[previewUrl,setPreviewUrl]=useState<string|null>(null),[previewError,setPreviewError]=useState('');
+ const previewDialog=useRef<HTMLDialogElement>(null);
  const [preparedFor,setPreparedFor]=useState<{artistId:string;artistName:string;brand:string}|null>(null);
  useEffect(()=>{setBrand(current=>current||studioBrand);},[studioBrand]);
  const bindingChanged=Boolean(preparedFor&&(!currentArtist||preparedFor.artistId!==currentArtist.id||preparedFor.brand!==brand.trim()));
+ useEffect(()=>{if(previewUrl)previewDialog.current?.showModal();},[previewUrl]);
+ useEffect(()=>()=>{if(previewUrl)URL.revokeObjectURL(previewUrl);},[previewUrl]);
  function loadStarter(kind:ConsentStarterKind,starterBrand:string) {
   setMessage('');
   try {
@@ -40,6 +44,25 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   } catch(error) {setMessage(error instanceof Error?error.message:'Unable to save.');}
   finally {setSaving(false);}
  }
+ async function preview(){
+  setPreviewing(true);setPreviewError('');
+  try{
+   const parsed=nativeDefinition.safeParse({body,fields,...(logoSelected&&studioLogoAssetId?{logoAssetId:studioLogoAssetId}:{})});
+   if(!name.trim())throw Error('Add a form title before previewing the PDF.');
+   if(!parsed.success)throw Error(parsed.error.issues[0]?.message||'Check the form details before previewing.');
+   const {buildConsentDraftPdf}=await import('@/packages/waivers/draft-preview-pdf');
+   const bytes=await buildConsentDraftPdf({name,definition:parsed.data,logoUrl:logoSelected&&studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null,minorSigner:audience==='MINOR'});
+   const blobBytes=new ArrayBuffer(bytes.byteLength);
+   new Uint8Array(blobBytes).set(bytes);
+   const url=URL.createObjectURL(new Blob([blobBytes],{type:'application/pdf'}));
+   setPreviewUrl(url);
+  }catch(error){setPreviewError(error instanceof Error?error.message:'Unable to generate the PDF preview. Try again.');}
+  finally{setPreviewing(false);}
+ }
+ function closePreview(){
+  previewDialog.current?.close();
+  setPreviewUrl(null);
+ }
  if(!currentArtist)return <div className="waiver-card" role="alert"><h2>Artist profile needed</h2><p>{artistProfileCount>1?'More than one artist profile is linked to your sign-in. Ask the studio owner to resolve the profile before saving a form.':'No artist profile is linked to your sign-in in this studio. Ask the studio owner to create an artist profile and link it to your user before saving a consent form.'}</p></div>;
  return <form className="waiver-card" onSubmit={save}>
   <div className="card-title"><div><h2>Create a Maia form</h2><p>Start with a consent template or write your own. Clients read it and draw their signature.</p></div><span className="provider-pill">Maia hosted</span></div>
@@ -48,7 +71,13 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   {bindingChanged&&<p role="alert">Studio brand changed. Reload the template before saving so its wording uses the current brand.</p>}
   <label>Audience<select value={audience} onChange={event=>setAudience(event.target.value)}><option value="ADULT">Adult</option><option value="ANY">Any age</option><option value="MINOR">Minor / guardian</option></select></label>
   <p>Use wording approved for your studio, services, and local requirements. For minors, include the appropriate guardian wording. Photo ID uploads can be optional or required. Medical questionnaires are not included, and signing does not opt a client into SMS.</p>
-  <QuestionBuilder fields={fields} onChange={setFields} name={name} onNameChange={setName} body={body} onBodyChange={setBody} onUseTemplate={()=>setPickerOpen(true)} templateDisabled={busy||saving} logoAssetId={logoSelected?studioLogoAssetId:null} availableLogoAssetId={studioLogoAssetId} logoUrl={studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null} onLogoChange={value=>setLogoSelected(Boolean(value))} minorSigner={audience==='MINOR'}/>
+  <QuestionBuilder fields={fields} onChange={setFields} name={name} onNameChange={setName} body={body} onBodyChange={setBody} onUseTemplate={()=>setPickerOpen(true)} onPreview={()=>void preview()} previewDisabled={busy||saving||previewing} templateDisabled={busy||saving} logoAssetId={logoSelected?studioLogoAssetId:null} availableLogoAssetId={studioLogoAssetId} logoUrl={studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null} onLogoChange={value=>setLogoSelected(Boolean(value))} minorSigner={audience==='MINOR'}/>
+  {previewError&&<p role="alert" className="waiver-notice">{previewError} <button type="button" className="secondary" onClick={()=>void preview()} disabled={previewing}>{previewing?'Generating…':'Try again'}</button></p>}
+  <dialog ref={previewDialog} className="consent-pdf-preview" aria-labelledby="consent-pdf-title" onCancel={event=>{event.preventDefault();closePreview();}} onClose={()=>setPreviewUrl(null)}>
+   <div className="consent-pdf-heading"><h2 id="consent-pdf-title">Draft PDF preview</h2><button type="button" className="secondary" onClick={closePreview}>Close preview</button></div>
+   {previewUrl&&<iframe title="Consent form draft PDF preview" src={previewUrl}/>}
+   {previewUrl&&<p><a href={previewUrl} target="_blank" rel="noopener noreferrer">Open PDF in a new tab</a></p>}
+  </dialog>
   {pickerOpen&&<TemplatePicker brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected||audience!=='ADULT')} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
   <button disabled={busy||saving}>{saving?'Saving…':'Create form'}</button>{message&&<p role="status">{message}</p>}
  </form>;
