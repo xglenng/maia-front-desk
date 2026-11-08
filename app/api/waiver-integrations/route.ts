@@ -34,6 +34,20 @@ async function syncConnection(connection: typeof waiverProviderConnections.$infe
   return imported;
 }
 
+async function loadActiveStudioLogo(organizationId: string) {
+  try {
+    return await db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.organizationId,organizationId),eq(studioLogoAssets.active,true))).limit(1);
+  } catch (error) {
+    // Logo support is optional while the database migration rolls out.
+    const cause = error instanceof Error ? error.cause ?? error : error;
+    if (cause && typeof cause === "object" && "code" in cause && cause.code === "42P01") {
+      console.warn("Waiver logo unavailable: studio_logo_assets migration is pending.");
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function handleGET(request: NextRequest) {
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
@@ -45,7 +59,7 @@ async function handleGET(request: NextRequest) {
     db.select({ id: services.id, name: services.name, artistId: services.artistId }).from(services).where(and(eq(services.organizationId, organizationId), eq(services.active, true))).orderBy(asc(services.name)),
     db.select({name:organizations.name,publicName:organizations.publicName}).from(organizations).where(eq(organizations.id,organizationId)).limit(1),
     db.select({id:artists.id,name:artists.displayName}).from(artists).where(and(eq(artists.organizationId,organizationId),eq(artists.userId,user.id))).orderBy(asc(artists.displayName)),
-    db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.organizationId,organizationId),eq(studioLogoAssets.active,true))).limit(1),
+    loadActiveStudioLogo(organizationId),
   ]);
   const ownRows=canManageStudioSettings(user.role)?artistRows:ownArtists;
   const ids=ownRows.map(a=>a.id);
