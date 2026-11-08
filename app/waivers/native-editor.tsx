@@ -5,14 +5,16 @@ import {nativeDefinition,type NativeField} from '@/packages/waivers/forms';
 import {buildConsentStarter,consentStarterReferences,type ConsentStarterKind} from '@/packages/waivers/consent-starters';
 
 type ArtistProfile={id:string;name:string};
-export default function NativeEditor({currentArtist,artistProfileCount,studioBrand,studioLogoAssetId,busy,onSaved}:{
- currentArtist:ArtistProfile|null;artistProfileCount:number;studioBrand:string;studioLogoAssetId:string|null;busy:boolean;onSaved:()=>Promise<void>;
+export default function NativeEditor({currentArtist,artistProfileCount,studioBrand,studioLogoAssetId,studioLogoAvailable,busy,onSaved}:{
+ currentArtist:ArtistProfile|null;artistProfileCount:number;studioBrand:string;studioLogoAssetId:string|null;studioLogoAvailable:boolean;busy:boolean;onSaved:()=>Promise<void>;
 }) {
  const [name,setName]=useState(''),[body,setBody]=useState(''),[audience,setAudience]=useState('ADULT');
  const [saving,setSaving]=useState(false),[message,setMessage]=useState('');
  const [fields,setFields]=useState<NativeField[]>([]),[brand,setBrand]=useState('');
  const [logoSelected,setLogoSelected]=useState(false),[pickerOpen,setPickerOpen]=useState(false);
  const [previewing,setPreviewing]=useState(false),[previewUrl,setPreviewUrl]=useState<string|null>(null),[previewError,setPreviewError]=useState('');
+ const [nameError,setNameError]=useState(false);
+ const nameInput=useRef<HTMLInputElement>(null);
  const previewDialog=useRef<HTMLDialogElement>(null);
  const [preparedFor,setPreparedFor]=useState<{artistId:string;artistName:string;brand:string}|null>(null);
  useEffect(()=>{setBrand(current=>current||studioBrand);},[studioBrand]);
@@ -25,6 +27,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
    if(!currentArtist)throw Error('Ask the studio owner to create an artist profile and link it to your sign-in before creating a form.');
    const draft=buildConsentStarter(kind,starterBrand,currentArtist.name);
    setName(draft.name);setBody(draft.definition.body);setFields(draft.definition.fields||[]);setAudience(draft.audience);
+   setNameError(false);
    setBrand(starterBrand.trim());setPreparedFor({artistId:currentArtist.id,artistName:currentArtist.name,brand:starterBrand.trim()});setPickerOpen(false);
    setMessage('Editable template loaded. Review it for your studio and services before saving.');
   } catch(error) {return error instanceof Error?error.message:'Unable to load template.';}
@@ -45,10 +48,16 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   finally {setSaving(false);}
  }
  async function preview(){
+  if(!name.trim()){
+   setPreviewError('');setNameError(true);
+   nameInput.current?.focus({preventScroll:true});
+   nameInput.current?.scrollIntoView({block:'center',inline:'nearest'});
+   return;
+  }
+  setNameError(false);
   setPreviewing(true);setPreviewError('');
   try{
    const parsed=nativeDefinition.safeParse({body,fields,...(logoSelected&&studioLogoAssetId?{logoAssetId:studioLogoAssetId}:{})});
-   if(!name.trim())throw Error('Add a form title before previewing the PDF.');
    if(!parsed.success)throw Error(parsed.error.issues[0]?.message||'Check the form details before previewing.');
    const {buildConsentDraftPdf}=await import('@/packages/waivers/draft-preview-pdf');
    const bytes=await buildConsentDraftPdf({name,definition:parsed.data,logoUrl:logoSelected&&studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null,minorSigner:audience==='MINOR'});
@@ -71,7 +80,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   {bindingChanged&&<p role="alert">Studio brand changed. Reload the template before saving so its wording uses the current brand.</p>}
   <label>Audience<select value={audience} onChange={event=>setAudience(event.target.value)}><option value="ADULT">Adult</option><option value="ANY">Any age</option><option value="MINOR">Minor / guardian</option></select></label>
   <p>Use wording approved for your studio, services, and local requirements. For minors, include the appropriate guardian wording. Photo ID uploads can be optional or required. Medical questionnaires are not included, and signing does not opt a client into SMS.</p>
-  <QuestionBuilder fields={fields} onChange={setFields} name={name} onNameChange={setName} body={body} onBodyChange={setBody} onUseTemplate={()=>setPickerOpen(true)} onPreview={()=>void preview()} previewDisabled={busy||saving||previewing} templateDisabled={busy||saving} logoAssetId={logoSelected?studioLogoAssetId:null} availableLogoAssetId={studioLogoAssetId} logoUrl={studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null} onLogoChange={value=>setLogoSelected(Boolean(value))} minorSigner={audience==='MINOR'}/>
+  <QuestionBuilder fields={fields} onChange={setFields} name={name} onNameChange={value=>{setName(value);if(value.trim())setNameError(false);}} nameInput={nameInput} nameError={nameError} body={body} onBodyChange={setBody} onUseTemplate={()=>setPickerOpen(true)} onPreview={()=>void preview()} previewDisabled={busy||saving||previewing} templateDisabled={busy||saving} logoAssetId={logoSelected?studioLogoAssetId:null} availableLogoAssetId={studioLogoAssetId} logoAvailable={studioLogoAvailable} logoUrl={studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null} onLogoChange={value=>setLogoSelected(Boolean(value))} minorSigner={audience==='MINOR'}/>
   {previewError&&<p role="alert" className="waiver-notice">{previewError} <button type="button" className="secondary" onClick={()=>void preview()} disabled={previewing}>{previewing?'Generating…':'Try again'}</button></p>}
   <dialog ref={previewDialog} className="consent-pdf-preview" aria-labelledby="consent-pdf-title" onCancel={event=>{event.preventDefault();closePreview();}} onClose={()=>setPreviewUrl(null)}>
    <div className="consent-pdf-heading"><h2 id="consent-pdf-title">Draft PDF preview</h2><button type="button" className="secondary" onClick={closePreview}>Close preview</button></div>

@@ -9,6 +9,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
 import { artists, organizations, externalWaiverForms, services, studioLogoAssets, waiverProviderConnections, waiverTemplates } from "@db/schema";
+import {isMissingStudioLogoTable} from '@/packages/waivers/studio-logo-schema';
 
 const schema = z.discriminatedUnion("action", [
  z.object({action:z.literal("ADD_NATIVE_FORM"),name:z.string().trim().min(1).max(160),definition:nativeDefinition,artistId:z.string().uuid().nullable().optional(),audience:z.enum(["ANY","ADULT","MINOR"]).default("ADULT")}),
@@ -36,13 +37,12 @@ async function syncConnection(connection: typeof waiverProviderConnections.$infe
 
 async function loadActiveStudioLogo(organizationId: string) {
   try {
-    return await db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.organizationId,organizationId),eq(studioLogoAssets.active,true))).limit(1);
+    const rows=await db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.organizationId,organizationId),eq(studioLogoAssets.active,true))).limit(1);
+    return {assetId:rows[0]?.id??null,available:true};
   } catch (error) {
-    // Logo support is optional while the database migration rolls out.
-    const cause = error instanceof Error ? error.cause ?? error : error;
-    if (cause && typeof cause === "object" && "code" in cause && cause.code === "42P01") {
+    if (isMissingStudioLogoTable(error)) {
       console.warn("Waiver logo unavailable: studio_logo_assets migration is pending.");
-      return [];
+      return {assetId:null,available:false};
     }
     throw error;
   }
@@ -52,7 +52,7 @@ async function handleGET(request: NextRequest) {
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const organizationId = user.organization_id;
-  const [connections, forms, artistRows, serviceRows, organizationRows, ownArtists, logoRows] = await Promise.all([
+  const [connections, forms, artistRows, serviceRows, organizationRows, ownArtists, logo] = await Promise.all([
     db.select({ id: waiverProviderConnections.id, provider: waiverProviderConnections.provider, label: waiverProviderConnections.label, settings: waiverProviderConnections.settings, status: waiverProviderConnections.status, lastSyncedAt: waiverProviderConnections.lastSyncedAt }).from(waiverProviderConnections).where(eq(waiverProviderConnections.organizationId, organizationId)).orderBy(asc(waiverProviderConnections.createdAt)),
     db.select().from(externalWaiverForms).where(eq(externalWaiverForms.organizationId, organizationId)).orderBy(asc(externalWaiverForms.priority), asc(externalWaiverForms.name)),
     db.select({ id: artists.id, name: artists.displayName }).from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName)),
@@ -63,7 +63,7 @@ async function handleGET(request: NextRequest) {
   ]);
   const ownRows=canManageStudioSettings(user.role)?artistRows:ownArtists;
   const ids=ownRows.map(a=>a.id);
-  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', currentArtist:ownArtists.length===1?ownArtists[0]:null, artistProfileCount:ownArtists.length, studioLogoAssetId:logoRows[0]?.id||null, isOwner:canManageStudioSettings(user.role),connections:canManageStudioSettings(user.role)?connections:[], forms:forms.filter(f=>canManageStudioSettings(user.role)||f.artistId&&ids.includes(f.artistId)), artists:ownRows, services:serviceRows.filter(s=>canManageStudioSettings(user.role)||ids.includes(s.artistId)) });
+  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', currentArtist:ownArtists.length===1?ownArtists[0]:null, artistProfileCount:ownArtists.length, studioLogoAssetId:logo.assetId, studioLogoAvailable:logo.available, isOwner:canManageStudioSettings(user.role),connections:canManageStudioSettings(user.role)?connections:[], forms:forms.filter(f=>canManageStudioSettings(user.role)||f.artistId&&ids.includes(f.artistId)), artists:ownRows, services:serviceRows.filter(s=>canManageStudioSettings(user.role)||ids.includes(s.artistId)) });
 }
 
 async function handlePOST(request: NextRequest) {

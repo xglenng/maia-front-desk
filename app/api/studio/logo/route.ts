@@ -2,11 +2,12 @@ import {createHash} from 'node:crypto';
 import sharp from 'sharp';
 import {and,eq} from 'drizzle-orm';
 import {NextRequest,NextResponse} from 'next/server';
-import {identity,protectedSettingsRoute} from '@/packages/auth/server';
+import {identity,protectedSettingsRoute,sameOrigin} from '@/packages/auth/server';
 import {canManageStudioSettings} from '@/packages/auth/settings-policy';
 import {db} from '@/packages/db/src';
 import {studioLogoAssets} from '@/packages/db/src/schema';
 import {boundedBody} from '@/packages/waivers/bounded-body';
+import {isMissingStudioLogoTable} from '@/packages/waivers/studio-logo-schema';
 
 const maxUploadBytes=2*1024*1024;
 const maxRequestBytes=maxUploadBytes+64*1024;
@@ -46,12 +47,20 @@ async function handleDELETE(request:NextRequest){
  await db.update(studioLogoAssets).set({active:false}).where(and(eq(studioLogoAssets.organizationId,user.organization_id),eq(studioLogoAssets.active,true)));
  return NextResponse.json({removed:true});
 }
-export const GET=protectedSettingsRoute(handleGET,false);
+async function withLogoSchema(handler:()=>Promise<Response>){
+ try{return await handler();}
+ catch(error){
+  if(!isMissingStudioLogoTable(error))throw error;
+  console.warn('Studio logo unavailable: studio_logo_assets migration is pending.');
+  return NextResponse.json({error:'Studio logos are temporarily unavailable because the database update has not been applied. Contact your studio administrator.'},{status:503,headers:{'Cache-Control':'no-store'}});
+ }
+}
+export const GET=protectedSettingsRoute(request=>withLogoSchema(()=>handleGET(request)),false);
 export async function POST(request:NextRequest){
  const user=await identity(request);
  if(!user)return NextResponse.json({error:'Sign in required.'},{status:401});
  if(!canManageStudioSettings(user.role))return NextResponse.json({error:'Access denied.'},{status:403});
- if(request.headers.get('origin')!==request.nextUrl.origin)return NextResponse.json({error:'Invalid request origin.'},{status:403});
- const response=await handlePOST(request);response.headers.set('Cache-Control','no-store');return response;
+ if(!sameOrigin(request))return NextResponse.json({error:'Invalid request origin.'},{status:403});
+ const response=await withLogoSchema(()=>handlePOST(request));response.headers.set('Cache-Control','no-store');return response;
 }
-export const DELETE=protectedSettingsRoute(handleDELETE,false);
+export const DELETE=protectedSettingsRoute(request=>withLogoSchema(()=>handleDELETE(request)),false);

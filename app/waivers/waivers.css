@@ -102,6 +102,8 @@
 .waiver-admin .live-form.native-preview {margin:0;padding:24px;background:#fff;border:1px solid #ddd;border-radius:12px;min-width:0;}
 .waiver-admin .live-form-label {font-size:11px;color:#706b66;letter-spacing:.3px;margin-bottom:20px;}
 .waiver-admin .live-form .live-form-name {font-size:26px;font-weight:700;letter-spacing:-.6px;border:1px solid transparent;border-radius:6px;padding:10px 4px;margin:0 0 12px;}
+.waiver-admin .live-form .live-form-name[aria-invalid="true"] {border-color:#9b2f20;}
+.waiver-admin .form-name-preview-error {margin:-4px 0 12px;color:#9b2f20;font-size:13px;font-weight:600;line-height:1.4;}
 .waiver-admin .live-form .live-consent-text {font-size:14px;font-weight:400;line-height:1.7;border:1px solid transparent;padding:10px 4px;resize:vertical;}
 .waiver-admin .live-form .live-form-name:hover,.waiver-admin .live-form .live-consent-text:hover {border-color:#ddd;}
 .waiver-admin .live-element {position:relative;padding:4px 12px;margin:8px -12px;border:1px solid transparent;border-radius:8px;cursor:pointer;outline-offset:3px;}

@@ -38,16 +38,31 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   const result=await saved.json();assert.equal(result.form.artistId,artist);assert.equal(result.form.organizationId,org);assert.equal(result.form.completionMode,'MANUAL');
   const list=await GET(new NextRequest('http://localhost/api/waiver-integrations',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
   const data=await list.json();assert.ok(data.forms.some((form:{id:string})=>form.id===result.form.id));
-  assert.equal(data.currentArtist.id,artist);assert.equal(data.artistProfileCount,1);assert.equal(data.studioLogoAssetId,null);
+  assert.equal(data.currentArtist.id,artist);assert.equal(data.artistProfileCount,1);assert.equal(data.studioLogoAssetId,null);assert.equal(data.studioLogoAvailable,true);
   const logoBytes=await sharp({create:{width:16,height:12,channels:4,background:{r:180,g:90,b:50,alpha:1}}}).png().toBuffer();
+  const invalidOriginUpload=new FormData();invalidOriginUpload.set('logo',new File([logoBytes],'synthetic-logo.png',{type:'image/png'}));
+  const invalidOriginRequest=new NextRequest('http://localhost/api/studio/logo',{method:'POST',headers:{origin:'https://untrusted.example.test',cookie:`inkflow_session=${token}`},body:invalidOriginUpload});
+  assert.equal((await saveLogo(invalidOriginRequest)).status,403);
   const upload=new FormData();upload.set('logo',new File([logoBytes],'synthetic-logo.png',{type:'image/png'}));
-  const uploaded=await saveLogo(logoRequest('POST',upload));assert.equal(uploaded.status,201,await uploaded.clone().text());const logoData=await uploaded.json();
+  const previousOrigins=process.env.MAIA_ADDITIONAL_APP_ORIGINS;
+  process.env.MAIA_ADDITIONAL_APP_ORIGINS='https://studio.example.test';
+  let uploaded:Response;
+  try{
+   const proxyRequest=new NextRequest('http://localhost/api/studio/logo',{method:'POST',headers:{origin:'https://studio.example.test',cookie:`inkflow_session=${token}`},body:upload});
+   uploaded=await saveLogo(proxyRequest);
+  }finally{if(previousOrigins===undefined)delete process.env.MAIA_ADDITIONAL_APP_ORIGINS;else process.env.MAIA_ADDITIONAL_APP_ORIGINS=previousOrigins;}
+  assert.equal(uploaded.status,201,await uploaded.clone().text());const logoData=await uploaded.json();
   const logoImage=await readLogo(new Request(`http://localhost/api/public/studio-logo/${logoData.assetId}`),{params:Promise.resolve({assetId:logoData.assetId})});
   assert.equal(logoImage.status,200);assert.equal(logoImage.headers.get('content-type'),'image/webp');
   const logoState=await getLogo(new NextRequest('http://localhost/api/studio/logo',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
   assert.equal((await logoState.json()).assetId,logoData.assetId);
+  const updatedList=await GET(new NextRequest('http://localhost/api/waiver-integrations',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  assert.equal((await updatedList.json()).studioLogoAssetId,logoData.assetId);
+  const foreignLogo=randomUUID();
+  await local.query("INSERT INTO studio_logo_assets(id,organization_id,byte_length,sha256,data) VALUES($1,$2,1,'synthetic','AA==')",[foreignLogo,other]);
   const native={action:'ADD_NATIVE_FORM',name:'Artist-owned consent',definition:{body:'Studio-reviewed consent wording.',logoAssetId:logoData.assetId},artistId:artist,audience:'ADULT'};
   assert.equal((await POST(req({...native,artistId:peer}),undefined)).status,403);
+  assert.equal((await POST(req({...native,definition:{...native.definition,logoAssetId:foreignLogo}}),undefined)).status,400);
   const nativeResponse=await POST(req(native),undefined);assert.equal(nativeResponse.status,201);
   const nativeResult=await nativeResponse.json();assert.equal(nativeResult.form.artistId,artist);assert.equal(nativeResult.form.organizationId,org);assert.equal(nativeResult.form.metadata.definition.logoAssetId,logoData.assetId);
   const client=randomUUID(),appointment=randomUUID(),assignment=randomUUID(),rawToken='a'.repeat(48);
@@ -63,6 +78,13 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   assert.equal(JSON.parse(submission.signature_data).definition.logoAssetId,logoData.assetId);
   const archive=await getArchive(new NextRequest(`http://localhost/api/waiver-archive?id=${submission.id}`,{headers:{cookie:`inkflow_session=${token}`}}),undefined);
   assert.equal(archive.status,200);assert.equal(JSON.parse((await archive.json()).form.signatureData).definition.logoAssetId,logoData.assetId);
+  const replacementUpload=new FormData();replacementUpload.set('logo',new File([logoBytes],'replacement.png',{type:'image/png'}));
+  const replacement=await saveLogo(logoRequest('POST',replacementUpload));assert.equal(replacement.status,201);const replacementData=await replacement.json();
+  const replacedList=await GET(new NextRequest('http://localhost/api/waiver-integrations',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  assert.equal((await replacedList.json()).studioLogoAssetId,replacementData.assetId);
+  assert.equal((await POST(req(native),undefined)).status,400);
+  const archiveAfterReplacement=await getArchive(new NextRequest(`http://localhost/api/waiver-archive?id=${submission.id}`,{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  assert.equal(JSON.parse((await archiveAfterReplacement.json()).form.signatureData).definition.logoAssetId,logoData.assetId);
   assert.equal((await removeLogo(logoRequest('DELETE'),undefined)).status,200);
   assert.equal((await readLogo(new Request(`http://localhost/api/public/studio-logo/${logoData.assetId}`),{params:Promise.resolve({assetId:logoData.assetId})})).status,200);
   const noArtistUser=randomUUID(),noArtistToken='0'.repeat(64);
@@ -72,6 +94,16 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   const noArtistRequest=new NextRequest('http://localhost/api/waiver-integrations',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${noArtistToken}`,'content-type':'application/json'},body:JSON.stringify({action:'ADD_NATIVE_FORM',name:'Unassigned form',definition:{body:'Draft wording.'}})});
   const noArtistResponse=await POST(noArtistRequest,undefined);
   assert.equal(noArtistResponse.status,409);assert.match((await noArtistResponse.json()).error,/create an artist profile and link it to your user/i);
+  await local.query('ALTER TABLE studio_logo_assets RENAME TO studio_logo_assets_unavailable');
+  const withoutLogo=await GET(new NextRequest('http://localhost/api/waiver-integrations',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  assert.equal(withoutLogo.status,200);const withoutLogoData=await withoutLogo.json();assert.equal(withoutLogoData.studioLogoAvailable,false);assert.equal(withoutLogoData.studioLogoAssetId,null);
+  const unavailable=await getLogo(new NextRequest('http://localhost/api/studio/logo',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  assert.equal(unavailable.status,503);assert.match((await unavailable.json()).error,/database update has not been applied/i);
+  const missingUpload=new FormData();missingUpload.set('logo',new File([logoBytes],'synthetic-logo.png',{type:'image/png'}));
+  assert.equal((await saveLogo(logoRequest('POST',missingUpload))).status,503);
+  assert.equal((await removeLogo(logoRequest('DELETE'),undefined)).status,503);
+  const logoFree=await POST(req({...native,definition:{body:'Logo-free consent wording.'}}),undefined);
+  assert.equal(logoFree.status,201);
  }finally{
   await local.query(`DROP SCHEMA ${schema} CASCADE`);await local.end();await pool.end();
  }

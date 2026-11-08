@@ -26,4 +26,16 @@ Authenticated studio owners and the appointment's assigned artist can download t
 - Rollback: keep the additive table/index and encrypted records. Disable any new forms containing Photo ID before rolling application code back to a version that cannot render that element. Do not drop identity records or rewrite signed evidence during rollback.
 - Production migration and deployment require explicit approval. No production records, Jotform content, or messaging configuration are changed by implementing this feature locally.
 
+## Studio logos for consent forms
+
+Studio Settings → Studio branding stores a normalized logo for the signed-in studio. Artists may add its active version to a new form; the builder and draft PDF use that version. A signed form retains its original logo asset even when the studio replaces or removes its current logo. Do not delete historical logo assets while signed records reference them.
+
+Logo support requires `0025_studio_logo_assets.sql`. If the table is missing, form creation remains available without a logo and the builder reports that the database update is needed. The Studio logo setting also reports that update as unavailable.
+
+Before deploying logo support, an operator should verify the intended database and migration history. Read-only checks are `SELECT to_regclass('public.studio_logo_assets');` and `SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at DESC;`. Compare the 0025 row's hash to `shasum -a 256 packages/db/drizzle/0025_studio_logo_assets.sql`; an existing table alone does not establish that the migration journal is correct.
+
+With an authorized, correctly targeted `DATABASE_URL`, run `npm run db:migrate` from the repository root; this applies **all pending** Drizzle migrations, including 0025, not just 0025. Review the pending migrations and take the normal backup first. Repeat both checks afterward. Do not run this against production without explicit approval. If rolling back application code, retain the additive table and logo assets for existing forms and signed evidence.
+
+Behind a proxy, configure `NEXT_PUBLIC_APP_URL` (or `MAIA_ADDITIONAL_APP_ORIGINS` for additional trusted origins) to match the browser-facing app origin. Logo uploads use Maia's shared same-origin policy and reject other origins.
+
 Verification: unit tests cover starter branding and dedicated upload validation. The isolated PostgreSQL test covers required uploads, invalid/oversize files, image normalization/encryption/integrity, concurrent signing/replay, denied cross-artist/cross-tenant downloads, access audit, foreign-key isolation, and atomic rollback on document failure. Only synthetic images and clients are used.

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import NativeEditor from "../native-editor";
 import "../waivers.css";
 
-type BuilderSetup = { studioBrand?: string; currentArtist: { id: string; name: string } | null; artistProfileCount: number; studioLogoAssetId: string | null };
+type BuilderSetup = { studioBrand?: string; currentArtist: { id: string; name: string } | null; artistProfileCount: number; studioLogoAssetId: string | null; studioLogoAvailable: boolean };
 
 export default function NewConsentFormPage() {
   const router = useRouter();
@@ -30,6 +30,6 @@ export default function NewConsentFormPage() {
     <header><a href="/waivers">← Current forms</a><h1>Create consent form</h1><p>Build a form using a template or choose your own elements.</p></header>
     {error && <p role="alert" className="waiver-notice">{error} <button onClick={() => window.location.reload()}>Try again</button></p>}
     {!setup && !error && <p role="status">Loading form builder…</p>}
-    {setup && <section className="waiver-section native-create"><NativeEditor currentArtist={setup.currentArtist} artistProfileCount={setup.artistProfileCount} studioBrand={setup.studioBrand || ""} studioLogoAssetId={setup.studioLogoAssetId} busy={false} onSaved={async () => { router.push("/waivers?created=1"); }} /></section>}
+    {setup && <section className="waiver-section native-create"><NativeEditor currentArtist={setup.currentArtist} artistProfileCount={setup.artistProfileCount} studioBrand={setup.studioBrand || ""} studioLogoAssetId={setup.studioLogoAssetId} studioLogoAvailable={setup.studioLogoAvailable} busy={false} onSaved={async () => { router.push("/waivers?created=1"); }} /></section>}
   </main>;
 }
