@@ -3,7 +3,7 @@ import {and,eq,sql,inArray} from 'drizzle-orm';
 import {NextRequest,NextResponse} from 'next/server';
 import {z} from 'zod';
 import {db} from '@/packages/db/src';
-import {appointments,externalWaiverAssignments,externalWaiverForms,waiverTemplates,waiverSubmissions,externalWaiverEvents,automationJobs,waiverIdentityDocuments} from '@/packages/db/src/schema';
+import {appointments,externalWaiverAssignments,externalWaiverForms,studioLogoAssets,waiverTemplates,waiverSubmissions,externalWaiverEvents,automationJobs,waiverIdentityDocuments} from '@/packages/db/src/schema';
 import {nativeDefinition,nativeAnswers,validateNativeAnswers} from '@/packages/waivers/forms';
 import {boundedBody} from '@/packages/waivers/bounded-body';
 import {drawnSignature} from '@/packages/waivers/signature';
@@ -18,6 +18,10 @@ async function resolve(token:string){
  const meta=row.form.metadata as {templateId?:string;definition?:unknown}|null;
  const definition=nativeDefinition.safeParse(meta?.definition);
  if(!definition.success||!meta?.templateId)return null;
+ if(definition.data.logoAssetId){
+  const [logo]=await db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.id,definition.data.logoAssetId),eq(studioLogoAssets.organizationId,row.assignment.organizationId))).limit(1);
+  if(!logo)return null;
+ }
  const [template]=await db.select().from(waiverTemplates).where(and(eq(waiverTemplates.id,meta.templateId),eq(waiverTemplates.organizationId,row.assignment.organizationId)));
  if(!template||template.body!==definition.data.body)return null;
  return {...row,template,definition:definition.data};
@@ -25,7 +29,7 @@ async function resolve(token:string){
 export async function GET(request:NextRequest){
  const token=tokenSchema.safeParse(request.nextUrl.searchParams.get('token'));if(!token.success)return NextResponse.json({error:'Invalid form link.'},{status:404});
  const row=await resolve(token.data);if(!row)return NextResponse.json({error:'This form link is unavailable or expired.'},{status:404});
- return NextResponse.json({name:row.form.name,definition:row.definition,complete:['COMPLETED','REVIEWED'].includes(row.assignment.status)},{headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});
+ return NextResponse.json({name:row.form.name,audience:row.form.audience,definition:row.definition,complete:['COMPLETED','REVIEWED'].includes(row.assignment.status)},{headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});
 }
 const submission=z.object({token:tokenSchema,signedName:z.string().trim().min(2).max(200),agreed:z.literal(true),answers:nativeAnswers.optional(),signature:drawnSignature});
 export async function POST(request:NextRequest){
@@ -62,7 +66,7 @@ export async function POST(request:NextRequest){
   if(['COMPLETED','REVIEWED'].includes(current.status))return;
   if(current.status==='VOID')throw Error('Form was voided.');
   const latest=await resolve(values.token);if(!latest)throw Error('Form unavailable.');
-  const signatureData=JSON.stringify({agreed:true,definition:row.definition,answers:checked.data,drawnSignature:values.signature,...(identityImage?{photoId:{fieldId:photoField!.id,sha256:identityImage.sha256,contentType:identityImage.contentType,byteLength:identityImage.byteLength}}:{})});
+  const signatureData=JSON.stringify({agreed:true,audience:row.form.audience,definition:row.definition,answers:checked.data,drawnSignature:values.signature,...(identityImage?{photoId:{fieldId:photoField!.id,sha256:identityImage.sha256,contentType:identityImage.contentType,byteLength:identityImage.byteLength}}:{})});
   const documentHash=digest(JSON.stringify({templateId:row.template.id,version:row.template.version,body:row.template.body,signatureData,signedName:values.signedName,signedAt:now.toISOString(),appointmentId:row.assignment.appointmentId,clientId:row.assignment.clientId}));
   const [signed]=await tx.insert(waiverSubmissions).values({organizationId:row.assignment.organizationId,appointmentId:row.assignment.appointmentId,clientId:row.assignment.clientId,waiverTemplateId:row.template.id,signedName:values.signedName,signatureData,signedAt:now,documentHash,userAgent:request.headers.get('user-agent')?.slice(0,1000)}).returning({id:waiverSubmissions.id});
   if(identityImage)await tx.insert(waiverIdentityDocuments).values({organizationId:row.assignment.organizationId,assignmentId:row.assignment.id,submissionId:signed.id,fieldId:photoField!.id,...identityImage});

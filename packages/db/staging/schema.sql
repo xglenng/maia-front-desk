@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 60f8146e16f08442d5b1dc978daa907ef5f5e8e639a6a63760f5d23af2fa22d5
+-- schema-source-sha256: 3e14d6635ad33ad94d0dff572d39fe789af53f7065c05e7e099ace8c3c517ba7
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -923,6 +923,19 @@ CREATE TABLE "studio_locations" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "studio_logo_assets" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"content_type" text DEFAULT 'image/webp' NOT NULL,
+	"byte_length" integer NOT NULL,
+	"sha256" text NOT NULL,
+	"data" text NOT NULL,
+	"active" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "studio_logo_assets_content_type_check" CHECK ("studio_logo_assets"."content_type" = 'image/webp'),
+	CONSTRAINT "studio_logo_assets_byte_length_check" CHECK ("studio_logo_assets"."byte_length" BETWEEN 1 AND 524288)
+);
+--> statement-breakpoint
 CREATE TABLE "studio_payment_accounts" (
 	"livemode" boolean DEFAULT false NOT NULL,
 	"organization_id" uuid PRIMARY KEY NOT NULL,
@@ -1130,6 +1143,10 @@ CREATE UNIQUE INDEX "studio_locations_id_organization_idx" ON "studio_locations"
 CREATE INDEX "studio_locations_organization_idx" ON "studio_locations" USING btree ("organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "studio_locations_one_primary_per_org_idx" ON "studio_locations" USING btree ("organization_id") WHERE "studio_locations"."is_primary" = true;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "studio_logo_assets_id_organization_uidx" ON "studio_logo_assets" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "studio_logo_assets_one_active_per_org_uidx" ON "studio_logo_assets" USING btree ("organization_id") WHERE "studio_logo_assets"."active" = true;
 --> statement-breakpoint
 CREATE UNIQUE INDEX "twilio_accounts_id_organization_uidx" ON "twilio_accounts" USING btree ("id","organization_id");
 --> statement-breakpoint
@@ -1542,6 +1559,8 @@ ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_artist_id_organiza
 ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoices_client_id_organization_id_clients_id_organization_id_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_locations" ADD CONSTRAINT "studio_locations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "studio_logo_assets" ADD CONSTRAINT "studio_logo_assets_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "studio_payment_accounts" ADD CONSTRAINT "studio_payment_accounts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

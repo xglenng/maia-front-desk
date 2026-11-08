@@ -8,10 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
-import { artists, organizations, externalWaiverForms, services, waiverProviderConnections, waiverTemplates } from "@db/schema";
+import { artists, organizations, externalWaiverForms, services, studioLogoAssets, waiverProviderConnections, waiverTemplates } from "@db/schema";
 
 const schema = z.discriminatedUnion("action", [
- z.object({action:z.literal("ADD_NATIVE_FORM"),name:z.string().trim().min(1).max(160),definition:nativeDefinition,artistId:z.string().uuid().nullable(),audience:z.enum(["ANY","ADULT","MINOR"]).default("ADULT")}),
+ z.object({action:z.literal("ADD_NATIVE_FORM"),name:z.string().trim().min(1).max(160),definition:nativeDefinition,artistId:z.string().uuid().nullable().optional(),audience:z.enum(["ANY","ADULT","MINOR"]).default("ADULT")}),
   z.object({ action: z.literal("CONNECT_JOTFORM"), apiKey: z.string().min(10), region: z.enum(["STANDARD", "EU", "HIPAA"]).default("STANDARD"), label: z.string().min(1).max(80).default("Jotform") }),
   z.object({ action: z.literal("SYNC"), connectionId: z.string().uuid() }),
   z.object({ action: z.literal("ROTATE_WEBHOOK"), connectionId: z.string().uuid() }),
@@ -38,16 +38,18 @@ async function handleGET(request: NextRequest) {
   const user = await identity(request);
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const organizationId = user.organization_id;
-  const [connections, forms, artistRows, serviceRows, organizationRows] = await Promise.all([
+  const [connections, forms, artistRows, serviceRows, organizationRows, ownArtists, logoRows] = await Promise.all([
     db.select({ id: waiverProviderConnections.id, provider: waiverProviderConnections.provider, label: waiverProviderConnections.label, settings: waiverProviderConnections.settings, status: waiverProviderConnections.status, lastSyncedAt: waiverProviderConnections.lastSyncedAt }).from(waiverProviderConnections).where(eq(waiverProviderConnections.organizationId, organizationId)).orderBy(asc(waiverProviderConnections.createdAt)),
     db.select().from(externalWaiverForms).where(eq(externalWaiverForms.organizationId, organizationId)).orderBy(asc(externalWaiverForms.priority), asc(externalWaiverForms.name)),
     db.select({ id: artists.id, name: artists.displayName }).from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName)),
     db.select({ id: services.id, name: services.name, artistId: services.artistId }).from(services).where(and(eq(services.organizationId, organizationId), eq(services.active, true))).orderBy(asc(services.name)),
     db.select({name:organizations.name,publicName:organizations.publicName}).from(organizations).where(eq(organizations.id,organizationId)).limit(1),
+    db.select({id:artists.id,name:artists.displayName}).from(artists).where(and(eq(artists.organizationId,organizationId),eq(artists.userId,user.id))).orderBy(asc(artists.displayName)),
+    db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.organizationId,organizationId),eq(studioLogoAssets.active,true))).limit(1),
   ]);
-  const ownRows=canManageStudioSettings(user.role)?artistRows:await db.select({id:artists.id,name:artists.displayName}).from(artists).where(and(eq(artists.organizationId,organizationId),eq(artists.userId,user.id)));
+  const ownRows=canManageStudioSettings(user.role)?artistRows:ownArtists;
   const ids=ownRows.map(a=>a.id);
-  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', isOwner:canManageStudioSettings(user.role),connections:canManageStudioSettings(user.role)?connections:[], forms:forms.filter(f=>canManageStudioSettings(user.role)||f.artistId&&ids.includes(f.artistId)), artists:ownRows, services:serviceRows.filter(s=>canManageStudioSettings(user.role)||ids.includes(s.artistId)) });
+  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', currentArtist:ownArtists.length===1?ownArtists[0]:null, artistProfileCount:ownArtists.length, studioLogoAssetId:logoRows[0]?.id||null, isOwner:canManageStudioSettings(user.role),connections:canManageStudioSettings(user.role)?connections:[], forms:forms.filter(f=>canManageStudioSettings(user.role)||f.artistId&&ids.includes(f.artistId)), artists:ownRows, services:serviceRows.filter(s=>canManageStudioSettings(user.role)||ids.includes(s.artistId)) });
 }
 
 async function handlePOST(request: NextRequest) {
@@ -66,10 +68,17 @@ async function handlePOST(request: NextRequest) {
    if('serviceId' in input&&input.serviceId){const [service]=await db.select().from(services).where(and(eq(services.id,input.serviceId),eq(services.organizationId,organizationId)));if(!service||input.artistId&&service.artistId!==input.artistId)return NextResponse.json({error:'Service does not belong to this artist.'},{status:400});}
   }
   if(input.action==='ADD_NATIVE_FORM'){
+   const ownProfile=ownArtists.length===1?ownArtists[0]:null;
+   if(!ownProfile)return NextResponse.json({error:ownArtists.length?'More than one artist profile is linked to your sign-in. Ask the studio owner to resolve the profile before saving a form.':'No artist profile is linked to your sign-in in this studio. Ask the studio owner to create an artist profile and link it to your user before saving a form.'},{status:409});
+   if(input.artistId&&input.artistId!==ownProfile.id)return NextResponse.json({error:'A consent form can only be created for the artist profile linked to your sign-in.'},{status:403});
+   if(input.definition.logoAssetId){
+    const [logo]=await db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.id,input.definition.logoAssetId),eq(studioLogoAssets.organizationId,organizationId),eq(studioLogoAssets.active,true)));
+    if(!logo)return NextResponse.json({error:'Studio logo not found.'},{status:400});
+   }
    if(input.definition.fields?.some(field=>field.type==='PHOTO_ID')){const {identityImageStorageReady}=await import('@/packages/waivers/identity-image.server');if(!identityImageStorageReady())return NextResponse.json({error:'Private photo ID storage must be configured before saving this form.'},{status:503});}
    const form=await db.transaction(async tx=>{
     const [template]=await tx.insert(waiverTemplates).values({organizationId,name:input.name,body:input.definition.body,active:false}).returning();
-    return (await tx.insert(externalWaiverForms).values({organizationId,name:input.name,provider:'MAIA',formUrl:'/waiver',artistId:input.artistId,audience:input.audience,completionMode:'HOSTED',metadata:{templateId:template.id,definition:input.definition}}).returning())[0];
+    return (await tx.insert(externalWaiverForms).values({organizationId,name:input.name,provider:'MAIA',formUrl:'/waiver',artistId:ownProfile.id,audience:input.audience,completionMode:'HOSTED',metadata:{templateId:template.id,definition:input.definition}}).returning())[0];
    });return NextResponse.json({form},{status:201});
   }
   if (parsed.data.action === "CONNECT_JOTFORM") {

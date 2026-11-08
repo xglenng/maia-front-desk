@@ -10,7 +10,25 @@ test('adult starters fit existing fields and resolve each artist brand without s
   assert.ok(serialized.includes('North & South $& Studio'));assert.ok(serialized.includes('Alex Rivera'));
   assert.doesNotMatch(serialized,/Embellished|\bVal\b|127 N 500 E|84770|\{\{/);
   assert.ok((draft.definition.fields?.length||0)<=40);
+  assert.equal(draft.audience,'ADULT');
   assert.ok(!draft.definition.fields?.some(field=>field.id==='medical'));assert.equal(draft.definition.fields?.find(field=>field.id==='photo_id')?.required,false);
+ }
+});
+test('minor starters request the minor and guardian details and identify the guardian as signer',()=>{
+ for(const [kind,procedure] of [['MINOR_TATTOO','tattoo'],['MINOR_PIERCING','piercing']] as const){
+  const draft=buildConsentStarter(kind,'Studio','Artist');
+  const fields=draft.definition.fields||[];
+  assert.equal(draft.audience,'MINOR');
+  assert.equal(draft.name,`Minor ${procedure} consent`);
+  assert.ok(fields.some(field=>field.id==='minor_name'&&field.type==='FULL_NAME'&&field.required));
+  assert.ok(fields.some(field=>field.id==='minor_date_of_birth'&&field.type==='DATE'&&field.required));
+  assert.ok(fields.some(field=>field.id==='guardian_name'&&field.type==='FULL_NAME'&&field.required));
+  assert.ok(fields.some(field=>field.id==='guardian_relationship'&&field.type==='TEXT'&&field.required));
+  assert.ok(fields.some(field=>field.id==='guardian_authority'&&field.type==='ACKNOWLEDGMENT'&&field.required));
+  assert.equal(draft.definition.signerLabel,'Parent or legal guardian');
+  assert.match(draft.definition.signerAgreement||'',/parent or legal guardian/i);
+  assert.doesNotMatch(JSON.stringify(draft),/minimum age|must be \d{2}/i);
+  assert.ok(nativeDefinition.safeParse(draft.definition).success);
  }
 });
 test('starters require identity and informed agreement but make photography optional',()=>{

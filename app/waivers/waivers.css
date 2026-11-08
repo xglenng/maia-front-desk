@@ -98,6 +98,7 @@
  padding:0;margin:0 8px 0 0;vertical-align:middle;accent-color:#111;flex-shrink:0;
 }
 .waiver-admin .live-workspace {display:grid;grid-template-columns:180px minmax(0,1fr) 210px;gap:16px;align-items:start;}
+.waiver-admin .live-workspace>* {min-width:0;}
 .waiver-admin .live-form.native-preview {margin:0;padding:24px;background:#fff;border:1px solid #ddd;border-radius:12px;min-width:0;}
 .waiver-admin .live-form-label {font-size:11px;color:#706b66;letter-spacing:.3px;margin-bottom:20px;}
 .waiver-admin .live-form .live-form-name {font-size:26px;font-weight:700;letter-spacing:-.6px;border:1px solid transparent;border-radius:6px;padding:10px 4px;margin:0 0 12px;}
@@ -120,7 +121,7 @@
 .waiver-admin .live-signature .live-agreement {font-size:12px;font-weight:400;line-height:1.6;display:block;}
 .waiver-admin .live-submit {display:inline-block;background:#111;color:#fff;border-radius:999px;padding:12px 20px;font-size:14px;}
 @media(max-width:900px){.waiver-admin .live-workspace {grid-template-columns:180px minmax(0,1fr);}.waiver-admin .element-inspector {grid-column:2;position:static;}.waiver-admin .live-builder .element-palette {grid-row:1/3;}}
-@media(max-width:700px){.waiver-admin .live-workspace {grid-template-columns:1fr;}.waiver-admin .live-builder .element-palette {grid-row:auto;}.waiver-admin .element-inspector {grid-column:1;}.waiver-admin .live-form.native-preview {padding:16px;}.waiver-admin .live-builder .element-options {max-height:220px;}}
+@media(max-width:700px){.waiver-admin .live-workspace {grid-template-columns:minmax(0,1fr);}.waiver-admin .live-builder .element-palette {grid-row:auto;}.waiver-admin .element-inspector {grid-column:1;}.waiver-admin .live-form.native-preview {padding:16px;}.waiver-admin .live-builder .element-options {max-height:220px;}}
 .waiver-admin .element-options button {flex-shrink:0;min-height:62px;}
 .waiver-admin .live-form .native-question-list fieldset label {flex-direction:row;justify-content:flex-start;font-weight:400;}
 .waiver-admin .live-form .native-question-list fieldset input {flex-shrink:0;}
@@ -142,6 +143,11 @@
 .waiver-admin .template-picker summary {cursor:pointer;font-weight:600;color:#111;}
 .waiver-admin .template-picker-confirm>div {display:flex;flex-wrap:wrap;gap:8px;}
 .waiver-admin .template-picker .template-picker-primary {background:#111;border-color:#111;color:#fff;}
+.waiver-admin .live-studio-logo{display:flex;width:100%;justify-content:center;align-items:center;margin:14px 0;padding:10px;border:1px dashed transparent;background:transparent;border-radius:8px}
+.waiver-admin .live-studio-logo.selected{border-color:#6750a4;background:#faf8ff}
+.waiver-admin .live-studio-logo img{display:block;max-width:100%;max-height:160px;object-fit:contain}
+.waiver-admin .element-palette a{color:#4d3e86;text-decoration:underline}
+.waiver-admin .signed-record>img{max-width:100%}
 
 .archive-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 0;border-bottom:1px solid #e6e3df}.archive-actions{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:20px 0}.signed-body{white-space:pre-wrap;line-height:1.7}.signed-answer{margin:24px 0}.record-hash{overflow-wrap:anywhere}.archive-page input{max-width:500px}.archive-page form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}.archive-page form label{flex:1;min-width:200px}.archive-page button{padding:10px 18px;border:1px solid #ddd;border-radius:24px;background:#fff;color:#181716;cursor:pointer}.archive-page button:disabled{opacity:.5;cursor:default}@media print{body header,body nav,.archive-controls{display:none!important}.archive-page{max-width:none!important;margin:0!important;padding:0!important}.signed-record{border:0!important}.signed-answer,svg{break-inside:avoid}}
 .archive-page form label{display:flex;flex-direction:column;gap:8px}.archive-page form input{width:100%;border:1px solid #d7d7d7;border-radius:10px;padding:12px 14px;min-height:46px}.archive-page .waiver-section{margin-top:24px}.archive-page .archive-row p{margin:8px 0;color:#706b66}@media(max-width:600px){.archive-row{align-items:flex-start;flex-direction:column}}

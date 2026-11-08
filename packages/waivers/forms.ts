@@ -20,7 +20,14 @@ const question=z.discriminatedUnion('type',[
  z.object({...fieldBase,type:z.literal('PARAGRAPH')}),
  z.object({...fieldBase,type:z.literal('DIVIDER')}),
 ]);
-export const nativeDefinition=z.object({body:z.string().trim().min(1).max(30000),fields:z.array(question).max(40).optional()}).refine(value=>new Set(value.fields?.map(field=>field.id)).size===(value.fields?.length||0),'Question IDs must be unique.').refine(value=>(value.fields||[]).filter(field=>field.type==='PHOTO_ID').length<=1,'Use at most one photo ID upload per form.');
+export const nativeDefinition=z.object({
+ body:z.string().trim().min(1).max(30000),
+ fields:z.array(question).max(40).optional(),
+ logoAssetId:z.string().uuid().optional(),
+ signerLabel:z.string().trim().min(1).max(80).optional(),
+ signerNameLabel:z.string().trim().min(1).max(120).optional(),
+ signerAgreement:z.string().trim().min(1).max(300).optional(),
+}).refine(value=>new Set(value.fields?.map(field=>field.id)).size===(value.fields?.length||0),'Question IDs must be unique.').refine(value=>(value.fields||[]).filter(field=>field.type==='PHOTO_ID').length<=1,'Use at most one photo ID upload per form.');
 export type NativeField=z.infer<typeof question>;
 export const nativeAnswers=z.record(z.union([z.string().max(5000),z.boolean(),z.array(z.string().max(200)).max(20)])).refine(value=>Object.keys(value).length<=40);
 export type NativeAnswers=z.infer<typeof nativeAnswers>;

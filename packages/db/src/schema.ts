@@ -709,6 +709,22 @@ export const externalWaiverForms = pgTable("external_waiver_forms", {
   tenantServiceIdReference: foreignKey({ name: "external_waiver_forms_service_id_tenant_fk", columns: [table.serviceId, table.organizationId], foreignColumns: [services.id, services.organizationId] }),
 }));
 
+export const studioLogoAssets = pgTable("studio_logo_assets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
+  contentType: text("content_type").notNull().default("image/webp"),
+  byteLength: integer("byte_length").notNull(),
+  sha256: text("sha256").notNull(),
+  data: text("data").notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+}, table => ({
+  tenantIdentityUnique: uniqueIndex("studio_logo_assets_id_organization_uidx").on(table.id, table.organizationId),
+  tenantCurrentIndex: uniqueIndex("studio_logo_assets_one_active_per_org_uidx").on(table.organizationId).where(sql`${table.active} = true`),
+  imageTypeCheck: check("studio_logo_assets_content_type_check", sql`${table.contentType} = 'image/webp'`),
+  imageLengthCheck: check("studio_logo_assets_byte_length_check", sql`${table.byteLength} BETWEEN 1 AND 524288`),
+}));
+
 export const externalWaiverAssignments = pgTable("external_waiver_assignments", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
