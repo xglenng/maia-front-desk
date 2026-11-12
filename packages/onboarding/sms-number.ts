@@ -11,3 +11,8 @@ export function approvedLiveSmsNumber(number: (NonNullable<SmsNumberRecord>&{pro
   const phone=liveSmsNumber(number);
   return phone&&number?.provider==='twilio'&&number.complianceStatus==='APPROVED'&&/^PN[0-9a-f]{32}$/i.test(number.sid||'')&&/^\+[1-9]\d{7,14}$/.test(phone)?phone:null;
 }
+
+export function assignedLiveTwilioNumber(number: (NonNullable<SmsNumberRecord>&{provider?:string})|null|undefined): string | null {
+  const phone=liveSmsNumber(number);
+  return phone&&number?.provider==='twilio'&&/^PN[0-9a-f]{32}$/i.test(number.sid||'')&&/^\+[1-9]\d{7,14}$/.test(phone)?phone:null;
+}

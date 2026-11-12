@@ -28,7 +28,19 @@ Authenticated studio owners and the appointment's assigned artist can download t
 
 ## Studio logos for consent forms
 
-Studio Settings → Studio branding stores a normalized logo for the signed-in studio. Artists may add its active version to a new form; the builder and draft PDF use that version. A signed form retains its original logo asset even when the studio replaces or removes its current logo. Do not delete historical logo assets while signed records reference them.
+Studio Settings → Studio branding stores a normalized logo for the signed-in studio. Artists may add its active version to a new form, or upload or explicitly replace it from the builder; the builder and draft PDF use that version. Replacement changes the saved studio logo for future forms. A signed form retains its original logo asset even when the studio replaces or removes its current logo. Do not delete historical logo assets while signed records reference them.
+
+## Removing forms
+
+The form's Active setting is its automatic routing rule. Turn it off before using **Delete form**; Maia removes the form from current lists and future selection without deleting the form, assignments, or signed evidence. Previously created native assignment links continue to work under their existing expiration and appointment-status rules. Inactive forms remain inactive when an external provider is synchronized.
+
+## Signed consent retention
+
+Signed Maia submissions are retained for at least three years from signing. There is no automatic deletion after that period: database triggers reject updates, deletion, and truncation of signed submissions and stored identity documents indefinitely. They also preserve logo assets and prevent changes to the name, version, or text of a referenced template; deactivating a template remains allowed. Foreign keys preserve the appointment, artist, and template records needed by the authorized Signed forms archive. Database administrators can override or remove triggers, so operational privileges, backups, and restore procedures must also preserve these records.
+
+The archive retains the signed definition, answers, drawn signature, and signing time for current Maia forms. Older records retain whatever was originally captured: where no snapshot exists, the archive labels retained template text as potentially different from the signed version. External provider submissions remain with that provider and are not represented as retained copies by Maia. Uploads of photo IDs and historical logo assets are retained as part of the evidence; keep the encryption key and historical assets available for as long as their records are retained.
+
+Deploy `0026_signed_consent_retention.sql` using the reviewed Drizzle migration process after backup and review of all pending migrations. Production migration requires explicit approval. Rollback must preserve the evidence and restore equivalent safeguards before removing these triggers; disabling or dropping them removes the database retention protection. The migration cannot restore evidence already deleted or reconstruct an absent historic snapshot.
 
 Logo support requires `0025_studio_logo_assets.sql`. If the table is missing, form creation remains available without a logo and the builder reports that the database update is needed. The Studio logo setting also reports that update as unavailable.
 

@@ -12,12 +12,31 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
  const [saving,setSaving]=useState(false),[message,setMessage]=useState('');
  const [fields,setFields]=useState<NativeField[]>([]),[brand,setBrand]=useState('');
  const [logoSelected,setLogoSelected]=useState(false),[pickerOpen,setPickerOpen]=useState(false);
+ const [currentLogoId,setCurrentLogoId]=useState(studioLogoAssetId);
+ const [logoFile,setLogoFile]=useState<File|null>(null),[logoProgress,setLogoProgress]=useState<number|null>(null),[logoError,setLogoError]=useState('');
  const [previewing,setPreviewing]=useState(false),[previewUrl,setPreviewUrl]=useState<string|null>(null),[previewError,setPreviewError]=useState('');
  const [nameError,setNameError]=useState(false);
  const nameInput=useRef<HTMLInputElement>(null);
  const previewDialog=useRef<HTMLDialogElement>(null);
  const [preparedFor,setPreparedFor]=useState<{artistId:string;artistName:string;brand:string}|null>(null);
  useEffect(()=>{setBrand(current=>current||studioBrand);},[studioBrand]);
+ async function uploadLogo(){
+  if(!logoFile||logoProgress!==null)return;
+  setLogoError('');setLogoProgress(0);
+  try{
+   const data=await new Promise<{assetId:string}>((resolve,reject)=>{
+    const request=new XMLHttpRequest();
+    request.open('POST','/api/studio/logo');
+    request.responseType='json';
+    request.upload.onprogress=event=>{if(event.lengthComputable)setLogoProgress(Math.round(event.loaded/event.total*100));};
+    request.onload=()=>{if(request.status>=200&&request.status<300&&typeof request.response?.assetId==='string')resolve(request.response);else reject(Error(typeof request.response?.error==='string'?request.response.error:'Unable to upload the logo. Try again.'));};
+    request.onerror=()=>reject(Error('Unable to upload the logo. Check your connection and try again.'));
+    const payload=new FormData();payload.set('logo',logoFile);request.send(payload);
+   });
+   setCurrentLogoId(data.assetId);setLogoSelected(true);setLogoFile(null);
+  }catch(error){setLogoError(error instanceof Error?error.message:'Unable to upload the logo. Try again.');}
+  finally{setLogoProgress(null);}
+ }
  const bindingChanged=Boolean(preparedFor&&(!currentArtist||preparedFor.artistId!==currentArtist.id||preparedFor.brand!==brand.trim()));
  useEffect(()=>{if(previewUrl)previewDialog.current?.showModal();},[previewUrl]);
  useEffect(()=>()=>{if(previewUrl)URL.revokeObjectURL(previewUrl);},[previewUrl]);
@@ -37,7 +56,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   try {
    if(!currentArtist)throw Error('Ask the studio owner to create an artist profile and link it to your sign-in before saving a form.');
    if(bindingChanged)throw Error('Reload the template for the signed-in artist and studio brand before saving.');
-   const parsed=nativeDefinition.safeParse({body,fields,...(logoSelected&&studioLogoAssetId?{logoAssetId:studioLogoAssetId}:{})});
+   const parsed=nativeDefinition.safeParse({body,fields,...(logoSelected&&currentLogoId?{logoAssetId:currentLogoId}:{})});
    if(!parsed.success)throw Error(parsed.error.issues[0]?.message||'Check your questions.');
    const response=await fetch('/api/waiver-integrations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'ADD_NATIVE_FORM',name,definition:parsed.data,artistId:currentArtist.id,audience})});
    const data=await response.json();
@@ -57,10 +76,10 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   setNameError(false);
   setPreviewing(true);setPreviewError('');
   try{
-   const parsed=nativeDefinition.safeParse({body,fields,...(logoSelected&&studioLogoAssetId?{logoAssetId:studioLogoAssetId}:{})});
+   const parsed=nativeDefinition.safeParse({body,fields,...(logoSelected&&currentLogoId?{logoAssetId:currentLogoId}:{})});
    if(!parsed.success)throw Error(parsed.error.issues[0]?.message||'Check the form details before previewing.');
    const {buildConsentDraftPdf}=await import('@/packages/waivers/draft-preview-pdf');
-   const bytes=await buildConsentDraftPdf({name,definition:parsed.data,logoUrl:logoSelected&&studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null,minorSigner:audience==='MINOR'});
+   const bytes=await buildConsentDraftPdf({name,definition:parsed.data,logoUrl:logoSelected&&currentLogoId?`/api/public/studio-logo/${currentLogoId}`:null,minorSigner:audience==='MINOR'});
    const blobBytes=new ArrayBuffer(bytes.byteLength);
    new Uint8Array(blobBytes).set(bytes);
    const url=URL.createObjectURL(new Blob([blobBytes],{type:'application/pdf'}));
@@ -80,7 +99,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   {bindingChanged&&<p role="alert">Studio brand changed. Reload the template before saving so its wording uses the current brand.</p>}
   <label>Audience<select value={audience} onChange={event=>setAudience(event.target.value)}><option value="ADULT">Adult</option><option value="ANY">Any age</option><option value="MINOR">Minor / guardian</option></select></label>
   <p>Use wording approved for your studio, services, and local requirements. For minors, include the appropriate guardian wording. Photo ID uploads can be optional or required. Medical questionnaires are not included, and signing does not opt a client into SMS.</p>
-  <QuestionBuilder fields={fields} onChange={setFields} name={name} onNameChange={value=>{setName(value);if(value.trim())setNameError(false);}} nameInput={nameInput} nameError={nameError} body={body} onBodyChange={setBody} onUseTemplate={()=>setPickerOpen(true)} onPreview={()=>void preview()} previewDisabled={busy||saving||previewing} templateDisabled={busy||saving} logoAssetId={logoSelected?studioLogoAssetId:null} availableLogoAssetId={studioLogoAssetId} logoAvailable={studioLogoAvailable} logoUrl={studioLogoAssetId?`/api/public/studio-logo/${studioLogoAssetId}`:null} onLogoChange={value=>setLogoSelected(Boolean(value))} minorSigner={audience==='MINOR'}/>
+  <QuestionBuilder fields={fields} onChange={setFields} name={name} onNameChange={value=>{setName(value);if(value.trim())setNameError(false);}} nameInput={nameInput} nameError={nameError} body={body} onBodyChange={setBody} onUseTemplate={()=>setPickerOpen(true)} onPreview={()=>void preview()} previewDisabled={busy||saving||previewing||logoProgress!==null} templateDisabled={busy||saving} logoAssetId={logoSelected?currentLogoId:null} availableLogoAssetId={currentLogoId} logoAvailable={studioLogoAvailable} logoUrl={currentLogoId?`/api/public/studio-logo/${currentLogoId}`:null} onLogoChange={value=>setLogoSelected(Boolean(value))} logoUpload={<div className="builder-logo-upload"><p>{currentLogoId?'Replacing the logo updates the studio’s saved logo for future forms. Signed forms keep their original logo.':'Upload a JPEG, PNG, or WebP logo up to 2 MB.'}</p><label>{currentLogoId?'Choose replacement logo':'Choose logo'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={logoProgress!==null||!studioLogoAvailable} onChange={event=>{setLogoFile(event.target.files?.[0]||null);event.target.value='';setLogoError('');}}/></label>{logoFile&&<p>Selected: {logoFile.name}</p>}<button type="button" className="routing-edit" disabled={!logoFile||logoProgress!==null||!studioLogoAvailable} onClick={()=>void uploadLogo()}>{currentLogoId?'Replace logo':'Upload logo'}</button>{logoProgress!==null&&<p role="status">Uploading logo… {logoProgress}%</p>}{logoError&&<p role="alert">{logoError} Select a file or try again.</p>}</div>} minorSigner={audience==='MINOR'}/>
   {previewError&&<p role="alert" className="waiver-notice">{previewError} <button type="button" className="secondary" onClick={()=>void preview()} disabled={previewing}>{previewing?'Generating…':'Try again'}</button></p>}
   <dialog ref={previewDialog} className="consent-pdf-preview" aria-labelledby="consent-pdf-title" onCancel={event=>{event.preventDefault();closePreview();}} onClose={()=>setPreviewUrl(null)}>
    <div className="consent-pdf-heading"><h2 id="consent-pdf-title">Draft PDF preview</h2><button type="button" className="secondary" onClick={closePreview}>Close preview</button></div>
@@ -88,7 +107,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
    {previewUrl&&<p><a href={previewUrl} target="_blank" rel="noopener noreferrer">Open PDF in a new tab</a></p>}
   </dialog>
   {pickerOpen&&<TemplatePicker brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected||audience!=='ADULT')} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
-  <button disabled={busy||saving}>{saving?'Saving…':'Create form'}</button>{message&&<p role="status">{message}</p>}
+  <button disabled={busy||saving||logoProgress!==null}>{saving?'Saving…':'Create form'}</button>{message&&<p role="status">{message}</p>}
  </form>;
 }
 

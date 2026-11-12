@@ -183,6 +183,13 @@
       "when": 1794104187978,
       "tag": "0025_studio_logo_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794189600000,
+      "tag": "0026_signed_consent_retention",
+      "breakpoints": true
     }
   ]
 }

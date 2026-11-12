@@ -33,8 +33,11 @@ async function handleGET(request: NextRequest) {
     const user = await identity(request);
     if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
     const availableArtists = await db.select({ id: artists.id, displayName: artists.displayName, calendarColor: artists.calendarColor, requiresSupervisorApproval: artists.requiresSupervisorApproval }).from(artists).where(and(eq(artists.organizationId, organizationId), ...(user.role === 'ARTIST' ? [eq(artists.userId, user.id)] : []))).orderBy(asc(artists.displayName));
+    const linkedArtists = await db.select({ id: artists.id, displayName: artists.displayName }).from(artists).where(and(eq(artists.organizationId, organizationId), eq(artists.userId, user.id)));
+    const signedInArtist = linkedArtists.length === 1 ? linkedArtists[0] : null;
     const artistConditions = [eq(artists.organizationId, organizationId)];
     if (requestedArtistId) artistConditions.push(eq(artists.id, requestedArtistId));
+    else if (signedInArtist) artistConditions.push(eq(artists.id, signedInArtist.id));
     else if (user.role === 'ARTIST') artistConditions.push(eq(artists.userId, user.id));
     const [artist] = await db.select({
       id: artists.id, organizationId: artists.organizationId, displayName: artists.displayName, calendarColor: artists.calendarColor,
@@ -102,7 +105,7 @@ async function handleGET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      organization: org, artist: { ...artist, aiMode: artist.requiresSupervisorApproval ? 'DRAFT' : artist.aiMode }, artists: availableArtists, date,
+      organization: org, signedInArtist, artist: { ...artist, aiMode: artist.requiresSupervisorApproval ? 'DRAFT' : artist.aiMode }, artists: availableArtists, date,
       appointments: todayAppointments.map(a => ({
         ...a, client: `${a.clientFirstName}${a.clientLastName ? ` ${a.clientLastName}` : ""}`,
         service: a.serviceName ?? "Appointment",

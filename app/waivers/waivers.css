@@ -208,6 +208,35 @@
 @media(max-width:600px){.waiver-admin .consent-page-actions{gap:16px}.waiver-admin .consent-create-link{flex:1;text-align:center}}
 .waiver-admin .consent-add-link{min-height:44px;padding:12px 20px;border:1px solid #d7d7d7;border-radius:9px;background:#fff;color:#111;font-weight:700}
 .waiver-admin .consent-add-link:hover{background:#f7f7f7}
+.waiver-admin .builder-logo-upload{padding:10px;min-width:0}
+.waiver-admin .builder-logo-upload label{display:block;overflow-wrap:anywhere}
+.waiver-admin .builder-logo-upload input{display:block;width:100%;margin-top:8px;font-size:12px}
+.waiver-admin .builder-logo-upload button{width:auto}
+.waiver-admin .appointment-row-waiver,.waiver-admin .routing-rule,.waiver-admin .section-heading{min-width:0}
+.waiver-admin .appointment-row-waiver>* ,.waiver-admin .routing-summary,.waiver-admin .assignment-list>*{min-width:0;overflow-wrap:anywhere}
+.waiver-admin .send-controls{flex-wrap:wrap}
+.waiver-admin .send-controls select{flex:1 1 160px;min-width:0}
+.waiver-admin .send-controls button{white-space:normal}
+.waiver-admin .send-disabled-reason{flex-basis:100%;color:var(--muted);line-height:1.5}
+.waiver-admin .appointment-form-link{grid-column:1/-1;min-width:0;overflow-wrap:anywhere}
+.waiver-admin .appointment-form-link input{max-width:100%;width:100%}
+.waiver-admin .delete-form-content footer{margin-top:24px}
+@media(max-width:600px){
+ .waiver-admin{padding-bottom:calc(120px + env(safe-area-inset-bottom))}
+ .waiver-admin .waiver-section{padding:18px 14px}
+ .waiver-admin .section-heading{flex-wrap:wrap}
+ .waiver-admin .appointment-row-waiver{grid-template-columns:minmax(0,1fr)}
+ .waiver-admin .send-controls{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch}
+ .waiver-admin .send-controls select,.waiver-admin .send-controls button{flex:none;width:100%;max-width:100%;min-height:44px}
+ .waiver-admin .send-disabled-reason{flex:none}
+ .waiver-admin .routing-rule{align-items:flex-start}
+ .waiver-admin .routing-summary{flex-basis:100%;min-width:0}
+ .waiver-admin .routing-edit{white-space:normal}
+ .waiver-admin .assignment-list>div{flex-wrap:wrap}
+ .waiver-admin .consent-page-actions>*{max-width:100%;overflow-wrap:anywhere}
+ .waiver-admin .delete-form-content{min-height:100%;display:flex;flex-direction:column}
+ .waiver-admin .delete-form-content footer{margin-top:auto}
+}
 .waiver-admin .existing-form-dialog .waiver-card{padding:0;border:0;border-radius:0}
 .waiver-admin .existing-form-dialog .card-title{margin:18px 0 0}
 .waiver-admin .existing-form-dialog .card-title h3{margin:0 0 6px;font-size:17px}

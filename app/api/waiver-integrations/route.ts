@@ -1,11 +1,11 @@
 import {canManageStudioSettings} from '@/packages/auth/settings-policy';
-import {nativeDefinition,publicFormUrl} from '@/packages/waivers/forms';
+import {canManageForm,nativeDefinition,publicFormUrl} from '@/packages/waivers/forms';
 import crypto from "node:crypto";
 import { protectedSettingsRoute as protectedRoute, identity } from "@/packages/auth/server";
 import { encryptComplianceSecret, decryptComplianceSecret } from "@/packages/compliance/secrets";
 import { listJotformForms, parseJotformCredentials } from "@waivers/providers";
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
 import { artists, organizations, externalWaiverForms, services, studioLogoAssets, waiverProviderConnections, waiverTemplates } from "@db/schema";
@@ -18,7 +18,9 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("ROTATE_WEBHOOK"), connectionId: z.string().uuid() }),
   z.object({ action: z.literal("ADD_CUSTOM_FORM"), name: z.string().min(1).max(160), formUrl: publicFormUrl, category: z.string().min(1).max(40).default("GENERAL"), audience: z.enum(["ANY", "ADULT", "MINOR"]).default("ANY"), artistId: z.string().uuid().nullable().optional(), serviceId: z.string().uuid().nullable().optional(), priority: z.number().int().min(0).max(1000).default(100), collectsMedicalData: z.boolean().default(false) }),
   z.object({ action: z.literal("UPDATE_FORM"), formId: z.string().uuid(), category: z.string().min(1).max(40), audience: z.enum(["ANY", "ADULT", "MINOR"]), artistId: z.string().uuid().nullable(), serviceId: z.string().uuid().nullable(), priority: z.number().int().min(0).max(1000), active: z.boolean(), collectsMedicalData: z.boolean() }),
+  z.object({ action: z.literal("DELETE_FORM"), formId: z.string().uuid() }),
 ]);
+const notArchived=sql`coalesce(${externalWaiverForms.metadata}->>'archived', 'false') <> 'true'`;
 
 async function syncConnection(connection: typeof waiverProviderConnections.$inferSelect) {
   if (connection.provider !== "JOTFORM" || !connection.credentialsEncrypted) throw new Error("This connection cannot be synchronized.");
@@ -27,7 +29,7 @@ async function syncConnection(connection: typeof waiverProviderConnections.$infe
   let imported = 0;
   for (const form of forms) {
     const [existing] = await db.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.connectionId, connection.id), eq(externalWaiverForms.externalFormId, form.externalId))).limit(1);
-    if (existing) await db.update(externalWaiverForms).set({ name: form.name, formUrl: form.url, metadata: { ...form.metadata, providerStatus: form.status }, updatedAt: new Date() }).where(eq(externalWaiverForms.id, existing.id));
+    if (existing) await db.update(externalWaiverForms).set({ name: form.name, formUrl: form.url, metadata: sql`coalesce(${externalWaiverForms.metadata}, '{}'::jsonb) || ${JSON.stringify({...form.metadata,providerStatus:form.status})}::jsonb`, updatedAt: new Date() }).where(eq(externalWaiverForms.id, existing.id));
     else await db.insert(externalWaiverForms).values({ organizationId: connection.organizationId, connectionId: connection.id, provider: "JOTFORM", externalFormId: form.externalId, name: form.name, formUrl: form.url, completionMode: "WEBHOOK", metadata: { ...form.metadata, providerStatus: form.status } });
     imported++;
   }
@@ -54,7 +56,7 @@ async function handleGET(request: NextRequest) {
   const organizationId = user.organization_id;
   const [connections, forms, artistRows, serviceRows, organizationRows, ownArtists, logo] = await Promise.all([
     db.select({ id: waiverProviderConnections.id, provider: waiverProviderConnections.provider, label: waiverProviderConnections.label, settings: waiverProviderConnections.settings, status: waiverProviderConnections.status, lastSyncedAt: waiverProviderConnections.lastSyncedAt }).from(waiverProviderConnections).where(eq(waiverProviderConnections.organizationId, organizationId)).orderBy(asc(waiverProviderConnections.createdAt)),
-    db.select().from(externalWaiverForms).where(eq(externalWaiverForms.organizationId, organizationId)).orderBy(asc(externalWaiverForms.priority), asc(externalWaiverForms.name)),
+    db.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.organizationId, organizationId),notArchived)).orderBy(asc(externalWaiverForms.priority), asc(externalWaiverForms.name)),
     db.select({ id: artists.id, name: artists.displayName }).from(artists).where(eq(artists.organizationId, organizationId)).orderBy(asc(artists.displayName)),
     db.select({ id: services.id, name: services.name, artistId: services.artistId }).from(services).where(and(eq(services.organizationId, organizationId), eq(services.active, true))).orderBy(asc(services.name)),
     db.select({name:organizations.name,publicName:organizations.publicName}).from(organizations).where(eq(organizations.id,organizationId)).limit(1),
@@ -63,7 +65,7 @@ async function handleGET(request: NextRequest) {
   ]);
   const ownRows=canManageStudioSettings(user.role)?artistRows:ownArtists;
   const ids=ownRows.map(a=>a.id);
-  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', currentArtist:ownArtists.length===1?ownArtists[0]:null, artistProfileCount:ownArtists.length, studioLogoAssetId:logo.assetId, studioLogoAvailable:logo.available, isOwner:canManageStudioSettings(user.role),connections:canManageStudioSettings(user.role)?connections:[], forms:forms.filter(f=>canManageStudioSettings(user.role)||f.artistId&&ids.includes(f.artistId)), artists:ownRows, services:serviceRows.filter(s=>canManageStudioSettings(user.role)||ids.includes(s.artistId)) });
+  return NextResponse.json({ studioBrand:organizationRows[0]?.publicName?.trim()||organizationRows[0]?.name||'', currentArtist:ownArtists.length===1?ownArtists[0]:null, artistProfileCount:ownArtists.length, studioLogoAssetId:logo.assetId, studioLogoAvailable:logo.available, isOwner:canManageStudioSettings(user.role),connections:canManageStudioSettings(user.role)?connections:[], forms:forms.filter(f=>canManageStudioSettings(user.role)||f.artistId&&ids.includes(f.artistId)).map(f=>({...f,canDelete:canManageForm(user.role,ownArtists.map(a=>a.id),f.artistId)})), artists:ownRows, services:serviceRows.filter(s=>canManageStudioSettings(user.role)||ids.includes(s.artistId)) });
 }
 
 async function handlePOST(request: NextRequest) {
@@ -123,10 +125,22 @@ async function handlePOST(request: NextRequest) {
     const [form] = await db.insert(externalWaiverForms).values({ organizationId, provider: "CUSTOM", name: parsed.data.name, formUrl: parsed.data.formUrl, category: parsed.data.category, audience: parsed.data.audience, artistId: parsed.data.artistId ?? null, serviceId: parsed.data.serviceId ?? null, priority: parsed.data.priority, collectsMedicalData: parsed.data.collectsMedicalData, completionMode: "MANUAL" }).returning();
     return NextResponse.json({ form }, { status: 201 });
   }
+  if(input.action==="DELETE_FORM"){
+    if(!canManageStudioSettings(user.role))return NextResponse.json({error:"Waiver form not found"},{status:404});
+    if(user.role!=="OWNER"&&!ownIds.length)return NextResponse.json({error:"Waiver form not found"},{status:404});
+    const formAccess=user.role==="OWNER"?undefined:inArray(externalWaiverForms.artistId,ownIds);
+    const [archived]=await db.update(externalWaiverForms).set({metadata:sql`coalesce(${externalWaiverForms.metadata}, '{}'::jsonb) || '{"archived":true}'::jsonb`,updatedAt:new Date()})
+      .where(and(eq(externalWaiverForms.id,input.formId),eq(externalWaiverForms.organizationId,organizationId),formAccess,eq(externalWaiverForms.active,false),notArchived)).returning({id:externalWaiverForms.id});
+    if(archived)return NextResponse.json({success:true});
+    const [existing]=await db.select({name:externalWaiverForms.name,active:externalWaiverForms.active}).from(externalWaiverForms).where(and(eq(externalWaiverForms.id,input.formId),eq(externalWaiverForms.organizationId,organizationId),formAccess,notArchived));
+    if(!existing)return NextResponse.json({error:"Waiver form not found"},{status:404});
+    return NextResponse.json({error:`The routing rule for "${existing.name}" is active. Edit the form and turn off Active before deleting it.`},{status:409});
+  }
   if(parsed.data.action!=="UPDATE_FORM")return NextResponse.json({error:"Unknown action"},{status:400});
   const [existingForm] = await db.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.id, parsed.data.formId), eq(externalWaiverForms.organizationId, organizationId)));
   if (!existingForm || !canManageStudioSettings(user.role)) return NextResponse.json({ error: "Waiver form not found" }, { status: 404 });
-  const [form] = await db.update(externalWaiverForms).set({ category: parsed.data.category, audience: parsed.data.audience, artistId: parsed.data.artistId, serviceId: parsed.data.serviceId, priority: parsed.data.priority, active: parsed.data.active, collectsMedicalData: parsed.data.collectsMedicalData, updatedAt: new Date() }).where(eq(externalWaiverForms.id, existingForm.id)).returning();
+  const [form] = await db.update(externalWaiverForms).set({ category: parsed.data.category, audience: parsed.data.audience, artistId: parsed.data.artistId, serviceId: parsed.data.serviceId, priority: parsed.data.priority, active: parsed.data.active, collectsMedicalData: parsed.data.collectsMedicalData, updatedAt: new Date() }).where(and(eq(externalWaiverForms.id, existingForm.id),eq(externalWaiverForms.organizationId,organizationId),notArchived)).returning();
+  if(!form)return NextResponse.json({error:"Waiver form not found"},{status:404});
   return NextResponse.json({ form });
 }
 

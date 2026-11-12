@@ -11,6 +11,9 @@ import {GET as getLogo,POST as saveLogo,DELETE as removeLogo} from '@/app/api/st
 import {GET as readLogo} from '@/app/api/public/studio-logo/[assetId]/route';
 import {GET as getPublicForm,POST as signPublicForm} from '@/app/api/public/waivers/native/route';
 import {GET as getArchive} from '@/app/api/waiver-archive/route';
+import {GET as getDashboard} from '@/app/api/dashboard/route';
+import {GET as getTwilioStatus} from '@/app/api/twilio/status/route';
+import {POST as signLegacyForm} from '@/app/api/waivers/sign/route';
 
 const socket=process.env.MAIA_FORMS_TEST_SOCKET;
 test('artist can save an existing form using tenant-scoped waiver setup',{skip:!socket},async t=>{
@@ -20,7 +23,11 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
  try{
   assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,`${socket}/data`);
   await local.query(`CREATE SCHEMA ${schema}`);
-  await local.query(readFileSync('packages/db/staging/schema.sql','utf8').replaceAll('"public".',`"${schema}".`));
+  const migration=readFileSync('packages/db/drizzle/0026_signed_consent_retention.sql','utf8').trim();
+  const bootstrap=readFileSync('packages/db/staging/schema.sql','utf8');
+  assert.ok(bootstrap.trimEnd().endsWith(migration));
+  await local.query(bootstrap.slice(0,bootstrap.lastIndexOf(migration)).replaceAll('"public".',`"${schema}".`));
+  await local.query(migration);
   t.mock.method(pool,'query',local.query.bind(local));t.mock.method(pool,'connect',local.connect.bind(local));
   t.mock.method(globalThis,'fetch',async()=>{throw Error('Provider calls are forbidden in this test.');});
   const org=randomUUID(),other=randomUUID(),user=randomUUID(),artist=randomUUID(),peer=randomUUID(),foreign=randomUUID(),token='f'.repeat(64);
@@ -29,6 +36,31 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   await local.query("INSERT INTO auth_credentials(user_id,password_hash) VALUES($1,'synthetic')",[user]);
   await local.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",[createHash('sha256').update(token).digest('hex'),user]);
   await local.query("INSERT INTO artists(id,organization_id,user_id,display_name) VALUES($1,$2,$3,'Artist'),($4,$2,NULL,'Peer'),($5,$6,NULL,'Other')",[artist,org,user,peer,foreign,other]);
+  const peerUser=randomUUID(),peerToken='b'.repeat(64);
+  await local.query("INSERT INTO users(id,organization_id,email,name,role) VALUES($1,$2,'peer@example.test','Peer','ARTIST')",[peerUser,org]);
+  await local.query("INSERT INTO auth_credentials(user_id,password_hash) VALUES($1,'synthetic')",[peerUser]);
+  await local.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",[createHash('sha256').update(peerToken).digest('hex'),peerUser]);
+  await local.query("UPDATE artists SET user_id=$1 WHERE id=$2",[peerUser,peer]);
+  await local.query("INSERT INTO phone_numbers(organization_id,artist_id,phone_number,twilio_phone_number_sid,compliance_status) VALUES($1,$2,'+12025550123',$4,'CAMPAIGN_PENDING'),($1,$3,'+12025550124',$5,'APPROVED')",[org,artist,peer,'PN'+'a'.repeat(32),'PN'+'b'.repeat(32)]);
+  for(const [cookie,artistId,phone,status] of [[token,artist,'+12025550123','CAMPAIGN_PENDING'],[peerToken,peer,'+12025550124','APPROVED']]){
+   const headers={cookie:`inkflow_session=${cookie}`};
+   const dashboard=await getDashboard(new NextRequest('http://localhost/api/dashboard?date=2026-11-12',{headers}),undefined);
+   assert.equal(dashboard.status,200);const dashboardData=await dashboard.json();assert.equal(dashboardData.artist.id,artistId);assert.equal(dashboardData.signedInArtist.id,artistId);
+   const twilio=await getTwilioStatus(new NextRequest('http://localhost/api/twilio/status',{headers}),undefined);
+   assert.equal(twilio.status,200);const statusData=await twilio.json();assert.equal(statusData.defaultArtistId,artistId);assert.equal(statusData.artists.length,1);assert.equal(statusData.artists[0].phoneNumber.phoneNumber,phone);assert.equal(statusData.artists[0].phoneNumber.complianceStatus,status);
+  }
+  const ownerUser=randomUUID(),ownerArtist=randomUUID(),ownerToken='c'.repeat(64);
+  await local.query("INSERT INTO users(id,organization_id,email,name,role) VALUES($1,$2,'owner@example.test','Owner','OWNER')",[ownerUser,org]);
+  await local.query("INSERT INTO auth_credentials(user_id,password_hash) VALUES($1,'synthetic')",[ownerUser]);
+  await local.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",[createHash('sha256').update(ownerToken).digest('hex'),ownerUser]);
+  await local.query("INSERT INTO artists(id,organization_id,user_id,display_name) VALUES($1,$2,$3,'Owner')",[ownerArtist,org,ownerUser]);
+  const ownerHeaders={cookie:`inkflow_session=${ownerToken}`};
+  const ownerDefault=await getDashboard(new NextRequest('http://localhost/api/dashboard?date=2026-11-12',{headers:ownerHeaders}),undefined);
+  assert.equal((await ownerDefault.json()).artist.id,ownerArtist);
+  const ownerSwitch=await getDashboard(new NextRequest(`http://localhost/api/dashboard?date=2026-11-12&artistId=${peer}`,{headers:ownerHeaders}),undefined);
+  const switched=await ownerSwitch.json();assert.equal(switched.artist.id,peer);assert.equal(switched.signedInArtist.id,ownerArtist);
+  const unassigned=await getTwilioStatus(new NextRequest('http://localhost/api/twilio/status',{headers:ownerHeaders}),undefined);
+  const unassignedData=await unassigned.json();assert.equal(unassignedData.defaultArtistId,ownerArtist);assert.equal(unassignedData.artists.find((item:{artist:{id:string}})=>item.artist.id===ownerArtist).phoneNumber,null);
   const req=(body:object)=>new NextRequest('http://localhost/api/waiver-integrations',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${token}`,'content-type':'application/json'},body:JSON.stringify(body)});
   const logoRequest=(method:'POST'|'DELETE',body?:FormData)=>new NextRequest('http://localhost/api/studio/logo',{method,headers:{origin:'http://localhost',cookie:`inkflow_session=${token}`},...(body?{body}:{})});
   const input={action:'ADD_CUSTOM_FORM',name:'Synthetic form',formUrl:'https://forms.example.test/form',artistId:artist,category:'GENERAL',audience:'ANY',priority:100,collectsMedicalData:false};
@@ -60,7 +92,7 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   assert.equal((await updatedList.json()).studioLogoAssetId,logoData.assetId);
   const foreignLogo=randomUUID();
   await local.query("INSERT INTO studio_logo_assets(id,organization_id,byte_length,sha256,data) VALUES($1,$2,1,'synthetic','AA==')",[foreignLogo,other]);
-  const native={action:'ADD_NATIVE_FORM',name:'Artist-owned consent',definition:{body:'Studio-reviewed consent wording.',logoAssetId:logoData.assetId},artistId:artist,audience:'ADULT'};
+  const native={action:'ADD_NATIVE_FORM',name:'Artist-owned consent',definition:{body:'Studio-reviewed consent wording.',logoAssetId:logoData.assetId,fields:[{id:'ack',type:'ACKNOWLEDGMENT',label:'I agree',required:true}]},artistId:artist,audience:'ADULT'};
   assert.equal((await POST(req({...native,artistId:peer}),undefined)).status,403);
   assert.equal((await POST(req({...native,definition:{...native.definition,logoAssetId:foreignLogo}}),undefined)).status,400);
   const nativeResponse=await POST(req(native),undefined);assert.equal(nativeResponse.status,201);
@@ -68,16 +100,37 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   const client=randomUUID(),appointment=randomUUID(),assignment=randomUUID(),rawToken='a'.repeat(48);
   await local.query("INSERT INTO clients(id,organization_id,first_name) VALUES($1,$2,'Synthetic Client')",[client,org]);
   await local.query("INSERT INTO appointments(id,organization_id,artist_id,client_id,starts_at,ends_at,status) VALUES($1,$2,$3,$4,$5,$6,'TENTATIVE')",[appointment,org,artist,client,new Date(Date.now()+86400000),new Date(Date.now()+90000000)]);
+  const legacyTemplate=randomUUID();
+  await local.query("INSERT INTO waiver_templates(id,organization_id,name,body) VALUES($1,$2,'Legacy consent','Legacy signed text')",[legacyTemplate,org]);
+  const legacyResponse=await signLegacyForm(new NextRequest('http://localhost/api/waivers/sign',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${token}`,'content-type':'application/json'},body:JSON.stringify({organizationId:org,appointmentId:appointment,clientId:client,waiverTemplateId:legacyTemplate,signedName:'Synthetic Client',signatureData:'Synthetic typed signature'})}),undefined);
+  assert.equal(legacyResponse.status,201);const legacySubmission=(await legacyResponse.json()).submission;
+  const legacyArchive=await getArchive(new NextRequest(`http://localhost/api/waiver-archive?id=${legacySubmission.id}`,{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  const legacyData=(await legacyArchive.json()).form;assert.equal(JSON.parse(legacyData.signatureData).definition.body,'Legacy signed text');assert.equal(JSON.parse(legacyData.signatureData).legacySignature,'Synthetic typed signature');assert.ok(legacyData.signedAt);
   await local.query("INSERT INTO external_waiver_assignments(id,organization_id,waiver_form_id,appointment_id,client_id,tracking_token_hash) VALUES($1,$2,$3,$4,$5,$6)",[assignment,org,nativeResult.form.id,appointment,client,createHash('sha256').update(rawToken).digest('hex')]);
   const publicForm=await getPublicForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${rawToken}`));
   assert.equal(publicForm.status,200);assert.equal((await publicForm.json()).definition.logoAssetId,logoData.assetId);
   const signature={strokes:[[{x:0.1,y:0.1},{x:0.8,y:0.8}]]};
-  const signed=await signPublicForm(new NextRequest('http://localhost/api/public/waivers/native',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({token:rawToken,signedName:'Synthetic Guardian',agreed:true,signature})}));
+  const signed=await signPublicForm(new NextRequest('http://localhost/api/public/waivers/native',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({token:rawToken,signedName:'Synthetic Guardian',agreed:true,answers:{ack:true},signature})}));
   assert.equal(signed.status,200);
-  const submission=(await local.query("SELECT id,signature_data FROM waiver_submissions WHERE appointment_id=$1",[appointment])).rows[0];
+  const submission=(await local.query("SELECT id,signature_data FROM waiver_submissions WHERE appointment_id=$1 AND waiver_template_id=$2",[appointment,nativeResult.form.metadata.templateId])).rows[0];
   assert.equal(JSON.parse(submission.signature_data).definition.logoAssetId,logoData.assetId);
   const archive=await getArchive(new NextRequest(`http://localhost/api/waiver-archive?id=${submission.id}`,{headers:{cookie:`inkflow_session=${token}`}}),undefined);
-  assert.equal(archive.status,200);assert.equal(JSON.parse((await archive.json()).form.signatureData).definition.logoAssetId,logoData.assetId);
+  assert.equal(archive.status,200);const archiveData=(await archive.json()).form;const snapshot=JSON.parse(archiveData.signatureData);
+  assert.equal(snapshot.definition.logoAssetId,logoData.assetId);assert.equal(snapshot.definition.body,native.definition.body);assert.deepEqual(snapshot.answers,{ack:true});assert.deepEqual(snapshot.drawnSignature,signature);assert.ok(archiveData.signedAt);
+  const peerArchive=await getArchive(new NextRequest(`http://localhost/api/waiver-archive?id=${submission.id}`,{headers:{cookie:`inkflow_session=${peerToken}`}}),undefined);
+  assert.equal(peerArchive.status,404);
+  await local.query(`INSERT INTO waiver_submissions (organization_id,appointment_id,client_id,waiver_template_id,signed_name,signature_data,signed_at,document_hash)
+   SELECT organization_id,appointment_id,client_id,waiver_template_id,signed_name,signature_data,now()-age,document_hash FROM waiver_submissions
+   CROSS JOIN (VALUES (interval '2 years'), (interval '3 years'), (interval '4 years')) AS ages(age) WHERE id=$1`,[submission.id]);
+  const protectedCount=Number((await local.query('SELECT count(*) FROM waiver_submissions')).rows[0].count);assert.equal(protectedCount,5);
+  await assert.rejects(local.query("DELETE FROM waiver_submissions WHERE signed_at < now() - interval '3 years'"),/retained and cannot be changed or deleted/);
+  await assert.rejects(local.query('DELETE FROM waiver_submissions WHERE id=$1',[submission.id]),/retained and cannot be changed or deleted/);
+  await assert.rejects(local.query("UPDATE waiver_submissions SET signature_data=NULL, signed_at=now() WHERE id=$1",[submission.id]),/retained and cannot be changed or deleted/);
+  await assert.rejects(local.query('TRUNCATE waiver_submissions CASCADE'),/retained and cannot be changed or deleted/);
+  await assert.rejects(local.query('UPDATE waiver_templates SET body=$1 WHERE id=$2',['Altered text',nativeResult.form.metadata.templateId]),/template referenced by signed consent evidence/);
+  await assert.rejects(local.query('DELETE FROM waiver_templates WHERE id=$1',[nativeResult.form.metadata.templateId]),/foreign key constraint/);
+  await assert.rejects(local.query('DELETE FROM studio_logo_assets WHERE id=$1',[logoData.assetId]),/retained for signed consent evidence/);
+  assert.equal(Number((await local.query('SELECT count(*) FROM waiver_submissions')).rows[0].count),protectedCount);
   const replacementUpload=new FormData();replacementUpload.set('logo',new File([logoBytes],'replacement.png',{type:'image/png'}));
   const replacement=await saveLogo(logoRequest('POST',replacementUpload));assert.equal(replacement.status,201);const replacementData=await replacement.json();
   const replacedList=await GET(new NextRequest('http://localhost/api/waiver-integrations',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
@@ -85,6 +138,24 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   assert.equal((await POST(req(native),undefined)).status,400);
   const archiveAfterReplacement=await getArchive(new NextRequest(`http://localhost/api/waiver-archive?id=${submission.id}`,{headers:{cookie:`inkflow_session=${token}`}}),undefined);
   assert.equal(JSON.parse((await archiveAfterReplacement.json()).form.signatureData).definition.logoAssetId,logoData.assetId);
+  const deleteInput={action:'DELETE_FORM',formId:nativeResult.form.id};
+  const blocked=await POST(req(deleteInput),undefined);assert.equal(blocked.status,409);assert.match((await blocked.json()).error,/routing rule.*Artist-owned consent/i);
+  const foreignForm=randomUUID();
+  await local.query("INSERT INTO external_waiver_forms(id,organization_id,provider,name,form_url,active) VALUES($1,$2,'CUSTOM','Other form','https://forms.example.test',false)",[foreignForm,other]);
+  assert.equal((await POST(req({action:'DELETE_FORM',formId:foreignForm}),undefined)).status,404);
+  const otherArtistForm=randomUUID();
+  await local.query("INSERT INTO external_waiver_forms(id,organization_id,artist_id,provider,name,form_url,active) VALUES($1,$2,$3,'CUSTOM','Peer form','https://forms.example.test',false)",[otherArtistForm,org,peer]);
+  assert.equal((await POST(req({action:'DELETE_FORM',formId:otherArtistForm}),undefined)).status,404);
+  const update={action:'UPDATE_FORM',formId:nativeResult.form.id,category:'GENERAL',audience:'ADULT',artistId:artist,serviceId:null,priority:100,active:false,collectsMedicalData:false};
+  assert.equal((await POST(req(update),undefined)).status,200);
+  assert.equal((await getPublicForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${rawToken}`))).status,200);
+  assert.equal((await POST(req(deleteInput),undefined)).status,200);
+  assert.equal((await POST(req({...update,active:true}),undefined)).status,404);
+  const afterDelete=await GET(new NextRequest('http://localhost/api/waiver-integrations',{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  assert.ok(!(await afterDelete.json()).forms.some((form:{id:string})=>form.id===nativeResult.form.id));
+  assert.equal((await getPublicForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${rawToken}`))).status,200);
+  const preserved=await getArchive(new NextRequest(`http://localhost/api/waiver-archive?id=${submission.id}`,{headers:{cookie:`inkflow_session=${token}`}}),undefined);
+  assert.equal(preserved.status,200);const preservedData=(await preserved.json()).form;assert.equal(preservedData.signatureData,archiveData.signatureData);assert.equal(preservedData.signedAt,archiveData.signedAt);
   assert.equal((await removeLogo(logoRequest('DELETE'),undefined)).status,200);
   assert.equal((await readLogo(new Request(`http://localhost/api/public/studio-logo/${logoData.assetId}`),{params:Promise.resolve({assetId:logoData.assetId})})).status,200);
   const noArtistUser=randomUUID(),noArtistToken='0'.repeat(64);

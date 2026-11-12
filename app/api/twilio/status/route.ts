@@ -22,7 +22,8 @@ async function handleGET(req: NextRequest) {
     const [number] = await db.select({ phoneNumber: phoneNumbers.phoneNumber, sid: phoneNumbers.twilioPhoneNumberSid, provider: phoneNumbers.provider, active: phoneNumbers.active, complianceStatus: phoneNumbers.complianceStatus, lifecycleRole: phoneNumbers.lifecycleRole }).from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, organizationId), eq(phoneNumbers.artistId, artist.id), eq(phoneNumbers.isPrimary, true))).limit(1);
     results.push({ artist: {id:artist.id,displayName:artist.displayName}, account: account ?? null, messagingService: service ?? null, phoneNumber: number ?? null, provisioned: Boolean(account && service && number) });
   }
-  return NextResponse.json({ artists: results, defaultArtistId: artistsRows.find(artist=>artist.userId===user.id)?.id ?? null }, {headers:{"Cache-Control":"private, no-store"}});
+  const ownArtists=artistsRows.filter(artist=>artist.userId===user.id);
+  return NextResponse.json({ artists: results, defaultArtistId: ownArtists.length===1?ownArtists[0].id:null, ownArtistCount:ownArtists.length }, {headers:{"Cache-Control":"private, no-store"}});
 }
 
 export const GET = protectedRoute(handleGET, false);

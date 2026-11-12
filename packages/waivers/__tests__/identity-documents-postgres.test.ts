@@ -55,6 +55,8 @@ test('private consent IDs validate images, commit atomically, and isolate artist
   const results=await Promise.all([post(file),post(file)]);assert.deepEqual(results.map(result=>result.status),[200,200]);
   const documents=(await local.query('SELECT * FROM waiver_identity_documents')).rows;assert.equal(documents.length,1);
   const evidence=(await local.query('SELECT * FROM waiver_submissions')).rows;assert.equal(evidence.length,1);
+  await assert.rejects(local.query('DELETE FROM waiver_identity_documents WHERE id=$1',[documents[0].id]),/retained and cannot be changed or deleted/);
+  await assert.rejects(local.query("UPDATE waiver_identity_documents SET encrypted_image='removed' WHERE id=$1",[documents[0].id]),/retained and cannot be changed or deleted/);
   assert.equal(JSON.parse(evidence[0].signature_data).photoId.sha256,documents[0].sha256);
   assert.equal(JSON.stringify(JSON.parse(evidence[0].signature_data)).includes('encryptedImage'),false);
   assert.equal((await jsonSign()).status,200);assert.equal((await local.query('SELECT count(*)::int n FROM waiver_identity_documents')).rows[0].n,1);

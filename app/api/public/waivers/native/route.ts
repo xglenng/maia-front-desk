@@ -14,7 +14,7 @@ async function resolve(token:string){
  .innerJoin(externalWaiverForms,and(eq(externalWaiverAssignments.waiverFormId,externalWaiverForms.id),eq(externalWaiverAssignments.organizationId,externalWaiverForms.organizationId)))
  .innerJoin(appointments,and(eq(externalWaiverAssignments.appointmentId,appointments.id),eq(externalWaiverAssignments.organizationId,appointments.organizationId)))
  .where(eq(externalWaiverAssignments.trackingTokenHash,digest(token)));
- if(!row||row.form.provider!=='MAIA'||row.assignment.status==='VOID'||!row.form.active||['CANCELLED','NO_SHOW'].includes(row.appointment.status)||Date.now()>row.appointment.startsAt.getTime()+7*86400000)return null;
+ if(!row||row.form.provider!=='MAIA'||row.assignment.status==='VOID'||['CANCELLED','NO_SHOW'].includes(row.appointment.status)||Date.now()>row.appointment.startsAt.getTime()+7*86400000)return null;
  const meta=row.form.metadata as {templateId?:string;definition?:unknown}|null;
  const definition=nativeDefinition.safeParse(meta?.definition);
  if(!definition.success||!meta?.templateId)return null;

@@ -7,7 +7,7 @@ import './session-gate.css';
 import { RefreshContext, usePageRefreshController } from './page-refresh';
 import { THEME_OPTIONS, useThemePreference } from './theme';
 import {ownerSettingsPage} from '@/packages/auth/settings-policy';
-import {approvedLiveSmsNumber} from '@/packages/onboarding/sms-number';
+import {assignedLiveTwilioNumber} from '@/packages/onboarding/sms-number';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
 const SessionContext = createContext<SessionUser | null>(null);
@@ -34,6 +34,8 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const [signOutError, setSignOutError] = useState('');
   const [accountOpen,setAccountOpen]=useState(false);
   const [smsNumber,setSmsNumber]=useState<string|null>(null);
+  const [smsStatus,setSmsStatus]=useState('');
+  const [smsLoaded,setSmsLoaded]=useState(false);
   const [smsNumberMessage,setSmsNumberMessage]=useState('');
   const pageRefresh = usePageRefreshController(path);
   const [themePreference, chooseTheme] = useThemePreference();
@@ -52,12 +54,18 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   useEffect(()=>{
     if(!accountOpen||!user)return;
     const controller=new AbortController();
-    setSmsNumber(null);setSmsNumberMessage('');
+    setSmsNumber(null);setSmsNumberMessage('');setSmsStatus('');setSmsLoaded(false);
     fetch(`/api/twilio/status?organizationId=${encodeURIComponent(user.organization_id)}`,{cache:'no-store',signal:controller.signal})
       .then(async response=>{if(!response.ok)throw Error();return response.json();})
       .then(data=>{
+        if(!data.defaultArtistId){
+          setSmsNumberMessage(data.ownArtistCount>1?'Multiple artist profiles are linked to your sign-in. Ask the studio owner to resolve them.':'No artist profile is linked to your sign-in. Ask the studio owner to set one up.');
+          return;
+        }
         const number=data.artists?.find((item:{artist:{id:string}})=>item.artist.id===data.defaultArtistId)?.phoneNumber;
-        setSmsNumber(approvedLiveSmsNumber(number));
+        setSmsNumber(assignedLiveTwilioNumber(number));
+        setSmsStatus(number?.complianceStatus?.replaceAll('_',' ').toLowerCase()||'');
+        setSmsLoaded(true);
       }).catch(()=>{if(!controller.signal.aborted)setSmsNumberMessage('Unable to load your SMS number.');});
     return ()=>controller.abort();
   },[accountOpen,user?.id,user?.organization_id]);
@@ -74,8 +82,9 @@ export default function SessionGate({ children }: { children: ReactNode }) {
         <details className="session-account" onToggle={event=>setAccountOpen(event.currentTarget.open)} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
           <summary aria-label="Account and sign out" title={user.name}>{user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'M'}</summary>
           <div className="session-account-panel"><strong>{user.name}</strong><small>{user.role === 'OWNER' ? 'Studio owner' : 'Artist'}</small>
+            <div className="session-sms-number"><span>My SMS number{smsNumber?<><strong>{smsNumber}</strong><small>SMS status: {smsStatus}</small></>:smsLoaded?<><strong>Not assigned</strong><a href="/settings/sms?tab=phone">SMS Setup</a></>:!smsNumberMessage&&<small>Loading…</small>}</span>{smsNumber&&<button type="button" onClick={()=>void navigator.clipboard.writeText(smsNumber).then(()=>setSmsNumberMessage('SMS number copied.')).catch(()=>setSmsNumberMessage('Unable to copy. Select the number to copy it.'))}>Copy number</button>}</div>
             <fieldset className="session-appearance"><legend>Appearance</legend>
-              {THEME_OPTIONS.map(option => <Fragment key={option.value}>{option.value==='dark'&&smsNumber&&<div className="session-sms-number"><span>My SMS number<strong>{smsNumber}</strong></span><button type="button" onClick={()=>void navigator.clipboard.writeText(smsNumber).then(()=>setSmsNumberMessage('SMS number copied.')).catch(()=>setSmsNumberMessage('Unable to copy. Select the number to copy it.'))}>Copy</button></div>}<label><input type="radio" name="maia-appearance" value={option.value} checked={themePreference === option.value} onChange={() => chooseTheme(option.value)} /><UiIcon name={option.value === 'light' ? 'sun' : option.value === 'dark' ? 'moon' : 'monitor'} width={16} height={16} /><span>{option.label}</span></label></Fragment>)}
+              {THEME_OPTIONS.map(option => <label key={option.value}><input type="radio" name="maia-appearance" value={option.value} checked={themePreference === option.value} onChange={() => chooseTheme(option.value)} /><UiIcon name={option.value === 'light' ? 'sun' : option.value === 'dark' ? 'moon' : 'monitor'} width={16} height={16} /><span>{option.label}</span></label>)}
             </fieldset>
             {smsNumberMessage&&<p role="status">{smsNumberMessage}</p>}
             <button disabled={signingOut} onClick={async () => {

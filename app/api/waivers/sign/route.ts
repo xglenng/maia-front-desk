@@ -16,8 +16,9 @@ async function handlePOST(request: NextRequest) {
   const [template] = await db.select().from(waiverTemplates).where(and(eq(waiverTemplates.id, input.waiverTemplateId), eq(waiverTemplates.organizationId, input.organizationId), eq(waiverTemplates.active, true)));
   if (!appointment || !client || !template) return NextResponse.json({ error: 'Invalid appointment, client, or waiver' }, { status: 404 });
   const signedAt = new Date();
-  const documentHash = createHash('sha256').update(JSON.stringify({ appointmentId: input.appointmentId, clientId: input.clientId, templateId: template.id, version: template.version, body: template.body, signedName: input.signedName, signatureData: input.signatureData ?? null, signedAt: signedAt.toISOString() })).digest('hex');
-  const [submission] = await db.insert(waiverSubmissions).values({ ...input, documentHash, signedAt, ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null, userAgent: request.headers.get('user-agent') ?? null }).returning();
+  const signatureData = JSON.stringify({definition:{body:template.body},legacySignature:input.signatureData ?? null});
+  const documentHash = createHash('sha256').update(JSON.stringify({ appointmentId: input.appointmentId, clientId: input.clientId, templateId: template.id, version: template.version, body: template.body, signedName: input.signedName, signatureData, signedAt: signedAt.toISOString() })).digest('hex');
+  const [submission] = await db.insert(waiverSubmissions).values({ ...input, signatureData, documentHash, signedAt, ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null, userAgent: request.headers.get('user-agent') ?? null }).returning();
   return NextResponse.json({ submission }, { status: 201 });
 }
 

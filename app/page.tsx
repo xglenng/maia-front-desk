@@ -11,7 +11,7 @@ import UiIcon from '@/components/ui-icon';
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
 type ClientData = { id: string; name: string; email: string | null; phone: string | null; createdAt: string; };
-type DashboardData = { organization: { name: string; timezone: string } | null; artists: Array<{ id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean }>; artist: { id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
+type DashboardData = { organization: { name: string; timezone: string } | null; signedInArtist: {id:string;displayName:string}|null; artists: Array<{ id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean }>; artist: { id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -121,7 +121,7 @@ export default function Home() {
 
       <main className="main">
         <header className="topbar">
-          <div><div className="eyebrow">{view==="Calendar"?"Maia calendar":data ? formatDate(data.date) : "Loading…"}</div><h1>{view === "Overview" ? `Good evening, ${data?.artist.displayName ?? "artist"}.` : view}</h1></div>
+          <div><div className="eyebrow">{view==="Calendar"?"Maia calendar":data ? formatDate(data.date) : "Loading…"}</div><h1>{view === "Overview" ? data?.signedInArtist?.displayName.trim() ? `Hello, ${data.signedInArtist.displayName.trim().split(/\s+/)[0]}` : 'Hello' : view}</h1></div>
           <div className="top-actions"><button className="icon-btn">⌕</button><button className="icon-btn">◔</button><button className="primary-btn" onClick={()=>setView("Calendar")}>Open calendar</button></div>
         </header>
 

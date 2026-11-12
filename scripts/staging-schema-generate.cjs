@@ -16,5 +16,6 @@ const tables=parts.filter(s=>s.startsWith('CREATE TABLE'));
 const indexes=parts.filter(s=>/^CREATE (UNIQUE )?INDEX/.test(s));
 const rest=parts.filter(s=>!tables.includes(s)&&!indexes.includes(s));
 const hash=crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'packages/db/src/schema.ts'))).digest('hex');
-fs.writeFileSync(path.join(root,'packages/db/staging/schema.sql'),'-- Synthetic staging bootstrap only; not a production migration.\n-- schema-source-sha256: '+hash+'\n'+[...tables,...indexes,...rest].join('\n--> statement-breakpoint\n')+'\n');
+const retention=fs.readFileSync(path.join(root,'packages/db/drizzle/0026_signed_consent_retention.sql'),'utf8').trim();
+fs.writeFileSync(path.join(root,'packages/db/staging/schema.sql'),'-- Synthetic staging bootstrap only; not a production migration.\n-- schema-source-sha256: '+hash+'\n'+[...tables,...indexes,...rest,retention].join('\n--> statement-breakpoint\n')+'\n');
 console.log('Generated staging-only schema snapshot; review and test before initialization. No database connection.');

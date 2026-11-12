@@ -16,7 +16,7 @@ async function handleGET(request:NextRequest){
  if(id)conditions.push(eq(waiverSubmissions.id,id));
  if(q){const pattern=`%${q.replace(/[\\%_]/g,'\\$&')}%`;conditions.push(or(ilike(waiverSubmissions.signedName,pattern),ilike(waiverTemplates.name,pattern),ilike(artists.displayName,pattern))!);}
  const rows=await db.select({id:waiverSubmissions.id,signedName:waiverSubmissions.signedName,signedAt:waiverSubmissions.signedAt,appointmentAt:appointments.startsAt,artistName:artists.displayName,formName:waiverTemplates.name,version:waiverTemplates.version,
- ...(id?{signatureData:waiverSubmissions.signatureData,documentHash:waiverSubmissions.documentHash}:{}),
+ ...(id?{signatureData:waiverSubmissions.signatureData,documentHash:waiverSubmissions.documentHash,legacyTemplateBody:waiverTemplates.body}:{}),
  photoAssignmentId:sql<string|null>`(SELECT ${waiverIdentityDocuments.assignmentId} FROM ${waiverIdentityDocuments} WHERE ${waiverIdentityDocuments.submissionId}=${waiverSubmissions.id} AND ${waiverIdentityDocuments.organizationId}=${waiverSubmissions.organizationId} LIMIT 1)`})
  .from(waiverSubmissions)
  .innerJoin(appointments,and(eq(appointments.id,waiverSubmissions.appointmentId),eq(appointments.organizationId,waiverSubmissions.organizationId)))
