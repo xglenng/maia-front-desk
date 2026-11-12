@@ -25,5 +25,6 @@ test('avatar can show assigned live Twilio numbers while registration is pending
   const pending={...live,provider:'twilio'};
   assert.equal(assignedLiveTwilioNumber(pending),live.phoneNumber);
   assert.equal(assignedLiveTwilioNumber({...pending,complianceStatus:'APPROVED'}),live.phoneNumber);
-  for(const number of [null,{...pending,active:false},{...pending,complianceStatus:'MOCK_PENDING'},{...pending,sid:'PNMOCK123'},{...pending,sid:null},{...pending,provider:'other'},{...pending,phoneNumber:'123'}])assert.equal(assignedLiveTwilioNumber(number),null);
+  assert.equal(assignedLiveTwilioNumber({...pending,sid:null}),live.phoneNumber);
+  for(const number of [null,{...pending,active:false},{...pending,complianceStatus:'MOCK_PENDING'},{...pending,sid:'PNMOCK123'},{...pending,provider:'other'},{...pending,phoneNumber:'123'}])assert.equal(assignedLiveTwilioNumber(number),null);
 });
