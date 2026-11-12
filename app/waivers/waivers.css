@@ -244,3 +244,16 @@
 .waiver-admin .existing-field-error{color:#9b2f20;font-size:13px;font-weight:400;line-height:1.4}
 .waiver-admin .existing-form-dialog footer{margin-top:20px}
 @media(max-width:600px){.waiver-admin .consent-page-actions{gap:10px}.waiver-admin .consent-add-link{flex:1}.waiver-admin .existing-form-dialog footer{margin-top:auto}}
+.waiver-admin .consent-create-link{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:44px}
+.waiver-admin .form-link-controls{display:flex;align-items:center;gap:8px;margin-top:8px}
+.waiver-admin .appointment-form-link .form-link-controls input{flex:1;min-width:0;margin:0}
+.waiver-admin .copy-form-link{display:grid;place-items:center;flex:none;width:44px;height:44px;padding:0;border:1px solid #d7d7d7;border-radius:10px;background:#fff;color:#111}
+.waiver-admin .form-link-feedback{display:block;font-size:13px;line-height:1.5;color:#4d3e86}
+.waiver-admin .form-link-feedback:not(:empty){margin:8px 0}
+.waiver-admin .existing-form-dialog .connection{gap:12px;flex-wrap:wrap}
+.waiver-admin .existing-form-dialog .connection>div:last-child{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:600px){
+ .waiver-admin .consent-create-link{flex:none;width:44px;min-height:44px;padding:0;font-size:26px;line-height:1}
+ .waiver-admin .create-form-text{display:none}
+ .waiver-admin .consent-add-link{flex:0 1 auto}
+}
