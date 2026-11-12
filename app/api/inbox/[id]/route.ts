@@ -1,3 +1,4 @@
+import { smsReplyBlockReason } from "@/packages/inbox/sms-reply";
 import { effectiveReplyMode } from '@/packages/inbox/draft-policy';
 import { getConversationQuote } from '@/packages/inbox/quote-state.server';
 import { latestDraft } from '@/packages/inbox/drafts.server';
@@ -41,6 +42,7 @@ async function handleGET(request: NextRequest, { params }: Context) {
     quoteServices: await db.select({ id: services.id, name: services.name, durationMinutes: services.durationMinutes, basePriceCents: services.basePriceCents }).from(services).where(and(eq(services.organizationId, access.user.organization_id), eq(services.artistId, artist.id), or(eq(services.pricingType, 'QUOTE'), eq(services.serviceType, 'TATTOO')), eq(services.active, true))),
     artist: { id: artist.id, displayName: artist.displayName, calendarColor:artist.calendarColor, aiMode: artist.aiMode, requiresSupervisorApproval: artist.requiresSupervisorApproval },
     draft: await latestDraft(access.user.organization_id, id, conversation.inboundVersion, replyMode),
+    smsReplyBlockReason: conversation.channel === "SMS" ? smsReplyBlockReason(client, conversation.lastInboundAt) : null,
     client: { id: client.id, name: `${client.firstName}${client.lastName ? ` ${client.lastName}` : ""}`, phone: client.phone, email: client.email, smsOptIn: client.smsOptIn },
     messages: messageRows,
     events: eventRows,
