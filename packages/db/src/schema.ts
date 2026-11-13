@@ -32,6 +32,26 @@ export const authCredentials = pgTable('auth_credentials', {
   userId: uuid('user_id').primaryKey().references(()=>users.id,{onDelete:'cascade'}),
   passwordHash: text('password_hash').notNull(), active: boolean('active').notNull().default(true)
 });
+export const ownerWelcomeEmails = pgTable('owner_welcome_emails', {
+  organizationId: uuid('organization_id').primaryKey().references(() => organizations.id),
+  ownerId: uuid('owner_id').notNull(),
+  status: text('status').notNull().default('PENDING'),
+  runAt: timestamp('run_at', { withTimezone: true }).notNull().defaultNow(),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  lockToken: uuid('lock_token'),
+  lockExpiresAt: timestamp('lock_expires_at', { withTimezone: true }),
+  firstSendAt: timestamp('first_send_at', { withTimezone: true }),
+  emailPayload: jsonb('email_payload'),
+  lastErrorCode: text('last_error_code'),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  ownerTenant: foreignKey({ name: 'owner_welcome_emails_owner_tenant_fk', columns: [table.ownerId, table.organizationId], foreignColumns: [users.id, users.organizationId] }),
+  due: index('owner_welcome_emails_due_idx').on(table.status, table.runAt),
+  statusCheck: check('owner_welcome_emails_status_check', sql`${table.status} IN ('PENDING','PROCESSING','RETRY','SENT','FAILED','DELIVERY_UNKNOWN')`),
+  attemptCheck: check('owner_welcome_emails_attempt_check', sql`${table.attemptCount} >= 0`),
+}));
 export const authSessions = pgTable('auth_sessions', {
   tokenHash:text('token_hash').primaryKey(),userId:uuid('user_id').notNull().references(()=>users.id,{onDelete:'cascade'}),
   expiresAt:timestamp('expires_at',{withTimezone:true}).notNull()

@@ -43,7 +43,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
     if (publicPage) return;
     let active = true;
     fetch('/api/auth/session', { cache: 'no-store' }).then(async response => {
-      if (response.status === 401) { window.location.replace('/login'); return; }
+      if (response.status === 401) { window.location.replace(path === '/onboarding' || path === '/help' ? `/login?next=${encodeURIComponent(path)}` : '/login'); return; }
       if (!response.ok) return;
       const current = (await response.json()).user as SessionUser;
       if (current.role !== 'OWNER' && ownerPage) { window.location.replace('/?access=owner-required'); return; }

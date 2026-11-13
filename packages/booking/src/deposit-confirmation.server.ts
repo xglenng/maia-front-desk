@@ -5,7 +5,8 @@ import { and, eq, gte, lt, ne, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, clients, payments } from '@db/schema';
 import { createSchedulingBooking, usesInternalScheduling } from '@/packages/scheduling/service';
-import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
+import { scheduleConfirmedAppointmentAutomations, schedulePaymentConfirmation } from '@/packages/automations/lifecycle.server';
+import { MANUAL_CALENDAR_NOTE_PREFIX } from '@/packages/studio/native-calendar-policy';
 
 export type DepositConfirmationMethod = 'MANUAL' | 'SQUARE_WEBHOOK' | 'STRIPE_WEBHOOK';
 
@@ -21,6 +22,7 @@ export async function confirmAppointmentDeposit(input: {
   if (!initial) return { status: 'NOT_FOUND' as const };
   if (initial.status === 'CONFIRMED' && initial.depositStatus === 'PAID') {
     await scheduleConfirmedAppointmentAutomations(initial.id);
+    if (input.confirmationMethod !== 'MANUAL' && initial.notes?.startsWith(MANUAL_CALENDAR_NOTE_PREFIX)) await schedulePaymentConfirmation(initial.id);
     return { status: 'CONFIRMED' as const, appointment: initial, duplicate: true };
   }
   if (initial.status === 'PAYMENT_RECEIVED_SLOT_UNAVAILABLE' && initial.depositStatus === 'PAID') return { status: 'SLOT_UNAVAILABLE' as const, appointment: initial, duplicate: true };
@@ -86,6 +88,9 @@ export async function confirmAppointmentDeposit(input: {
     return { status: canConfirm ? 'CONFIRMED' as const : 'SLOT_UNAVAILABLE' as const, appointment: updated, duplicate: false };
   });
 
-  if (result.status === 'CONFIRMED' && result.appointment) await scheduleConfirmedAppointmentAutomations(result.appointment.id);
+  if (result.status === 'CONFIRMED' && result.appointment) {
+    await scheduleConfirmedAppointmentAutomations(result.appointment.id);
+    if (input.confirmationMethod !== 'MANUAL' && result.appointment.notes?.startsWith(MANUAL_CALENDAR_NOTE_PREFIX)) await schedulePaymentConfirmation(result.appointment.id);
+  }
   return result;
 }

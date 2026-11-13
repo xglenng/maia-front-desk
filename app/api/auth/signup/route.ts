@@ -180,6 +180,20 @@ export async function POST(req: NextRequest) {
       [digest(rawToken), user.id]
     );
 
+    await client.query("SAVEPOINT welcome_email");
+    try {
+      await client.query(
+        `INSERT INTO owner_welcome_emails(organization_id, owner_id)
+         VALUES($1, $2) ON CONFLICT (organization_id) DO NOTHING`,
+        [organization.id, user.id]
+      );
+      await client.query("RELEASE SAVEPOINT welcome_email");
+    } catch (error) {
+      await client.query("ROLLBACK TO SAVEPOINT welcome_email");
+      await client.query("RELEASE SAVEPOINT welcome_email");
+      console.error("Welcome email could not be queued", { errorType: error instanceof Error ? error.name : "UnknownError" });
+    }
+
     await client.query("COMMIT");
 
     const response = NextResponse.json(

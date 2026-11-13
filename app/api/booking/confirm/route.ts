@@ -6,7 +6,7 @@ import { db } from '@db/index';
 import { appointments, artists } from '@db/schema';
 import { z } from 'zod';
 import { canManageAppointment, noDepositConfirmationStatus } from '@booking/confirmation-policy';
-import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
+import { scheduleConfirmedAppointmentAutomations, scheduleManualConfirmationSafely } from '@/packages/automations/lifecycle.server';
 
 const schema = z.object({
   organizationId: z.string().uuid(),
@@ -26,8 +26,11 @@ async function handlePOST(request: NextRequest) {
   if (!row || !canManageAppointment(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
   const appointment = row.appointment;
   if (appointment.status === 'CONFIRMED' && noDepositConfirmationStatus(appointment.depositCents) && appointment.depositStatus === 'WAIVED') {
-    await scheduleConfirmedAppointmentAutomations(appointment.id);
-    return NextResponse.json({ appointment, duplicate: true });
+    const confirmation = await scheduleManualConfirmationSafely(appointment.id);
+    let automationWarning: string | null = null;
+    try { await scheduleConfirmedAppointmentAutomations(appointment.id); }
+    catch { console.error('Unable to schedule appointment reminders.'); automationWarning = 'Appointment reminders could not be scheduled. Check automation settings.'; }
+    return NextResponse.json({ appointment, duplicate: true, confirmation, automationWarning });
   }
   if (appointment.status !== 'TENTATIVE') return NextResponse.json({ error: 'Only tentative appointments can be confirmed' }, { status: 409 });
   if (appointment.holdExpiresAt && appointment.holdExpiresAt < new Date()) return NextResponse.json({ error: 'Booking hold has expired' }, { status: 409 });
@@ -42,8 +45,11 @@ async function handlePOST(request: NextRequest) {
   )).returning())[0];
   });
   if (!updated) return NextResponse.json({ error: 'Appointment state changed before it could be confirmed.' }, { status: 409 });
-  await scheduleConfirmedAppointmentAutomations(updated.id);
-  return NextResponse.json({ appointment: updated });
+  const confirmation = await scheduleManualConfirmationSafely(updated.id);
+  let automationWarning: string | null = null;
+  try { await scheduleConfirmedAppointmentAutomations(updated.id); }
+  catch { console.error('Unable to schedule appointment reminders.'); automationWarning = 'Appointment reminders could not be scheduled. Check automation settings.'; }
+  return NextResponse.json({ appointment: updated, confirmation, automationWarning });
 }
 
 export const POST = protectedRoute(handlePOST, false);

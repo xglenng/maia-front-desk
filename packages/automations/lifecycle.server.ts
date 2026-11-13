@@ -3,6 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, artists, automationJobs, clients, services } from '@db/schema';
 import { appointmentCompletionDedupeKey, appointmentLifecycleDedupeKey, appointmentReminderPlan } from './lifecycle-policy';
+import { assertStudioSmsReady, StudioSmsUnavailableError } from '@integrations/studio-sms';
 
 const APPOINTMENT_JOB_TYPES = ['APPOINTMENT_CONFIRMATION', 'APPOINTMENT_REMINDER', 'APPOINTMENT_WAIVER_SEND', 'WAIVER_REMINDER', 'AFTERCARE_FOLLOWUP', 'REVIEW_FOLLOWUP'];
 
@@ -16,7 +17,7 @@ async function enqueue(input: {
   runAt: Date;
   payload: Record<string, unknown>;
 }) {
-  await db.insert(automationJobs).values({
+  const inserted = await db.insert(automationJobs).values({
     organizationId: input.organizationId,
     artistId: input.artistId,
     clientId: input.clientId,
@@ -29,7 +30,8 @@ async function enqueue(input: {
     attemptCount: 0,
     maxAttempts: 5,
     payload: input.payload,
-  }).onConflictDoNothing({ target: [automationJobs.organizationId, automationJobs.dedupeKey] });
+  }).onConflictDoNothing({ target: [automationJobs.organizationId, automationJobs.dedupeKey] }).returning({ id: automationJobs.id });
+  return inserted.length > 0;
 }
 
 export async function scheduleConfirmedAppointmentAutomations(appointmentId: string, now = new Date()) {
@@ -132,4 +134,46 @@ export async function schedulePaymentConfirmation(appointmentId:string){
  const [row]=await db.select().from(appointments).where(and(eq(appointments.id,appointmentId),eq(appointments.status,'CONFIRMED'),eq(appointments.depositStatus,'PAID')));
  if(!row)return;
  await enqueue({organizationId:row.organizationId,artistId:row.artistId,clientId:row.clientId,appointmentId:row.id,type:'APPOINTMENT_CONFIRMATION',dedupeKey:`payment-confirmation:${row.id}`,runAt:new Date(),payload:{scheduleRevision:row.scheduleRevision}});
+}
+
+export async function scheduleManualAppointmentConfirmation(appointmentId: string): Promise<{ status: 'QUEUED' | 'SENDING' | 'SUBMITTED' } | { status: 'UNAVAILABLE'; reason: string }> {
+  const [row] = await db.select({ appointment: appointments, client: clients }).from(appointments)
+    .innerJoin(clients, and(eq(clients.id, appointments.clientId), eq(clients.organizationId, appointments.organizationId)))
+    .where(eq(appointments.id, appointmentId)).limit(1);
+  if (!row || row.appointment.status !== 'CONFIRMED') return { status: 'UNAVAILABLE' as const, reason: 'The appointment is not confirmed.' };
+  const { appointment, client } = row;
+  const dedupeKey = `payment-confirmation:${appointment.id}`;
+  const [existing] = await db.select({ status: automationJobs.status, payload: automationJobs.payload }).from(automationJobs)
+    .where(and(eq(automationJobs.organizationId, appointment.organizationId), eq(automationJobs.dedupeKey, dedupeKey))).limit(1);
+  if (existing) {
+    if (['PENDING', 'RETRY', 'PROCESSING'].includes(existing.status)) {
+      const payload = existing.payload && typeof existing.payload === 'object' && !Array.isArray(existing.payload) ? existing.payload as Record<string, unknown> : {};
+      if (payload.scheduleRevision !== appointment.scheduleRevision) return { status: 'UNAVAILABLE' as const, reason: 'The appointment changed before the confirmation was sent.' };
+      return { status: 'QUEUED' as const };
+    }
+    if (existing.status === 'SENDING') return { status: 'SENDING' as const };
+    if (existing.status === 'COMPLETED') return { status: 'SUBMITTED' as const };
+    return { status: 'UNAVAILABLE' as const, reason: 'A previous confirmation could not be sent. Check the appointment messages for its status.' };
+  }
+  if (!client.phone) return { status: 'UNAVAILABLE' as const, reason: 'The client has no phone number.' };
+  if (client.smsConsentStatus === 'OPTED_OUT') return { status: 'UNAVAILABLE' as const, reason: 'The client has opted out of SMS.' };
+  if (appointment.startsAt <= new Date()) return { status: 'UNAVAILABLE' as const, reason: 'The appointment has already started.' };
+  try {
+    await assertStudioSmsReady({ organizationId: appointment.organizationId, artistId: appointment.artistId, clientId: appointment.clientId, phone: client.phone });
+  } catch (error) {
+    if (error instanceof StudioSmsUnavailableError) return { status: 'UNAVAILABLE' as const, reason: error.message };
+    throw error;
+  }
+  const inserted = await enqueue({ organizationId: appointment.organizationId, artistId: appointment.artistId, clientId: appointment.clientId, appointmentId: appointment.id, type: 'APPOINTMENT_CONFIRMATION', dedupeKey, runAt: new Date(), payload: { scheduleRevision: appointment.scheduleRevision } });
+  if (!inserted) return scheduleManualAppointmentConfirmation(appointmentId);
+  return { status: 'QUEUED' as const };
+}
+
+export async function scheduleManualConfirmationSafely(appointmentId: string) {
+  try {
+    return await scheduleManualAppointmentConfirmation(appointmentId);
+  } catch {
+    console.error('Unable to queue appointment confirmation.');
+    return { status: 'UNAVAILABLE' as const, reason: 'Maia could not queue the confirmation. Check SMS setup and try again.' };
+  }
 }

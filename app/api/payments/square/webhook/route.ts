@@ -16,8 +16,9 @@ import { sendStudioSms } from '@integrations/studio-sms';
 import { createSchedulingBooking, usesInternalScheduling } from '@/packages/scheduling/service';
 import { SquareApiClient } from '@/packages/scheduling/square/client';
 import { squareAccessToken } from '@/packages/scheduling/square/credentials';
-import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
+import { scheduleConfirmedAppointmentAutomations, schedulePaymentConfirmation } from '@/packages/automations/lifecycle.server';
 import { cancelAppointmentLifecycleJobs } from '@/packages/automations/lifecycle.server';
+import { MANUAL_CALENDAR_NOTE_PREFIX } from '@/packages/studio/native-calendar-policy';
 
 type SquarePayment = {
   id?: string;
@@ -158,6 +159,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true });
     }
     if (pendingAppointment.paymentProvider && pendingAppointment.paymentProvider !== 'SQUARE') return NextResponse.json({ received: true });
+    if (pendingAppointment.status === 'CONFIRMED' && pendingAppointment.depositStatus === 'PAID' && pendingAppointment.notes?.startsWith(MANUAL_CALENDAR_NOTE_PREFIX)) {
+      await schedulePaymentConfirmation(pendingAppointment.id);
+      return NextResponse.json({ received: true });
+    }
 
     // A quote may already have reserved this slot in Square. Preserve that
     // booking when payment arrives; only unbooked requests need a new claim.
@@ -403,6 +408,9 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      if (confirmedAppointment.notes?.startsWith(MANUAL_CALENDAR_NOTE_PREFIX)) {
+        await schedulePaymentConfirmation(confirmedAppointment.id);
+      }
       const [details] = await db
         .select({
           artistId: appointments.artistId,
@@ -437,7 +445,7 @@ export async function POST(request: NextRequest) {
         )
         .limit(1);
 
-      if (details) {
+      if (details && !confirmedAppointment.notes?.startsWith(MANUAL_CALENDAR_NOTE_PREFIX)) {
         const timezone = details.organizationTimezone || 'UTC';
 
         const appointmentTime = new Intl.DateTimeFormat('en-US', {

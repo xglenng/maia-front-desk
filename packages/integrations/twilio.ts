@@ -114,7 +114,10 @@ export async function sendSms(input: { to: string; body: string; from?: string; 
   const form: Record<string, string> = { To: input.to, Body: input.body };
   const statusCallback = input.statusCallback || twilioMessageStatusCallbackUrl();
   if (statusCallback) form.StatusCallback = statusCallback;
-  if (input.messagingServiceSid) form.MessagingServiceSid = input.messagingServiceSid;
+  if (input.messagingServiceSid) {
+    form.MessagingServiceSid = input.messagingServiceSid;
+    if (input.from) form.From = input.from;
+  }
   else if (from) form.From = from;
   else throw new Error('A Twilio From number or Messaging Service SID is required.');
   return twilioRequest<{ sid: string; status: string; to: string; from: string }>({

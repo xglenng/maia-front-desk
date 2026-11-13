@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, artists, automationJobs, clients, conversations, externalWaiverAssignments, externalWaiverEvents, externalWaiverForms, messages, organizations, services, studioAftercare, studioLocations, waiverSubmissions, waiverTemplates } from '@db/schema';
-import { sendStudioSms } from '@integrations/studio-sms';
+import { assertStudioSmsReady, sendStudioSms, StudioSmsUnavailableError } from '@integrations/studio-sms';
 import { ageOn, assignedFormUrl, selectWaiverForm } from '@waivers/selection';
 import { signWaiver } from '@/packages/auth/waiver-token';
 import { classifyAutomationFailure, retryDelaySeconds, retryState } from './policy';
@@ -83,7 +83,7 @@ async function sendAppointmentMessage(job: ClaimedAutomationJob, appointment: ty
     return cancel(job, 'APPOINTMENT_NO_LONGER_ELIGIBLE');
   }
   if (!client.phone) return cancel(job, 'CLIENT_PHONE_MISSING');
-  const sent = await sendStudioSms({ organizationId: job.organizationId, artistId: job.artistId, to: client.phone, body });
+  const sent = await sendStudioSms({ organizationId: job.organizationId, artistId: job.artistId, to: client.phone, body, useAssignedNumber: job.type === 'APPOINTMENT_CONFIRMATION' });
   const now = new Date();
   await db.update(messages).set({ externalMessageId: sent.sid, metadata: { automationJobId: job.id, ...metadata, provider: 'twilio', studioPhone: sent.studioPhone, status: sent.status } }).where(eq(messages.id, resultMessage.id));
   await updateClaimedJob(job, { status: 'COMPLETED', sentAt: now, completedAt: now, lastErrorCode: null, lockedAt: null, lockExpiresAt: null, lockToken: null });
@@ -109,15 +109,25 @@ function formatAppointmentTime(value: Date, timeZone: string) {
 }
 
 async function processPaymentConfirmation(job:ClaimedAutomationJob,payload:Record<string,unknown>){
+ const initial=await loadAppointment(job);
+ if(!initial)return cancel(job,'PAYMENT_CONFIRMATION_NOT_ELIGIBLE');
+ if (!initial.client.phone) return cancel(job, 'CLIENT_PHONE_MISSING');
+ if (initial.client.smsConsentStatus === 'OPTED_OUT') return cancel(job, 'CLIENT_SMS_OPTED_OUT');
+ try {
+  await assertStudioSmsReady({ organizationId: job.organizationId, artistId: job.artistId, clientId: job.clientId, phone: initial.client.phone });
+ } catch (error) {
+  if (error instanceof StudioSmsUnavailableError) return cancel(job, error.code);
+  throw error;
+ }
  const guard=async()=>{
   const row=await loadAppointment(job);
-  if(!row||row.appointment.status!=='CONFIRMED'||row.appointment.depositStatus!=='PAID'||row.appointment.scheduleRevision!==payload.scheduleRevision||!row.client.phone||!row.client.smsOptIn||row.client.smsConsentStatus==='OPTED_OUT')return false;
+  if(!row||row.appointment.status!=='CONFIRMED'||row.appointment.startsAt.getTime()<=Date.now()||row.appointment.scheduleRevision!==payload.scheduleRevision||!row.client.phone||row.client.phone!==initial.client.phone||!row.client.smsOptIn||row.client.smsConsentStatus==='OPTED_OUT')return false;
   const active=await db.select({aiEnabled:conversations.aiEnabled,status:conversations.status}).from(conversations).where(and(eq(conversations.organizationId,job.organizationId),eq(conversations.artistId,job.artistId),eq(conversations.clientId,job.clientId),eq(conversations.channel,'SMS'),ne(conversations.status,'CLOSED')));
   return !active.some(c=>!c.aiEnabled||c.status==='HUMAN_TAKEOVER');
  };
- const row=await loadAppointment(job);
- if(!row||!await guard())return cancel(job,'PAYMENT_CONFIRMATION_NOT_ELIGIBLE');
- const body=`${row.organization.name}: Your $${((row.appointment.depositCents||0)/100).toFixed(2)} deposit has been received. Your ${row.service?.name||'appointment'} is confirmed for ${formatAppointmentTime(row.appointment.startsAt,row.timezone)}.`;
+ const row=initial;
+ if(!await guard())return cancel(job,'PAYMENT_CONFIRMATION_NOT_ELIGIBLE');
+ const body=`${row.organization.name}: Your ${row.service?.name || 'appointment'}${row.service?.name ? ' appointment' : ''} with ${row.artist.displayName} is confirmed for ${formatAppointmentTime(row.appointment.startsAt,row.timezone)}. Reply if you need help.`;
  return sendAppointmentMessage(job,row.appointment,row.client,body,{automationType:job.type,appointmentId:row.appointment.id},guard);
 }
 

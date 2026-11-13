@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import PasswordInput from '@/components/password-input';
+import { setupReturnPath } from '@/packages/auth/setup-return';
 
 export default function Login() {
   const [error, setError] = useState('');
@@ -22,7 +23,7 @@ export default function Login() {
       });
 
       if (res.ok) {
-        window.location.assign('/');
+        window.location.assign(setupReturnPath(new URLSearchParams(window.location.search).get('next')));
         return;
       }
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { buildOnboardingReadiness } from '@/packages/onboarding/readiness';
 import { setupStages, visibleStageChecks, setupSettingsHref, stageComplete, wizardStage } from '@/packages/onboarding/wizard';
+import StudioLogoSetting from '@/app/settings/studio/studio-logo-setting';
 
 type Readiness = ReturnType<typeof buildOnboardingReadiness>;
 const panel = { background: '#fff', border: '1px solid #e5e0da', borderRadius: 16, padding: 'clamp(18px, 4vw, 30px)', marginTop: 20 };
@@ -71,6 +72,7 @@ export function ReadinessPanel({ onSmsSetup }: { onSmsSetup: () => void }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}><strong>{check.title}</strong><span style={{ fontSize: 12, color: check.status === 'COMPLETE' ? '#2f7651' : '#6f6b66' }}>{check.id === 'test' && check.status === 'IN_PROGRESS' ? 'Test needed' : statusLabels[check.status]}</span></div>
         <p style={{ color: '#6f6b66', lineHeight: 1.5, fontSize: 14 }}>{check.description}</p>
         {check.blockers.length > 0 && <ul style={{ color: '#8f2f22', fontSize: 13 }}>{[...new Set(check.blockers)].map(blocker => <li key={blocker}>{blocker}</li>)}</ul>}
+        {check.id === 'studio_profile' && <StudioLogoSetting compact />}
         {check.id === 'go_live' ? (check.status !== 'COMPLETE' && <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>{readiness.steps.filter(item => ['studio_profile','artist','services','receptionist'].includes(item.id) && item.status !== 'COMPLETE').map(item => <a key={item.id} href={setupSettingsHref(item.href, stage.id)} style={button}>Fix {item.title.toLowerCase()} →</a>)}</div>) : check.id === 'sms' ? <a href="#sms-setup" onClick={onSmsSetup} style={button}>Set up SMS</a> : <a href={setupSettingsHref(check.href, stage.id)} style={button}>{check.id === 'test' ? (check.status === 'COMPLETE' ? 'Preview replies again' : 'Preview replies') : check.status === 'COMPLETE' ? 'Review settings' : 'Open setup'} →</a>}
       </article>)}</div>
       {index === 4 && <div style={{ marginTop: 20, padding: 16, borderRadius: 10, background: '#f5f5f5' }}><strong>{readiness.readyForCoreGoLive ? 'Setup complete' : 'Finish the missing configuration'}</strong><p style={{ lineHeight: 1.5 }}>Booking: {readiness.booking.status.replaceAll('_', ' ')} · SMS: {readiness.sms.status.replaceAll('_', ' ')} · Social: {readiness.social.status.replaceAll('_', ' ')}</p><p style={{ fontSize: 13 }}>Completing this wizard does not activate messaging, purchase a number, or change conversation Auto/Draft modes.</p></div>}

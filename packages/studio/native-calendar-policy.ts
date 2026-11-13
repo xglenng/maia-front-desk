@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export const MANUAL_CALENDAR_NOTE_PREFIX = 'Created manually in Maia calendar.';
 export const calendarHoursSchema=z.array(z.object({dayOfWeek:z.number().int().min(0).max(6),startMinute:z.number().int().min(0).max(1439),endMinute:z.number().int().min(1).max(1440)}).refine(row=>row.endMinute>row.startMinute,'End must be after start.')).max(28).refine(rows=>!rows.some((a,i)=>rows.some((b,j)=>i<j&&a.dayOfWeek===b.dayOfWeek&&a.startMinute<b.endMinute&&a.endMinute>b.startMinute)),'Hours must not overlap.');
 export function nativeDeposit(service:{depositType:string;depositAmountCents:number|null;depositPercent:number|null},priceCents:number) {
  if(service.depositType==='NONE')return 0;

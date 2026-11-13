@@ -3,7 +3,7 @@ import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, organizations, studioLocations, artists, calendarConnections, clients, externalWaiverAssignments, externalWaiverForms, payments, users, services, waiverSubmissions, waiverTemplates } from '@db/schema';
+import { appointments, organizations, studioLocations, artists, automationJobs, calendarConnections, clients, externalWaiverAssignments, externalWaiverForms, messages, payments, users, services, waiverSubmissions, waiverTemplates } from '@db/schema';
 import { GoogleCalendarAdapter } from '@integrations/index';
 import { canAccessArtist } from '@/packages/inbox/state';
 import { cancelAppointmentLifecycleJobs, cancelAppointmentPreCompletionJobs, scheduleAppointmentCompletionFollowups } from '@/packages/automations/lifecycle.server';
@@ -25,6 +25,9 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
   const [organization]=await db.select({name:organizations.name,timezone:organizations.timezone}).from(organizations).where(eq(organizations.id,organizationId)).limit(1);
   const paymentRows = await db.select().from(payments).where(and(eq(payments.appointmentId, id), eq(payments.organizationId, organizationId)));
   const refundAudit = await db.select({paymentId:payments.id,requestedBy:users.name,requestedAt:payments.refundRequestedAt}).from(payments).innerJoin(users,and(eq(users.id,payments.refundRequestedByUserId),eq(users.organizationId,payments.organizationId))).where(and(eq(payments.appointmentId,id),eq(payments.organizationId,organizationId)));
+  const [confirmation] = await db.select({ status: automationJobs.status, errorCode: automationJobs.lastErrorCode, metadata: messages.metadata })
+    .from(automationJobs).leftJoin(messages, eq(messages.id, automationJobs.resultMessageId))
+    .where(and(eq(automationJobs.organizationId, organizationId), eq(automationJobs.appointmentId, id), eq(automationJobs.type, 'APPOINTMENT_CONFIRMATION'))).limit(1);
   const [externalWaivers, signedWaivers] = await Promise.all([
     db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name })
       .from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id))
@@ -33,7 +36,8 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
       .from(waiverSubmissions).innerJoin(waiverTemplates, eq(waiverSubmissions.waiverTemplateId, waiverTemplates.id))
       .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
   ]);
-  return NextResponse.json({ location:location||null, organization, appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers });
+  const metadata = confirmation?.metadata && typeof confirmation.metadata === 'object' && !Array.isArray(confirmation.metadata) ? confirmation.metadata as Record<string, unknown> : null;
+  return NextResponse.json({ location:location||null, organization, appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers, confirmation: confirmation ? { status: confirmation.status, errorCode: confirmation.errorCode, providerStatus: typeof metadata?.status === 'string' ? metadata.status : null } : null });
 }
 
 async function handleDELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

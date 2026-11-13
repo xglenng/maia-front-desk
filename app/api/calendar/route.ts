@@ -7,9 +7,9 @@ import { db } from '@/packages/db/src';
 import { calendarTimeOff,retailItems,appointments,artists,availabilityRules,calendarConnections,clients,organizations,schedulingConnections,services } from '@/packages/db/src/schema';
 import { identity,protectedRoute } from '@/packages/auth/server';
 import { localDateTimeToUtc } from '@/packages/booking/src/time';
-import { addCalendarDate,calendarDate,calendarHoursSchema,nativeDeposit,rescheduleSchema,canRescheduleNative,canExtendNative } from '@/packages/studio/native-calendar-policy';
+import { addCalendarDate,calendarDate,calendarHoursSchema,nativeDeposit,rescheduleSchema,canRescheduleNative,canExtendNative,MANUAL_CALENDAR_NOTE_PREFIX } from '@/packages/studio/native-calendar-policy';
 import { lockArtistCalendar,nativeSlotAvailable } from '@/packages/booking/src/native-calendar.server';
-import { scheduleConfirmedAppointmentAutomations } from '@/packages/automations/lifecycle.server';
+import { scheduleConfirmedAppointmentAutomations, scheduleManualConfirmationSafely } from '@/packages/automations/lifecycle.server';
 const scope={artistId:z.string().uuid(),organizationId:z.string().uuid()};
 async function nativeProvider(organizationId:string,artistId:string){
  const [[connection],google]=await Promise.all([db.select({provider:schedulingConnections.provider,status:schedulingConnections.status}).from(schedulingConnections).where(and(eq(schedulingConnections.organizationId,organizationId),eq(schedulingConnections.artistId,artistId))).limit(1),db.select({id:calendarConnections.id}).from(calendarConnections).where(and(eq(calendarConnections.organizationId,organizationId),eq(calendarConnections.artistId,artistId),eq(calendarConnections.active,true))).limit(1)]);
@@ -64,11 +64,16 @@ async function post(request:NextRequest){
     if(!found.rowCount)throw new Error('Client is not assigned to this artist.');
    }
   }else clientId=(await tx.insert(clients).values({organizationId:input.organizationId,...input.newClient!}).returning({id:clients.id}))[0].id;
-  const [appointment]=await tx.insert(appointments).values({id:input.requestId,organizationId:input.organizationId,artistId:input.artistId,serviceId:service.id,clientId,startsAt,endsAt,status:depositCents?'PAYMENT_PENDING':'CONFIRMED',priceCents:input.priceCents,depositCents:depositCents||null,depositStatus:depositCents?'PENDING':'WAIVED',paymentProvider:service.paymentProvider,schedulingProvider:'INTERNAL',notes:'Created manually in Maia calendar. Deposit-required slots are not reserved until payment is confirmed.'+plannedNote}).returning();
+  const [appointment]=await tx.insert(appointments).values({id:input.requestId,organizationId:input.organizationId,artistId:input.artistId,serviceId:service.id,clientId,startsAt,endsAt,status:depositCents?'PAYMENT_PENDING':'CONFIRMED',priceCents:input.priceCents,depositCents:depositCents||null,depositStatus:depositCents?'PENDING':'WAIVED',paymentProvider:service.paymentProvider,schedulingProvider:'INTERNAL',notes:MANUAL_CALENDAR_NOTE_PREFIX+' Deposit-required slots are not reserved until payment is confirmed.'+plannedNote}).returning();
   return {appointment,duplicate:false};
  });
- if(result.appointment.status==='CONFIRMED')await scheduleConfirmedAppointmentAutomations(result.appointment.id);
- return NextResponse.json(result,{status:result.duplicate?200:201});
+ const confirmation = result.appointment.status==='CONFIRMED' ? await scheduleManualConfirmationSafely(result.appointment.id) : null;
+ let automationWarning: string | null = null;
+ if(result.appointment.status==='CONFIRMED') {
+  try { await scheduleConfirmedAppointmentAutomations(result.appointment.id); }
+  catch { console.error('Unable to schedule appointment reminders.'); automationWarning = 'Appointment reminders could not be scheduled. Check automation settings.'; }
+ }
+ return NextResponse.json({...result,confirmation,automationWarning},{status:result.duplicate?200:201});
  }catch(error){return NextResponse.json({error:error instanceof Error&&!('code' in error)?error.message:'Unable to save appointment. Refresh and try again.'},{status:409});}
 }
 async function put(request:NextRequest){
