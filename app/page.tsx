@@ -122,7 +122,7 @@ export default function Home() {
       <main className="main">
         <header className="topbar">
           <div><div className="eyebrow">{view==="Calendar"?"Maia calendar":data ? formatDate(data.date) : "Loading…"}</div><h1>{view === "Overview" ? data?.signedInArtist?.displayName.trim() ? `Hello, ${data.signedInArtist.displayName.trim().split(/\s+/)[0]}` : 'Hello' : view}</h1></div>
-          <div className="top-actions"><button className="icon-btn">⌕</button><button className="icon-btn">◔</button><button className="primary-btn" onClick={()=>setView("Calendar")}>Open calendar</button></div>
+          {view !== "Calendar" && <div className="top-actions"><button className="icon-btn">⌕</button><button className="icon-btn">◔</button><button className="primary-btn" onClick={()=>setView("Calendar")}>Open calendar</button></div>}
         </header>
 
         {artistOptions.length>0&&<div className="artist-legend" aria-label="Studio team filter">{artistOptions.map(artist=><button key={artist.id} aria-pressed={(selectedArtistId||data?.artist.id)===artist.id} disabled={loading} onClick={()=>setSelectedArtistId(artist.id)}><span className="artist-dot" style={{'--artist-color':artistColor(artist.id,artist.calendarColor)} as CSSProperties}/>{artist.displayName}<small>{artist.requiresSupervisorApproval?'Apprentice':'Artist'}</small></button>)}</div>}
