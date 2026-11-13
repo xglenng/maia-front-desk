@@ -7,9 +7,9 @@ import './session-gate.css';
 import { RefreshContext, usePageRefreshController } from './page-refresh';
 import { useThemePreference } from './theme';
 import {ownerSettingsPage} from '@/packages/auth/settings-policy';
-import {assignedLiveTwilioNumber} from '@/packages/onboarding/sms-number';
+import {avatarSmsStatus, type AvatarSmsStatus, type SmsNumberRecord} from '@/packages/onboarding/sms-number';
 
-export type SessionUser = { id: string; name: string; email: string; studioEmail?: string | null; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
+export type SessionUser = { id: string; name: string; email: string; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
 const SessionContext = createContext<SessionUser | null>(null);
 export function useSession() { return useContext(SessionContext); }
 
@@ -35,9 +35,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const [accountOpen,setAccountOpen]=useState(false);
   const accountRef=useRef<HTMLDetailsElement>(null);
   const notificationsRef=useRef<HTMLDetailsElement>(null);
-  const [smsNumber,setSmsNumber]=useState<string|null>(null);
-  const [smsStatus,setSmsStatus]=useState('');
-  const [smsLoaded,setSmsLoaded]=useState(false);
+  const [smsState,setSmsState]=useState<AvatarSmsStatus | {kind:'loading'} | {kind:'error';message:string}>({kind:'loading'});
   const [smsNumberMessage,setSmsNumberMessage]=useState('');
   const pageRefresh = usePageRefreshController(path);
   const [themePreference, chooseTheme] = useThemePreference();
@@ -76,19 +74,18 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   useEffect(()=>{
     if(!accountOpen||!user)return;
     const controller=new AbortController();
-    setSmsNumber(null);setSmsNumberMessage('');setSmsStatus('');setSmsLoaded(false);
+    setSmsState({kind:'loading'});setSmsNumberMessage('');
     fetch(`/api/twilio/status?organizationId=${encodeURIComponent(user.organization_id)}`,{cache:'no-store',signal:controller.signal})
       .then(async response=>{if(!response.ok)throw Error();return response.json();})
       .then(data=>{
         if(!data.defaultArtistId){
-          setSmsNumberMessage(data.ownArtistCount>1?'Multiple artist profiles are linked to your sign-in. Ask the studio owner to resolve them.':'No artist profile is linked to your sign-in. Ask the studio owner to set one up.');
+          setSmsState({kind:'error',message:data.ownArtistCount>1?'Multiple artist profiles are linked to your sign-in. Ask the studio owner to resolve them.':'No artist profile is linked to your sign-in. Ask the studio owner to set one up.'});
           return;
         }
-        const number=data.artists?.find((item:{artist:{id:string}})=>item.artist.id===data.defaultArtistId)?.phoneNumber;
-        setSmsNumber(assignedLiveTwilioNumber(number));
-        setSmsStatus(number?.complianceStatus?.replaceAll('_',' ').toLowerCase()||'');
-        setSmsLoaded(true);
-      }).catch(()=>{if(!controller.signal.aborted)setSmsNumberMessage('Unable to load your SMS number.');});
+        const row=data.artists?.find((item:{artist:{id:string};phoneNumber:SmsNumberRecord})=>item.artist.id===data.defaultArtistId);
+        if(!row || row.phoneNumber===undefined)throw Error('Missing artist phone status.');
+        setSmsState(avatarSmsStatus(row.phoneNumber));
+      }).catch(()=>{if(!controller.signal.aborted)setSmsState({kind:'error',message:'Unable to load your SMS number. Reopen this menu to retry.'});});
     return ()=>controller.abort();
   },[accountOpen,user?.id,user?.organization_id]);
   if (publicPage) return <>{children}</>;
@@ -104,8 +101,8 @@ export default function SessionGate({ children }: { children: ReactNode }) {
         </details>
         <details ref={accountRef} className="session-account" onToggle={event=>{setAccountOpen(event.currentTarget.open);if(event.currentTarget.open&&notificationsRef.current)notificationsRef.current.open=false;}} onKeyDown={closeOnEscape}>
           <summary aria-label="Account and sign out" title={user.name}>{user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'M'}</summary>
-          <div className="session-account-panel"><div className="session-identity"><strong>{user.name}</strong><small>Studio email</small><span>{user.studioEmail || 'Not configured'}</span></div>
-            <div className="session-sms-number"><span>My SMS number{smsNumber?<><strong>{smsNumber}</strong><small>SMS status: {smsStatus}</small></>:smsLoaded?<><strong>Not assigned</strong><a href="/settings/sms?tab=phone">SMS Setup</a></>:!smsNumberMessage&&<small>Loading…</small>}</span>{smsNumber&&<button type="button" onClick={()=>void navigator.clipboard.writeText(smsNumber).then(()=>setSmsNumberMessage('SMS number copied.')).catch(()=>setSmsNumberMessage('Unable to copy. Select the number to copy it.'))}>Copy number</button>}</div>
+          <div className="session-account-panel"><div className="session-identity"><strong>{user.name}</strong><small>Sign-in email</small><span>{user.email}</span></div>
+            <div className="session-sms-number"><span>My SMS number{smsState.kind==='approved'?<><strong>{smsState.phoneNumber}</strong><small>SMS status: approved</small></>:smsState.kind==='unassigned'?<><strong>Not assigned</strong><a href="/settings/sms?tab=phone">SMS Setup</a></>:smsState.kind==='pending'?<><strong>Approval pending</strong><small>SMS status: {smsState.status}</small><a href="/settings/sms?tab=phone">SMS Setup</a></>:smsState.kind==='loading'?<small>Loading…</small>:<small>{smsState.message}</small>}</span>{smsState.kind==='approved'&&<button type="button" onClick={()=>void navigator.clipboard.writeText(smsState.phoneNumber).then(()=>setSmsNumberMessage('SMS number copied.')).catch(()=>setSmsNumberMessage('Unable to copy. Select the number to copy it.'))}>Copy number</button>}</div>
             {smsNumberMessage&&<p role="status">{smsNumberMessage}</p>}
             <div className="session-menu-actions">
               <a href="/settings"><UiIcon name="settings" />Settings</a>

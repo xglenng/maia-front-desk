@@ -13,6 +13,8 @@ import {GET as getPublicForm,POST as signPublicForm} from '@/app/api/public/waiv
 import {GET as getArchive} from '@/app/api/waiver-archive/route';
 import {GET as getDashboard} from '@/app/api/dashboard/route';
 import {GET as getTwilioStatus} from '@/app/api/twilio/status/route';
+import {GET as getSession} from '@/app/api/auth/session/route';
+import {avatarSmsStatus} from '@/packages/onboarding/sms-number';
 import {POST as signLegacyForm} from '@/app/api/waivers/sign/route';
 
 const socket=process.env.MAIA_FORMS_TEST_SOCKET;
@@ -59,8 +61,27 @@ test('artist can save an existing form using tenant-scoped waiver setup',{skip:!
   assert.equal((await ownerDefault.json()).artist.id,ownerArtist);
   const ownerSwitch=await getDashboard(new NextRequest(`http://localhost/api/dashboard?date=2026-11-12&artistId=${peer}`,{headers:ownerHeaders}),undefined);
   const switched=await ownerSwitch.json();assert.equal(switched.artist.id,peer);assert.equal(switched.signedInArtist.id,ownerArtist);
+  const ownerSession=await getSession(new NextRequest('http://localhost/api/auth/session',{headers:ownerHeaders}));
+  assert.equal((await ownerSession.json()).user.email,'owner@example.test');
   const unassigned=await getTwilioStatus(new NextRequest('http://localhost/api/twilio/status',{headers:ownerHeaders}),undefined);
   const unassignedData=await unassigned.json();assert.equal(unassignedData.defaultArtistId,ownerArtist);assert.equal(unassignedData.artists.find((item:{artist:{id:string}})=>item.artist.id===ownerArtist).phoneNumber,null);
+  await local.query("INSERT INTO phone_numbers(organization_id,artist_id,phone_number,compliance_status,provider) VALUES($1,$2,'+12025550125','APPROVED','TWILIO')",[org,ownerArtist]);
+  const ownStatus=await getTwilioStatus(new NextRequest('http://localhost/api/twilio/status',{headers:ownerHeaders}),undefined);
+  const ownData=await ownStatus.json();
+  const ownNumber=ownData.artists.find((item:{artist:{id:string}})=>item.artist.id===ownData.defaultArtistId).phoneNumber;
+  assert.deepEqual(avatarSmsStatus(ownNumber),{kind:'approved',phoneNumber:'+12025550125'});
+  const phoneSetup=await getTwilioStatus(new NextRequest(`http://localhost/api/twilio/status?artistId=${ownerArtist}`,{headers:ownerHeaders}),undefined);
+  assert.equal((await phoneSetup.json()).artists[0].phoneNumber.phoneNumber,ownNumber.phoneNumber);
+  const otherStudioUser=randomUUID(),otherStudioToken='9'.repeat(64);
+  await local.query("INSERT INTO users(id,organization_id,email,name,role) VALUES($1,$2,'other-sms@example.test','Other','ARTIST')",[otherStudioUser,other]);
+  await local.query("INSERT INTO auth_credentials(user_id,password_hash) VALUES($1,'synthetic')",[otherStudioUser]);
+  await local.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",[createHash('sha256').update(otherStudioToken).digest('hex'),otherStudioUser]);
+  await local.query("UPDATE artists SET user_id=$1 WHERE id=$2",[otherStudioUser,foreign]);
+  const otherSmsHeaders={cookie:`inkflow_session=${otherStudioToken}`};
+  const forbiddenStatus=await getTwilioStatus(new NextRequest(`http://localhost/api/twilio/status?organizationId=${org}`,{headers:otherSmsHeaders}),undefined);
+  assert.equal(forbiddenStatus.status,403);
+  const otherStatus=await getTwilioStatus(new NextRequest('http://localhost/api/twilio/status',{headers:otherSmsHeaders}),undefined);
+  const otherStatusData=await otherStatus.json();assert.equal(otherStatusData.defaultArtistId,foreign);assert.equal(otherStatusData.artists[0].phoneNumber,null);
   const req=(body:object)=>new NextRequest('http://localhost/api/waiver-integrations',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${token}`,'content-type':'application/json'},body:JSON.stringify(body)});
   const logoRequest=(method:'POST'|'DELETE',body?:FormData)=>new NextRequest('http://localhost/api/studio/logo',{method,headers:{origin:'http://localhost',cookie:`inkflow_session=${token}`},...(body?{body}:{})});
   const input={action:'ADD_CUSTOM_FORM',name:'Synthetic form',formUrl:'https://forms.example.test/form',artistId:artist,category:'GENERAL',audience:'ANY',priority:100,collectsMedicalData:false};
