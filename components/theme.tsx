@@ -3,12 +3,6 @@ import { useEffect, useState } from 'react';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export const THEME_KEY = 'maia-theme';
-export const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'system', label: 'System' },
-];
-
 // Runs before first paint so the saved choice never flashes the wrong theme.
 export const themeInitScript = `(function(){try{var p=localStorage.getItem('${THEME_KEY}');if(p!=='light'&&p!=='dark')p='system';var d=p==='dark'||(p==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;r.dataset.themePreference=p;r.dataset.theme=d?'dark':'light';}catch(e){document.documentElement.dataset.theme='light';}})();`;
 

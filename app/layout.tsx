@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   applicationName: "Maia",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Maia", statusBarStyle: "default" },
-  icons: { apple: [{ url: "/app-icon/180", sizes: "180x180", type: "image/png" }] }
+  icons: { icon: [{ url: "/maia-favicon.svg", type: "image/svg+xml" }], apple: [{ url: "/app-icon/180", sizes: "180x180", type: "image/png" }] }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

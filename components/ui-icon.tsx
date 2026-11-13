@@ -1,12 +1,12 @@
 import type { SVGProps } from 'react';
 
-export type IconName = 'services' | 'card' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off' | 'edit' | 'refresh' | 'sun' | 'moon' | 'monitor' | 'copy';
+export type IconName = 'services' | 'card' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off' | 'edit' | 'refresh' | 'sun' | 'moon' | 'copy' | 'bell';
 const paths: Record<IconName, React.ReactNode> = {
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-2 7-2 9h16c0-2-2-2-2-9ZM10 20a2 2 0 0 0 4 0"/></>,
   copy: <><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></>,
   refresh: <><path d="M20 11a8 8 0 0 0-14.6-4.4M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.6 4.4M20 20v-4h-4"/></>,
   sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/></>,
   moon: <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/>,
-  monitor: <><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></>,
   edit: <><path d="m16 3 5 5L9 20l-6 1 1-6ZM14 5l5 5"/></>,
   services: <><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="2" fill="white"/><circle cx="16" cy="12" r="2" fill="white"/><circle cx="10" cy="19" r="2" fill="white"/></>,
   card: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></>,

@@ -4,7 +4,9 @@ import { pool } from '@/packages/db/src';
 import { digest } from '@/packages/auth/crypto';
 export async function GET(req: NextRequest) {
   const user=await identity(req);
-  return NextResponse.json({user},{status:user?200:401,headers:{'Cache-Control':'no-store'}});
+  if (!user) return NextResponse.json({user:null},{status:401,headers:{'Cache-Control':'no-store'}});
+  const result=await pool.query('SELECT public_email FROM organizations WHERE id=$1',[user.organization_id]);
+  return NextResponse.json({user:{...user,studioEmail:result.rows[0]?.public_email ?? null}},{headers:{'Cache-Control':'no-store'}});
 }
 export async function DELETE(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({error:'Invalid request origin'},{status:403});
