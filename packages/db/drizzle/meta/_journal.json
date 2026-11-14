@@ -197,6 +197,13 @@
       "when": 1794276000000,
       "tag": "0027_owner_welcome_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794682214989,
+      "tag": "0028_awesome_frank_castle",
+      "breakpoints": true
     }
   ]
 }
