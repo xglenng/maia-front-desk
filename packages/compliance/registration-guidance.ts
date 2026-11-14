@@ -4,7 +4,7 @@ export function registrationStatus(profile: { status: string; readiness: { ready
   if (status.startsWith("MOCK_")) return { title: "Test registration", detail: "This registration was simulated in Maia.", error: false };
   if (status === "CUSTOMER_PROFILE_PENDING") {
     if (["APPROVED", "TWILIO_APPROVED", "VERIFIED"].includes(String(profile.customerProfileStatus))) {
-      return { title: "Business profile approved", detail: "Use Sync Twilio status to advance to the messaging profile step. Texting requires Campaign approval.", error: false, businessApproved: true };
+      return { title: "Action required to enable texting", detail: "Twilio approved your business profile. Texting is off until your SMS campaign is approved. Select Continue SMS registration to submit your A2P Messaging Profile to Twilio.", error: false, actionLabel: "Continue SMS registration" };
     }
     return {
       title: "Business profile in review",
