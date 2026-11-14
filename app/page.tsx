@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import "./dashboard.css";
 import { calendarBlock, calendarMinute } from "@/packages/studio/calendar-layout";
@@ -9,6 +9,7 @@ import NativeCalendar from '@/components/native-calendar';
 import UiIcon from '@/components/ui-icon';
 import { ContinueSetupBanner } from '@/components/continue-setup-banner';
 import { BusinessManagerPanel } from '@/components/business-manager-panel';
+import { BusinessManagerLauncher } from '@/components/business-manager-launcher';
 
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
@@ -41,6 +42,16 @@ export default function Home() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [businessManagerOpen, setBusinessManagerOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 700);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const weekDates = useMemo(() => {
     const now = new Date();
@@ -124,6 +135,11 @@ export default function Home() {
       <main className="main">
         <header className="topbar">
           <div><div className="eyebrow">{view==="Calendar"?"Maia calendar":data ? formatDate(data.date) : "Loading…"}</div><h1>{view === "Overview" ? data?.signedInArtist?.displayName.trim() ? `Hello, ${data.signedInArtist.displayName.trim().split(/\s+/)[0]}` : 'Hello' : view}</h1></div>
+          <BusinessManagerLauncher 
+            ref={launcherRef}
+            onClick={() => setBusinessManagerOpen(true)} 
+            isMobile={isMobile} 
+          />
         </header>
 
         {artistOptions.length>0&&<div className="artist-legend" aria-label="Studio team filter">{artistOptions.map(artist=><button key={artist.id} aria-pressed={(selectedArtistId||data?.artist.id)===artist.id} disabled={loading} onClick={()=>setSelectedArtistId(artist.id)}><span className="artist-dot" style={{'--artist-color':artistColor(artist.id,artist.calendarColor)} as CSSProperties}/>{artist.displayName}<small>{artist.requiresSupervisorApproval?'Apprentice':'Artist'}</small></button>)}</div>}
@@ -144,7 +160,12 @@ export default function Home() {
         </> : null}
       </main>
 
-      <BusinessManagerPanel firstName={data?.signedInArtist?.displayName.split(/\s+/)[0]} />
+      <BusinessManagerPanel 
+        firstName={data?.signedInArtist?.displayName.split(/\s+/)[0]} 
+        onOpenChange={setBusinessManagerOpen}
+        launcherButtonRef={launcherRef}
+        isOpen={businessManagerOpen}
+      />
     </div>
   );
 }

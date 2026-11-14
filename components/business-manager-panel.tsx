@@ -12,9 +12,12 @@ type Message = {
 
 type BusinessManagerPanelProps = {
   firstName?: string;
+  onOpenChange?: (isOpen: boolean) => void;
+  launcherButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  isOpen?: boolean;
 };
 
-export function BusinessManagerPanel({ firstName = 'there' }: BusinessManagerPanelProps) {
+export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launcherButtonRef, isOpen: controlledIsOpen }: BusinessManagerPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -24,9 +27,12 @@ export function BusinessManagerPanel({ firstName = 'there' }: BusinessManagerPan
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // If controlled isOpen prop is provided, use it
+  const displayIsOpen = controlledIsOpen !== undefined ? controlledIsOpen : isOpen;
+
   // Initialize with greeting message
   useEffect(() => {
-    if (isOpen && messages.length === 0) {
+    if (displayIsOpen && messages.length === 0) {
       setMessages([{
         id: '1',
         role: 'assistant',
@@ -34,7 +40,8 @@ export function BusinessManagerPanel({ firstName = 'there' }: BusinessManagerPan
         timestamp: new Date(),
       }]);
     }
-  }, [isOpen, firstName, messages.length]);
+    onOpenChange?.(displayIsOpen);
+  }, [displayIsOpen, firstName, messages.length, onOpenChange]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -100,7 +107,7 @@ export function BusinessManagerPanel({ firstName = 'there' }: BusinessManagerPan
     inputRef.current?.focus();
   };
 
-  if (isMobile && isOpen) {
+  if (isMobile && displayIsOpen) {
     // Mobile full-screen view
     return (
       <div
@@ -127,7 +134,12 @@ export function BusinessManagerPanel({ firstName = 'there' }: BusinessManagerPan
         >
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Business Manager</h2>
           <button
-            onClick={() => setIsOpen(false)}
+            onClick={() => {
+              setIsOpen(false);
+              onOpenChange?.(false);
+              // Return focus to launcher button after close
+              setTimeout(() => launcherButtonRef?.current?.focus(), 0);
+            }}
             style={{
               background: 'none',
               border: 'none',
@@ -296,7 +308,7 @@ export function BusinessManagerPanel({ firstName = 'there' }: BusinessManagerPan
   }
 
   // Desktop view
-  if (!isOpen) {
+  if (!displayIsOpen) {
     return (
       <button
         onClick={() => setIsOpen(true)}
@@ -370,7 +382,12 @@ export function BusinessManagerPanel({ firstName = 'there' }: BusinessManagerPan
             {isExpanded ? '−' : '+'}
           </button>
           <button
-            onClick={() => setIsOpen(false)}
+            onClick={() => {
+              setIsOpen(false);
+              onOpenChange?.(false);
+              // Return focus to launcher button after close
+              setTimeout(() => launcherButtonRef?.current?.focus(), 0);
+            }}
             style={{
               background: 'none',
               border: 'none',
