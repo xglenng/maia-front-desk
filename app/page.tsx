@@ -7,6 +7,8 @@ import { calendarBlock, calendarMinute } from "@/packages/studio/calendar-layout
 import { artistColor } from '@/packages/studio/artist-colors';
 import NativeCalendar from '@/components/native-calendar';
 import UiIcon from '@/components/ui-icon';
+import { ContinueSetupBanner } from '@/components/continue-setup-banner';
+import { BusinessManagerPanel } from '@/components/business-manager-panel';
 
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
@@ -141,6 +143,8 @@ export default function Home() {
           {view === "Clients" && <Clients clients={data.clients} />}
         </> : null}
       </main>
+
+      <BusinessManagerPanel firstName={data?.signedInArtist?.displayName.split(/\s+/)[0]} />
     </div>
   );
 }
@@ -149,6 +153,7 @@ function Overview({ data, onNavigate }: { data: DashboardData; onNavigate: (view
   const revenue = data.appointments.reduce((sum, a) => sum + (a.priceCents ?? 0), 0);
   const deposits = data.appointments.reduce((sum, a) => sum + (a.depositStatus === "PAID" ? (a.depositCents ?? 0) : 0), 0);
   return <div className="content">
+    <ContinueSetupBanner />
     <section className="metric-grid">
       <Metric label="Appointments today" value={String(data.stats.appointmentsToday)} note={`${data.appointments.filter(a => a.status === "AI_HOLD").length} AI holds`} icon="▣" />
       <Metric label="Clients" value={String(data.stats.clientCount)} note="Clients in your studio" icon="♙" />
