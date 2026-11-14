@@ -1,7 +1,8 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import PhoneSetup from '@/components/sms/phone-setup';
-import CampaignRegistration,{registrationStatus} from '@/components/sms/campaign-registration';
+import CampaignRegistration from '@/components/sms/campaign-registration';
+import { registrationStatus } from '@/packages/compliance/registration-guidance';
 import ConsentWorkflow from '@/components/sms/consent-workflow';
 import {LegalCustomerSetup} from '@/components/legal-customer-setup';
 import {useSession} from '@/components/session-gate';
