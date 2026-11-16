@@ -6,7 +6,6 @@ import {artists,studioInvoices} from '@/packages/db/src/schema';
 import {identity,protectedRoute} from '@/packages/auth/server';
 import {allowedInvoiceArtist} from '@/packages/invoices/access.server';
 import {invoiceClient,sendInvoiceSms} from '@/packages/invoices/sms.server';
-import {sendInvoiceEmail} from '@/packages/invoices/email.server';
 import {invoiceInput} from '@/packages/invoices/input';
 import {InvoiceIssueError,invoiceErrorDetails,issueInvoice} from '@/packages/invoices/issue.server';
 import {counterCardConfiguration} from '@/packages/checkout/card-config.server';
@@ -31,7 +30,7 @@ async function post(request:NextRequest){
   const [existing]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.requestId,requestId),eq(studioInvoices.createdByUserId,user.id),eq(studioInvoices.artistId,artistId)));
   return existing?NextResponse.json({invoice:existing},{headers}):NextResponse.json({error:'Invoice request unavailable.'},{status:409,headers});
  }
- const action=z.object({action:z.enum(['ISSUE','SYNC','SEND_SMS','SEND_EMAIL']),invoiceId:z.string().uuid(),customerEmail:z.string().trim().email().max(254).optional(),recipientEmail:z.string().trim().email().max(254).optional()}).safeParse(body);
+ const action=z.object({action:z.enum(['ISSUE','SYNC','SEND_SMS']),invoiceId:z.string().uuid(),customerEmail:z.string().trim().email().max(254).optional()}).safeParse(body);
  if(!action.success)return NextResponse.json({error:'Invalid invoice action.'},{status:400,headers});
  const lock=await pool.connect();
  let authorized=false;
@@ -50,10 +49,6 @@ async function post(request:NextRequest){
   if(action.data.action==='SEND_SMS'){
    if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
    try{return NextResponse.json(await sendInvoiceSms(row,undefined,remote.due_date),{headers});}catch(error){const [updated]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice SMS.',invoice:updated},{status:409,headers});}
-  }
-  if(action.data.action==='SEND_EMAIL'){
-   if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
-   try{return NextResponse.json(await sendInvoiceEmail(row,action.data.recipientEmail),{headers});}catch(error){const [updated]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice email.',invoice:updated},{status:409,headers});}
   }
   const status=remote.status==='paid'?'PAID':remote.status==='void'?'VOID':remote.status==='uncollectible'?'UNCOLLECTIBLE':remote.status==='draft'?'ISSUING':'OPEN';
   const [invoice]=await db.update(studioInvoices).set({status,hostedUrl:remote.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id))).returning();
