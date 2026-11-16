@@ -3,6 +3,37 @@ import { studioInvoices } from '@/packages/db/src/schema';
 import { eq } from 'drizzle-orm';
 import { Resend } from 'resend';
 
+// Extract PostgreSQL error details from Drizzle ORM errors
+// PostgreSQL error codes: 42703 = column not found, 42P01 = table not found, etc.
+function extractPostgresError(error: unknown): {
+  code?: string;
+  message?: string;
+  cause?: unknown;
+} {
+  if (!(error instanceof Error)) {
+    return {};
+  }
+
+  // Check if error is wrapped by Drizzle/node-postgres
+  const anyError = error as any;
+
+  // node-postgres errors have .code property
+  if (anyError.code) {
+    return {
+      code: anyError.code,
+      message: error.message,
+      cause: anyError.detail || anyError.hint,
+    };
+  }
+
+  // Check if error has a cause chain
+  if ('cause' in error && error.cause instanceof Error) {
+    return extractPostgresError(error.cause);
+  }
+
+  return {};
+}
+
 function getResend() {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -60,17 +91,26 @@ export async function sendInvoiceEmail(
       .set({ emailStatus: 'SENDING', updatedAt: new Date() })
       .where(eq(studioInvoices.id, invoice.id));
   } catch (error) {
-    // If the update fails due to missing column, provide helpful message
-    if (
-      error instanceof Error &&
-      (error.message.includes('email_status') ||
-        error.message.includes('column') ||
-        error.message.includes('does not exist'))
-    ) {
+    // Extract PostgreSQL error details if available
+    const pgError = extractPostgresError(error);
+    
+    // Only show "migration pending" if columns are confirmed missing (error code 42703 = column not found)
+    if (pgError.code === '42703' && pgError.message?.includes('email_status')) {
       throw new Error(
         'Invoice email is not yet available. The database migration is pending.'
       );
     }
+    
+    // For other database errors, log diagnostics and show safe message
+    if (pgError.code) {
+      console.error('Invoice email update failed', {
+        errorCode: pgError.code,
+        errorMessage: pgError.message,
+        invoiceId: invoice.id,
+        // Never log SQL, parameters, or customer data
+      });
+    }
+    
     throw error;
   }
 
