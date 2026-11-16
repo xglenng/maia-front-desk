@@ -12,7 +12,25 @@ async function migrate() {
   try {
     const client = await pool.connect();
     
-    console.log('Applying migration 0029_studio_invoice_email...');
+    console.log('Applying migration 0029_studio_invoice_email...\n');
+    
+    // Create Drizzle migrations table if it doesn't exist
+    console.log('Creating Drizzle migration tracking table...');
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "__drizzle_migrations__" (
+          id SERIAL NOT NULL PRIMARY KEY,
+          hash varchar NOT NULL UNIQUE,
+          created_at bigint NOT NULL
+        )
+      `);
+      console.log('✓ Migration tracking table ready');
+    } catch (e) {
+      if (e.code === '42P07') console.log('✓ Migration tracking table already exists');
+      else throw e;
+    }
+    
+    console.log('\nApplying schema changes...');
     
     try {
       await client.query(`ALTER TABLE "studio_invoices" ADD COLUMN "email_status" text DEFAULT 'NOT_SENT' NOT NULL`);
@@ -34,22 +52,24 @@ async function migrate() {
       await client.query(`ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoice_email_status_check" CHECK ("email_status" IN ('NOT_SENT','SENDING','SENT','UNKNOWN'))`);
       console.log('✓ Added email_status check constraint');
     } catch (e) {
-      if (e.code === '42P10') console.log('✓ Constraint already exists');
+      if (e.code === '42710' || e.code === '42P10') console.log('✓ Constraint already exists');
       else throw e;
     }
     
+    console.log('\nRecording migration...');
+    
     try {
-      await client.query(`INSERT INTO "__drizzle_migrations__" ("hash", "created_at") VALUES ('0029_studio_invoice_email', CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING`);
-      console.log('✓ Migration recorded');
+      await client.query(`INSERT INTO "__drizzle_migrations__" (hash, created_at) VALUES ('0029_studio_invoice_email', EXTRACT(EPOCH FROM NOW())::bigint) ON CONFLICT DO NOTHING`);
+      console.log('✓ Migration recorded in journal');
     } catch (e) {
       console.log('✓ Migration already recorded');
     }
     
     client.release();
     await pool.end();
-    console.log('✅ Migration completed successfully!');
+    console.log('\n✅ Migration completed successfully!');
   } catch (error) {
-    console.error('❌ Migration failed:', error.message);
+    console.error('\n❌ Migration failed:', error.message);
     process.exit(1);
   }
 }
