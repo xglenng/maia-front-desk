@@ -275,7 +275,7 @@ export default function Invoices() {
       setBusy(false);
     }
   }
-  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL") {
+  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL" | "VOID") {
     if (!selected || actionRunning.current) return;
     actionRunning.current = true;
     setBusy(true);
@@ -335,7 +335,7 @@ export default function Invoices() {
           data.message ||
             (action === "ISSUE"
               ? "Payment link ready. No SMS has been sent."
-              : "Invoice status refreshed."),
+              : action === "VOID" ? "Invoice cancelled. The payment link no longer accepts payments." : "Invoice status refreshed."),
         );
       }
       await load();
@@ -451,15 +451,6 @@ export default function Invoices() {
         });
       }
     }
-  }
-  async function cancelInvoice() {
-    if (!selected) return;
-    setMenuActionResult(null);
-    // TODO: Implement cancel invoice functionality
-    setMenuActionResult({
-      type: "success",
-      message: "Invoice cancelled.",
-    });
   }
   return (
     <main
@@ -809,18 +800,18 @@ export default function Invoices() {
                       setMenuOpen(false);
                       void shareInvoice();
                     }}
-                    disabled={!selected.hostedUrl}
+                    disabled={!selected.hostedUrl || selected.status === "VOID"}
                   >
                     Share
                   </button>
                   <button
                     onClick={() => {
                       setMenuOpen(false);
-                      void cancelInvoice();
+                      if (window.confirm("Cancel this invoice? Its payment link will stop accepting payments.")) void action("VOID");
                     }}
-                    disabled={selected.status !== "OPEN"}
+                    disabled={busy || selected.status !== "OPEN" || !selected.stripeInvoiceId}
                   >
-                    Cancel
+                    Cancel invoice
                   </button>
                   <button
                     onClick={() => {
@@ -940,7 +931,7 @@ export default function Invoices() {
               </button>
             </>
           )}
-          {selected.hostedUrl &&
+          {selected.status !== "VOID" && selected.hostedUrl &&
             /^https:\/\/(?:invoice|pay)\.stripe\.com\//.test(
               selected.hostedUrl,
             ) && (

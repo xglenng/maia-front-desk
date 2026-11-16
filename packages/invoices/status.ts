@@ -1,6 +1,6 @@
 export function invoiceStatusLabel(status:string,smsStatus:string){
  if(status==='PAID')return 'Paid';
- if(status==='VOID')return 'Void';
+ if(status==='VOID')return 'Cancelled';
  if(status==='UNCOLLECTIBLE')return 'Uncollectible';
  if(status==='ISSUING')return 'Issuing';
  if(status==='DRAFT')return 'Draft';
