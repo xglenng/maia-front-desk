@@ -11,6 +11,10 @@ import {
   invoiceStatusLabel,
   invoiceDeliveryLabel,
 } from "@/packages/invoices/status";
+import {
+  isInvoiceOverdue,
+  getOverdueSinceDate,
+} from "@/packages/invoices/overdue";
 type Line = { name: string; quantity: number; unitCents: number };
 type Invoice = {
   id: string;
@@ -28,6 +32,7 @@ type Invoice = {
   note: string;
   dueDays: number;
   createdAt: string;
+  issuingAt: string | null;
 };
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -87,7 +92,6 @@ export default function Invoices() {
       invoiceId: string;
       message: string;
     } | null>(null);
-  const sendButtonRef = useRef<HTMLButtonElement>(null);
   const [emailFeedback, setEmailFeedback] = useState<{
       invoiceId: string;
       type: "error" | "success";
@@ -95,8 +99,18 @@ export default function Invoices() {
     } | null>(null),
     [emailSending, setEmailSending] = useState(false),
     [emailForm, setEmailForm] = useState({ open: false, address: "", confirmed: false });
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuActionResult, setMenuActionResult] = useState<{
+    type: "error" | "success";
+    message: string;
+  } | null>(null);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     setIssueEmail("");
+  }, [selected?.id]);
+  useEffect(() => {
+    setMenuOpen(false);
+    setMenuActionResult(null);
   }, [selected?.id]);
   useEffect(() => {
     setSmsDetails(null);
@@ -361,6 +375,91 @@ export default function Invoices() {
       actionRunning.current = false;
       setBusy(false);
     }
+  }
+  async function sendReminder() {
+    if (!selected) return;
+    setMenuActionResult(null);
+    setBusy(true);
+    try {
+      const response = await fetch("/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SEND_SMS",
+          invoiceId: selected.id,
+        }),
+      });
+      const data = await response.json();
+      if (data.invoice) setSelected(data.invoice);
+      if (!response.ok) throw Error(data.error || "Unable to send reminder.");
+      setMenuActionResult({
+        type: "success",
+        message: data.message || "Reminder sent.",
+      });
+    } catch (error) {
+      setMenuActionResult({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to send reminder.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function downloadPdf() {
+    if (!selected) return;
+    window.open(
+      `/api/invoices/preview?invoiceId=${encodeURIComponent(selected.id)}`,
+      "_blank"
+    );
+  }
+  async function shareInvoice() {
+    if (!selected || !selected.hostedUrl) return;
+    setMenuActionResult(null);
+    // Try to use native share if available
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Invoice for ${selected.clientName}`,
+          text: `Please review and pay this invoice`,
+          url: selected.hostedUrl,
+        });
+        setMenuActionResult({
+          type: "success",
+          message: "Shared successfully.",
+        });
+      } catch (error) {
+        // User cancelled or share failed
+        if (error instanceof Error && error.name !== "AbortError") {
+          setMenuActionResult({
+            type: "error",
+            message: "Unable to share.",
+          });
+        }
+      }
+    } else {
+      // Fallback: copy to clipboard
+      try {
+        await navigator.clipboard.writeText(selected.hostedUrl);
+        setMenuActionResult({
+          type: "success",
+          message: "Payment link copied.",
+        });
+      } catch (error) {
+        setMenuActionResult({
+          type: "error",
+          message: "Unable to copy link.",
+        });
+      }
+    }
+  }
+  async function cancelInvoice() {
+    if (!selected) return;
+    setMenuActionResult(null);
+    // TODO: Implement cancel invoice functionality
+    setMenuActionResult({
+      type: "success",
+      message: "Invoice cancelled.",
+    });
   }
   return (
     <main
@@ -681,12 +780,71 @@ export default function Invoices() {
       )}
       {selected && (
         <section className="checkout-cart">
-          <header>
-            <h2>Invoice review</h2>
+          <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <h2 style={{ flex: 1, margin: 0 }}>Invoice review</h2>
+            <div className="invoice-menu-container">
+              <button
+                className="invoice-menu-button"
+                onClick={() => setMenuOpen(!menuOpen)}
+                disabled={busy}
+                title="Invoice actions"
+              >
+                ···
+              </button>
+              {menuOpen && selected && (
+                <div className="invoice-menu">
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void sendReminder();
+                    }}
+                    disabled={
+                      selected.status !== "OPEN" || selected.smsStatus === "SENT"
+                    }
+                  >
+                    Send reminder
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void shareInvoice();
+                    }}
+                    disabled={!selected.hostedUrl}
+                  >
+                    Share
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void cancelInvoice();
+                    }}
+                    disabled={selected.status !== "OPEN"}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void downloadPdf();
+                    }}
+                  >
+                    Download PDF
+                  </button>
+                </div>
+              )}
+            </div>
             <button disabled={busy} onClick={() => setSelected(null)}>
               Close
             </button>
           </header>
+          {menuActionResult && (
+            <div
+              className={`invoice-menu-result ${menuActionResult.type}`}
+              role={menuActionResult.type === "error" ? "alert" : "status"}
+            >
+              {menuActionResult.message}
+            </div>
+          )}
           <p>
             <strong>
               {invoiceStatusLabel(selected.status, selected.smsStatus)}
@@ -695,13 +853,42 @@ export default function Invoices() {
             <br />
             {selected.clientEmail}
           </p>
+          {isInvoiceOverdue({
+            status: selected.status,
+            issuingAt: selected.issuingAt ? new Date(selected.issuingAt) : null,
+            createdAt: new Date(selected.createdAt),
+            dueDays: selected.dueDays,
+          }) && (
+            <div className="invoice-overdue-label">
+              Overdue since{" "}
+              {getOverdueSinceDate({
+                status: selected.status,
+                issuingAt: selected.issuingAt ? new Date(selected.issuingAt) : null,
+                createdAt: new Date(selected.createdAt),
+                dueDays: selected.dueDays,
+              })?.toLocaleDateString()}
+            </div>
+          )}
           {selected.lines.map((line, index) => (
             <p key={index}>
               {line.quantity} × {line.name} —{" "}
               {money(line.quantity * line.unitCents)}
             </p>
           ))}
-          <h2>{money(selected.totalCents)}</h2>
+          <h2
+            style={
+              isInvoiceOverdue({
+                status: selected.status,
+                issuingAt: selected.issuingAt ? new Date(selected.issuingAt) : null,
+                createdAt: new Date(selected.createdAt),
+                dueDays: selected.dueDays,
+              })
+                ? { color: "#dc2626" }
+                : {}
+            }
+          >
+            {money(selected.totalCents)}
+          </h2>
           <p>
             Due within{" "}
             {selected.dueDays === 1 ? "24 hours" : `${selected.dueDays} days`}{" "}
@@ -1005,7 +1192,26 @@ export default function Invoices() {
                     {new Date(invoice.createdAt).toLocaleDateString()}
                   </small>
                 </span>
-                <strong>{money(invoice.totalCents)}</strong>
+                <span style={{ textAlign: "right" }}>
+                  <strong>{money(invoice.totalCents)}</strong>
+                  {isInvoiceOverdue({
+                    status: invoice.status,
+                    issuingAt: invoice.issuingAt ? new Date(invoice.issuingAt) : null,
+                    createdAt: new Date(invoice.createdAt),
+                    dueDays: invoice.dueDays,
+                  }) && (
+                    <small
+                      style={{
+                        display: "block",
+                        marginTop: 6,
+                        fontWeight: 400,
+                        color: "#dc2626",
+                      }}
+                    >
+                      Overdue
+                    </small>
+                  )}
+                </span>
               </button>
             ))
           )}
