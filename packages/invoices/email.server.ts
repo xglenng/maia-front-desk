@@ -84,6 +84,11 @@ export async function sendInvoiceEmail(
     throw new Error('Payment link must be created before sending by email.');
   }
 
+  const from = process.env.AUTH_EMAIL_FROM?.trim();
+  if (!from) {
+    throw new Error('Invoice email is unavailable. Configure the verified email sender.');
+  }
+
   // Update status to SENDING
   try {
     await db
@@ -118,7 +123,7 @@ export async function sendInvoiceEmail(
     // Send via Resend
     const resend = getResend();
     const { data, error } = await resend.emails.send({
-      from: 'invoices@maia.studio',
+      from,
       to: email,
       subject: `Invoice Payment Required`,
       html: generateInvoiceEmailHtml(invoice),
@@ -129,6 +134,7 @@ export async function sendInvoiceEmail(
     });
 
     if (error) {
+      console.error("Invoice email provider rejected send", { code: error.name });
       await db
         .update(studioInvoices)
         .set({ emailStatus: 'UNKNOWN', updatedAt: new Date() })
