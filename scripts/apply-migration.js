@@ -1,0 +1,57 @@
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  user: 'tattoo',
+  password: 'tattoo',
+  host: 'localhost',
+  port: 5432,
+  database: 'tattoo_ai'
+});
+
+async function migrate() {
+  try {
+    const client = await pool.connect();
+    
+    console.log('Applying migration 0029_studio_invoice_email...');
+    
+    try {
+      await client.query(`ALTER TABLE "studio_invoices" ADD COLUMN "email_status" text DEFAULT 'NOT_SENT' NOT NULL`);
+      console.log('✓ Added email_status column');
+    } catch (e) {
+      if (e.code === '42701') console.log('✓ email_status column already exists');
+      else throw e;
+    }
+    
+    try {
+      await client.query(`ALTER TABLE "studio_invoices" ADD COLUMN "email_provider_id" text`);
+      console.log('✓ Added email_provider_id column');
+    } catch (e) {
+      if (e.code === '42701') console.log('✓ email_provider_id column already exists');
+      else throw e;
+    }
+    
+    try {
+      await client.query(`ALTER TABLE "studio_invoices" ADD CONSTRAINT "studio_invoice_email_status_check" CHECK ("email_status" IN ('NOT_SENT','SENDING','SENT','UNKNOWN'))`);
+      console.log('✓ Added email_status check constraint');
+    } catch (e) {
+      if (e.code === '42P10') console.log('✓ Constraint already exists');
+      else throw e;
+    }
+    
+    try {
+      await client.query(`INSERT INTO "__drizzle_migrations__" ("hash", "created_at") VALUES ('0029_studio_invoice_email', CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING`);
+      console.log('✓ Migration recorded');
+    } catch (e) {
+      console.log('✓ Migration already recorded');
+    }
+    
+    client.release();
+    await pool.end();
+    console.log('✅ Migration completed successfully!');
+  } catch (error) {
+    console.error('❌ Migration failed:', error.message);
+    process.exit(1);
+  }
+}
+
+migrate();

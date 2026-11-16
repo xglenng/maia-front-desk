@@ -19,6 +19,7 @@ type Invoice = {
   clientEmail: string;
   clientId: string | null;
   smsStatus: string;
+  emailStatus: string;
   lines: Line[];
   totalCents: number;
   status: string;
@@ -87,6 +88,13 @@ export default function Invoices() {
       message: string;
     } | null>(null);
   const sendButtonRef = useRef<HTMLButtonElement>(null);
+  const [emailFeedback, setEmailFeedback] = useState<{
+      invoiceId: string;
+      type: "error" | "success";
+      message: string;
+    } | null>(null),
+    [emailSending, setEmailSending] = useState(false),
+    [emailForm, setEmailForm] = useState({ open: false, address: "", confirmed: false });
   useEffect(() => {
     setIssueEmail("");
   }, [selected?.id]);
@@ -253,13 +261,14 @@ export default function Invoices() {
       setBusy(false);
     }
   }
-  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS") {
+  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL") {
     if (!selected || actionRunning.current) return;
     actionRunning.current = true;
     setBusy(true);
     setError("");
     setMessage("");
     if (action === "SEND_SMS") setSmsSendFeedback(null);
+    if (action === "SEND_EMAIL") setEmailFeedback(null);
     try {
       const response = await fetch("/api/invoices", {
         method: "POST",
@@ -271,6 +280,9 @@ export default function Invoices() {
           !selected.clientEmail &&
           !selected.stripeInvoiceId
             ? { customerEmail: issueEmail.trim() }
+            : {}),
+          ...(action === "SEND_EMAIL" && emailForm.address
+            ? { recipientEmail: emailForm.address.trim() }
             : {}),
         }),
       });
@@ -297,6 +309,13 @@ export default function Invoices() {
             }
           }, 0);
         }
+      } else if (action === "SEND_EMAIL") {
+        setEmailFeedback({
+          invoiceId: selected.id,
+          type: "success",
+          message: data.message || "Invoice sent by email.",
+        });
+        setEmailForm({ open: false, address: "", confirmed: false });
       } else {
         setMessage(
           data.message ||
@@ -329,6 +348,12 @@ export default function Invoices() {
             }
           }, 0);
         }
+      } else if (action === "SEND_EMAIL") {
+        setEmailFeedback({
+          invoiceId: selected.id,
+          type: "error",
+          message: msg,
+        });
       } else {
         setError(msg);
       }
@@ -870,6 +895,67 @@ export default function Invoices() {
                       role={smsSendFeedback.type === "error" ? "alert" : "status"}
                     >
                       {smsSendFeedback.message}
+                    </p>
+                  )}
+                  <button
+                    disabled={
+                      busy || 
+                      emailSending ||
+                      !selected.stripeInvoiceId ||
+                      selected.emailStatus === "SENT"
+                    }
+                    onClick={() => {
+                      if (!emailForm.address && !selected.clientEmail) {
+                        setEmailForm({ ...emailForm, open: true });
+                      } else {
+                        setEmailForm({ ...emailForm, address: selected.clientEmail, confirmed: true });
+                        void action("SEND_EMAIL");
+                      }
+                    }}
+                  >
+                    Send invoice by email
+                  </button>
+                  {emailForm.open && !emailForm.confirmed && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        setEmailForm({ ...emailForm, confirmed: true });
+                        void action("SEND_EMAIL");
+                      }}
+                    >
+                      <label>
+                        Recipient email
+                        <input
+                          type="email"
+                          value={emailForm.address}
+                          onChange={(e) =>
+                            setEmailForm({ ...emailForm, address: e.target.value })
+                          }
+                          required
+                        />
+                      </label>
+                      <button disabled={busy || emailSending}>Send</button>
+                      <button
+                        type="button"
+                        disabled={busy || emailSending}
+                        onClick={() =>
+                          setEmailForm({ open: false, address: "", confirmed: false })
+                        }
+                      >
+                        Cancel
+                      </button>
+                    </form>
+                  )}
+                  {emailFeedback?.invoiceId === selected.id && (
+                    <p
+                      className={
+                        emailFeedback.type === "error"
+                          ? "checkout-error"
+                          : "checkout-receipt"
+                      }
+                      role={emailFeedback.type === "error" ? "alert" : "status"}
+                    >
+                      {emailFeedback.message}
                     </p>
                   )}
                   {!selected.clientId && (
