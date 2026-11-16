@@ -1,5 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server';
-import {and,desc,eq} from 'drizzle-orm';
+import {and,desc,eq,getTableColumns,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import {db,pool} from '@/packages/db/src';
 import {artists,studioInvoices} from '@/packages/db/src/schema';
@@ -12,11 +12,18 @@ import {InvoiceIssueError,invoiceErrorDetails,issueInvoice} from '@/packages/inv
 import {counterCardConfiguration} from '@/packages/checkout/card-config.server';
 import {getStripe} from '@/packages/integrations/payments';
 const headers={'Cache-Control':'private, no-store'};
+// Listing must work during rollout, including before the email columns exist.
+const { emailStatus, emailProviderId, ...invoiceListColumns } = getTableColumns(studioInvoices);
+const invoiceListFields = {
+ ...invoiceListColumns,
+ emailStatus: sql<string>`coalesce(to_jsonb(${studioInvoices})->>${emailStatus.name}, 'NOT_SENT')`,
+ emailProviderId: sql<string | null>`to_jsonb(${studioInvoices})->>${emailProviderId.name}`,
+};
 async function get(request:NextRequest){
  const user=(await identity(request))!;
  const page=z.coerce.number().int().min(0).max(10000).safeParse(request.nextUrl.searchParams.get('page')||0);
  if(!page.success)return NextResponse.json({error:'Invalid page.'},{status:400,headers});
- const rows=await db.select({invoice:studioInvoices,artistName:artists.displayName}).from(studioInvoices).innerJoin(artists,and(eq(artists.id,studioInvoices.artistId),eq(artists.organizationId,studioInvoices.organizationId))).where(and(eq(studioInvoices.organizationId,user.organization_id),user.role==='OWNER'?undefined:eq(artists.userId,user.id))).orderBy(desc(studioInvoices.createdAt),desc(studioInvoices.id)).limit(51).offset(page.data*50);
+ const rows=await db.select({invoice:invoiceListFields,artistName:artists.displayName}).from(studioInvoices).innerJoin(artists,and(eq(artists.id,studioInvoices.artistId),eq(artists.organizationId,studioInvoices.organizationId))).where(and(eq(studioInvoices.organizationId,user.organization_id),user.role==='OWNER'?undefined:eq(artists.userId,user.id))).orderBy(desc(studioInvoices.createdAt),desc(studioInvoices.id)).limit(51).offset(page.data*50);
  return NextResponse.json({rows:rows.slice(0,50),hasMore:rows.length>50},{headers});
 }
 async function post(request:NextRequest){
