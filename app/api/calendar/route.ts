@@ -22,7 +22,7 @@ async function get(request:NextRequest){
  const [organization]=await db.select({timezone:organizations.timezone}).from(organizations).where(eq(organizations.id,organizationId));
  const timezone=organization?.timezone||'UTC',from=localDateTimeToUtc(date,timezone),to=localDateTimeToUtc(addCalendarDate(date,7),timezone);
  const [rows,serviceRows,clientRows,rules,provider,timeOff]=await Promise.all([
-  db.select({id:appointments.id,startsAt:appointments.startsAt,endsAt:appointments.endsAt,status:appointments.status,holdExpiresAt:appointments.holdExpiresAt,depositCents:appointments.depositCents,depositStatus:appointments.depositStatus,scheduleRevision:appointments.scheduleRevision,priceCents:appointments.priceCents,client:clients.firstName,lastName:clients.lastName,service:services.name}).from(appointments).innerJoin(clients,and(eq(clients.id,appointments.clientId),eq(clients.organizationId,organizationId))).leftJoin(services,and(eq(services.id,appointments.serviceId),eq(services.organizationId,organizationId))).where(and(eq(appointments.organizationId,organizationId),eq(appointments.artistId,artistId),lt(appointments.startsAt,to),gte(appointments.endsAt,from))).orderBy(asc(appointments.startsAt)),
+  db.select({id:appointments.id,startsAt:appointments.startsAt,endsAt:appointments.endsAt,status:appointments.status,holdExpiresAt:appointments.holdExpiresAt,depositCents:appointments.depositCents,depositStatus:appointments.depositStatus,scheduleRevision:appointments.scheduleRevision,priceCents:appointments.priceCents,isWalkIn:appointments.isWalkIn,client:clients.firstName,lastName:clients.lastName,service:services.name}).from(appointments).innerJoin(clients,and(eq(clients.id,appointments.clientId),eq(clients.organizationId,organizationId))).leftJoin(services,and(eq(services.id,appointments.serviceId),eq(services.organizationId,organizationId))).where(and(eq(appointments.organizationId,organizationId),eq(appointments.artistId,artistId),lt(appointments.startsAt,to),gte(appointments.endsAt,from))).orderBy(asc(appointments.startsAt)),
   db.select({id:services.id,name:services.name,durationMinutes:services.durationMinutes,basePriceCents:services.basePriceCents,depositType:services.depositType,depositAmountCents:services.depositAmountCents,depositPercent:services.depositPercent}).from(services).where(and(eq(services.organizationId,organizationId),eq(services.artistId,artistId),eq(services.active,true))).orderBy(asc(services.name)),
   db.select({id:clients.id,firstName:clients.firstName,lastName:clients.lastName,phone:clients.phone,email:clients.email}).from(clients).where(and(eq(clients.organizationId,organizationId),or(isNull(clients.notes),ne(clients.notes,ONBOARDING_PREVIEW_CLIENT_NOTE)),...(user.role==='ARTIST'?[sql`(EXISTS (SELECT 1 FROM appointments a WHERE a.client_id=${clients.id} AND a.organization_id=${organizationId} AND a.artist_id=${artistId}) OR EXISTS (SELECT 1 FROM conversations c WHERE c.client_id=${clients.id} AND c.organization_id=${organizationId} AND c.artist_id=${artistId} AND c.channel<>'WEB_TEST'))`]:[]))).orderBy(asc(clients.firstName)).limit(500),
   db.select().from(availabilityRules).where(and(eq(availabilityRules.organizationId,organizationId),eq(availabilityRules.artistId,artistId),eq(availabilityRules.active,true))).orderBy(asc(availabilityRules.dayOfWeek),asc(availabilityRules.startMinute)),nativeProvider(organizationId,artistId),
@@ -30,7 +30,7 @@ async function get(request:NextRequest){
  ]);
  return NextResponse.json({timeOff,appointments:rows,services:serviceRows,clients:clientRows,hours:rules,timezone,provider});
 }
-const booking=z.object({...scope,requestId:z.string().uuid(),plannedItemIds:z.array(z.string().uuid()).max(50).default([]),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:calendarClientSchema.optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000)}).refine(input=>Boolean(input.clientId)!==Boolean(input.newClient),'Choose an existing client or enter a new client.');
+const booking=z.object({...scope,requestId:z.string().uuid(),plannedItemIds:z.array(z.string().uuid()).max(50).default([]),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:calendarClientSchema.optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000),isWalkIn:z.boolean().default(false)}).refine(input=>input.isWalkIn||Boolean(input.clientId)!==Boolean(input.newClient),'Choose an existing client or enter a new client.');
 async function post(request:NextRequest){
  if((await request.clone().json()).action==='TIME_OFF')return timeOff(request);
  const parsed=booking.safeParse(await request.json());if(!parsed.success)return NextResponse.json({error:parsed.error.issues.find(issue=>issue.path.includes('phone'))?.message || 'Check client, service, date, duration and price.'},{status:400});
@@ -55,21 +55,32 @@ async function post(request:NextRequest){
   const depositCents=nativeDeposit(service,input.priceCents);
   if(!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt))throw new Error('That time is outside bookable hours or is no longer available.');
   let clientId=input.clientId;
-  if(clientId){
+  if(!clientId){
+   if(input.isWalkIn){
+    // For walk-ins, create a temporary client entry if one doesn't exist
+    const clientName=input.newClient?.firstName||'Walk-in';
+    const [walkInClient]=await tx.insert(clients).values({organizationId:input.organizationId,firstName:clientName,phone:input.newClient?.phone||null,email:input.newClient?.email||null,notes:'Walk-in appointment - no contact follow-up'}).returning({id:clients.id});
+    clientId=walkInClient.id;
+   }else if(input.newClient){
+    const [newClient]=await tx.insert(clients).values({organizationId:input.organizationId,...input.newClient}).returning({id:clients.id});
+    clientId=newClient.id;
+   }else{
+    throw new Error('Select a client or enable walk-in mode.');
+   }
+  }else{
    const [client]=await tx.select({id:clients.id}).from(clients).where(and(eq(clients.id,clientId),eq(clients.organizationId,input.organizationId),or(isNull(clients.notes),ne(clients.notes,ONBOARDING_PREVIEW_CLIENT_NOTE))));
    if(!client)throw new Error('Client not found.');
-   // protectedRoute checks tenant IDs; artist client access also requires an existing link.
    if(user.role==='ARTIST'){
     const found=await tx.execute(sql`SELECT id FROM clients c WHERE c.id=${clientId} AND c.organization_id=${input.organizationId} AND (EXISTS(SELECT 1 FROM conversations x WHERE x.client_id=c.id AND x.organization_id=c.organization_id AND x.artist_id=${input.artistId} AND x.channel<>'WEB_TEST') OR EXISTS(SELECT 1 FROM appointments x WHERE x.client_id=c.id AND x.organization_id=c.organization_id AND x.artist_id=${input.artistId}))`);
     if(!found.rowCount)throw new Error('Client is not assigned to this artist.');
    }
-  }else clientId=(await tx.insert(clients).values({organizationId:input.organizationId,...input.newClient!}).returning({id:clients.id}))[0].id;
-  const [appointment]=await tx.insert(appointments).values({id:input.requestId,organizationId:input.organizationId,artistId:input.artistId,serviceId:service.id,clientId,startsAt,endsAt,status:depositCents?'PAYMENT_PENDING':'CONFIRMED',priceCents:input.priceCents,depositCents:depositCents||null,depositStatus:depositCents?'PENDING':'WAIVED',paymentProvider:service.paymentProvider,schedulingProvider:'INTERNAL',notes:MANUAL_CALENDAR_NOTE_PREFIX+' Deposit-required slots are not reserved until payment is confirmed.'+plannedNote}).returning();
+  }
+  const [appointment]=await tx.insert(appointments).values({id:input.requestId,organizationId:input.organizationId,artistId:input.artistId,serviceId:service.id,clientId,startsAt,endsAt,status:depositCents?'PAYMENT_PENDING':'CONFIRMED',priceCents:input.priceCents,depositCents:depositCents||null,depositStatus:depositCents?'PENDING':'WAIVED',paymentProvider:service.paymentProvider,schedulingProvider:'INTERNAL',isWalkIn:input.isWalkIn,notes:(input.isWalkIn?'Walk-in appointment. ':MANUAL_CALENDAR_NOTE_PREFIX)+' Deposit-required slots are not reserved until payment is confirmed.'+plannedNote}).returning();
   return {appointment,duplicate:false};
  });
- const confirmation = result.appointment.status==='CONFIRMED' ? await scheduleManualConfirmationSafely(result.appointment.id) : null;
+ const confirmation = result.appointment.status==='CONFIRMED' && !result.appointment.isWalkIn ? await scheduleManualConfirmationSafely(result.appointment.id) : null;
  let automationWarning: string | null = null;
- if(result.appointment.status==='CONFIRMED') {
+ if(result.appointment.status==='CONFIRMED' && !result.appointment.isWalkIn) {
   try { await scheduleConfirmedAppointmentAutomations(result.appointment.id); }
   catch { console.error('Unable to schedule appointment reminders.'); automationWarning = 'Appointment reminders could not be scheduled. Check automation settings.'; }
  }

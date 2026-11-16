@@ -458,6 +458,7 @@ export const appointments = pgTable("appointments", {
   schedulingProvider: text("scheduling_provider"),
   providerBookingId: text("provider_booking_id"),
   notes: text("notes"),
+  isWalkIn: boolean("is_walk_in").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 }, table => ({
