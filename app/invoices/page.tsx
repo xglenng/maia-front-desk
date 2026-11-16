@@ -19,6 +19,7 @@ type Invoice = {
   clientEmail: string;
   clientId: string | null;
   smsStatus: string;
+  emailStatus: string;
   lines: Line[];
   totalCents: number;
   status: string;
@@ -82,13 +83,24 @@ export default function Invoices() {
       type: "error" | "success";
       message: string;
     } | null>(null),
+    [emailSendFeedback, setEmailSendFeedback] = useState<{
+      invoiceId: string;
+      type: "error" | "success";
+      message: string;
+    } | null>(null),
+    [emailOpen, setEmailOpen] = useState(false),
+    [emailInput, setEmailInput] = useState(""),
     [copyFeedback, setCopyFeedback] = useState<{
       invoiceId: string;
       message: string;
     } | null>(null);
   const sendButtonRef = useRef<HTMLButtonElement>(null);
+  const emailButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     setIssueEmail("");
+    setEmailOpen(false);
+    setEmailInput("");
+    setEmailSendFeedback(null);
   }, [selected?.id]);
   useEffect(() => {
     setSmsDetails(null);
@@ -253,13 +265,14 @@ export default function Invoices() {
       setBusy(false);
     }
   }
-  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS") {
+  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL", recipientEmail?: string) {
     if (!selected || actionRunning.current) return;
     actionRunning.current = true;
     setBusy(true);
     setError("");
     setMessage("");
     if (action === "SEND_SMS") setSmsSendFeedback(null);
+    if (action === "SEND_EMAIL") setEmailSendFeedback(null);
     try {
       const response = await fetch("/api/invoices", {
         method: "POST",
@@ -271,6 +284,9 @@ export default function Invoices() {
           !selected.clientEmail &&
           !selected.stripeInvoiceId
             ? { customerEmail: issueEmail.trim() }
+            : {}),
+          ...(action === "SEND_EMAIL" && recipientEmail
+            ? { recipientEmail: recipientEmail.trim() }
             : {}),
         }),
       });
@@ -291,6 +307,28 @@ export default function Invoices() {
                 window.innerHeight
             ) {
               sendButtonRef.current.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+              });
+            }
+          }, 0);
+        }
+      } else if (action === "SEND_EMAIL") {
+        setEmailSendFeedback({
+          invoiceId: selected.id,
+          type: "success",
+          message: data.message || "Invoice sent by email.",
+        });
+        setEmailOpen(false);
+        setEmailInput("");
+        if (emailButtonRef.current) {
+          setTimeout(() => {
+            if (
+              emailButtonRef.current &&
+              emailButtonRef.current.getBoundingClientRect().bottom >
+                window.innerHeight
+            ) {
+              emailButtonRef.current.scrollIntoView({
                 behavior: "smooth",
                 block: "nearest",
               });
@@ -323,6 +361,26 @@ export default function Invoices() {
                 window.innerHeight
             ) {
               sendButtonRef.current.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+              });
+            }
+          }, 0);
+        }
+      } else if (action === "SEND_EMAIL") {
+        setEmailSendFeedback({
+          invoiceId: selected.id,
+          type: "error",
+          message: msg,
+        });
+        if (emailButtonRef.current) {
+          setTimeout(() => {
+            if (
+              emailButtonRef.current &&
+              emailButtonRef.current.getBoundingClientRect().bottom >
+                window.innerHeight
+            ) {
+              emailButtonRef.current.scrollIntoView({
                 behavior: "smooth",
                 block: "nearest",
               });
@@ -872,6 +930,52 @@ export default function Invoices() {
                       {smsSendFeedback.message}
                     </p>
                   )}
+                  <button
+                    ref={emailButtonRef}
+                    disabled={busy || selected.emailStatus !== "NOT_SENT"}
+                    onClick={() => {
+                      if (!selected.clientEmail) setEmailOpen(true);
+                      else void action("SEND_EMAIL", selected.clientEmail);
+                    }}
+                  >
+                    Send invoice by email
+                  </button>
+                  {emailSendFeedback?.invoiceId === selected.id && (
+                    <p
+                      className={
+                        emailSendFeedback.type === "error"
+                          ? "checkout-error"
+                          : "checkout-receipt"
+                      }
+                      role={emailSendFeedback.type === "error" ? "alert" : "status"}
+                    >
+                      {emailSendFeedback.message}
+                    </p>
+                  )}
+                  {emailOpen && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const trimmed = emailInput.trim();
+                        if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+                          void action("SEND_EMAIL", trimmed);
+                        }
+                      }}
+                    >
+                      <label>
+                        Recipient email address
+                        <input
+                          type="email"
+                          autoComplete="email"
+                          value={emailInput}
+                          onChange={(event) => setEmailInput(event.target.value)}
+                          placeholder={selected.clientEmail || ""}
+                          required
+                        />
+                      </label>
+                      <button disabled={busy}>Send email</button>
+                    </form>
+                  )}
                   {!selected.clientId && (
                     <p>
                       This invoice has no linked client. Copy and share the link
@@ -958,3 +1062,4 @@ export default function Invoices() {
     </main>
   );
 }
+
