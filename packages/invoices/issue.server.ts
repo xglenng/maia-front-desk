@@ -1,3 +1,4 @@
+import {invoiceFields} from './fields';
 import {testPlatformFee} from '@/packages/integrations/stripe-platform-fee';
 import {and,eq} from 'drizzle-orm';
 import type Stripe from 'stripe';
@@ -89,7 +90,7 @@ export async function issueInvoice(row:typeof studioInvoices.$inferSelect,stripe
   if(!['open','paid','void','uncollectible'].includes(invoice.status||'')||(invoice.status==='open'&&!invoice.hosted_invoice_url))throw new InvoiceIssueError('The payment link is not ready. Retry this same invoice.','link_unavailable');
   const status=invoice.status==='paid'?'PAID':invoice.status==='void'?'VOID':invoice.status==='uncollectible'?'UNCOLLECTIBLE':'OPEN';
   stage='save_result';
-  return (await db.update(studioInvoices).set({status,hostedUrl:invoice.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId))).returning())[0];
+  return (await db.update(studioInvoices).set({status,hostedUrl:invoice.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId))).returning(invoiceFields))[0];
  }catch(error){
   if(error instanceof InvoiceIssueError)throw error;
   const message=stage==='configuration'?'Studio card payments are not configured. Check Settings → Studio payments or contact support, then retry this invoice.':stage==='account_retrieve'?'Maia could not check the studio’s Stripe connection. Check Settings → Studio payments, then retry this invoice.':'The payment link could not be created. Retry this same invoice; do not create a duplicate.';

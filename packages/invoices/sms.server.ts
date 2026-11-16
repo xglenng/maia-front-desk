@@ -1,3 +1,4 @@
+import {invoiceFields} from './fields';
 import {invoiceDeadlineText} from './input';
 import {and,eq} from 'drizzle-orm';
 import {db,pool} from '@/packages/db/src';
@@ -17,7 +18,7 @@ export async function sendInvoiceSms(row:typeof studioInvoices.$inferSelect,send
  const [client]=await db.select().from(clients).where(and(eq(clients.id,row.clientId),eq(clients.organizationId,row.organizationId)));
  if(!client?.phone||!client.smsOptIn||client.smsConsentStatus!=='OPTED_IN'||!await hasScopedSmsConsent({organizationId:row.organizationId,artistId:row.artistId,clientId:client.id,phone:client.phone}))throw Error('Client has no current SMS consent for this artist.');
  const body=`Your invoice for $${(row.totalCents/100).toFixed(2)} is ready.${invoiceDeadlineText(dueAt)} ${row.hostedUrl} Reply STOP to opt out.`;
- const [claimed]=await db.update(studioInvoices).set({smsStatus:'SENDING',updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId),eq(studioInvoices.smsStatus,'NOT_SENT'))).returning();
+ const [claimed]=await db.update(studioInvoices).set({smsStatus:'SENDING',updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId),eq(studioInvoices.smsStatus,'NOT_SENT'))).returning(invoiceFields);
  if(!claimed)throw Error('SMS send already started. Check delivery before sending again.');
  let sid:string|undefined;
  try{
@@ -26,7 +27,7 @@ export async function sendInvoiceSms(row:typeof studioInvoices.$inferSelect,send
    const [existing]=await tx.select().from(conversations).where(and(eq(conversations.organizationId,row.organizationId),eq(conversations.artistId,row.artistId),eq(conversations.clientId,client.id),eq(conversations.channel,'SMS'),eq(conversations.status,'OPEN'))).limit(1);
    const conversation=existing||(await tx.insert(conversations).values({organizationId:row.organizationId,artistId:row.artistId,clientId:client.id,channel:'SMS',status:'OPEN',aiEnabled:false,lastMessageAt:new Date()}).returning())[0];
    await tx.insert(messages).values({conversationId:conversation.id,senderType:'ARTIST',role:'assistant',content:body,externalMessageId:sid,metadata:{provider:'twilio',status:result.status,studioPhone:result.studioPhone,invoiceId:row.id}});
-   return (await tx.update(studioInvoices).set({smsStatus:'SENT',smsProviderId:sid,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId))).returning())[0];
+   return (await tx.update(studioInvoices).set({smsStatus:'SENT',smsProviderId:sid,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId))).returning(invoiceFields))[0];
   });return {invoice,message:'Invoice submitted to the SMS provider. Delivery is not yet confirmed; check Inbox.'};
  }catch(error){
   const safe=error instanceof Error&&["Client is not opted in to SMS for this artist.","The artist's primary SMS number is not active.","The artist's primary SMS number is not A2P-approved for this environment.","Twilio is not configured for this artist."].includes(error.message)&&!sid;

@@ -1,3 +1,4 @@
+import {invoiceFields} from './fields';
 import {and,eq} from 'drizzle-orm';
 import {db} from '@/packages/db/src';
 import {artists,studioInvoices} from '@/packages/db/src/schema';
@@ -8,6 +9,6 @@ export async function allowedInvoiceArtist(user:Identity,artistId:string){
  return Boolean(artist);
 }
 export async function authorizedInvoice(user:Identity,id:string){
- const [row]=await db.select().from(studioInvoices).where(and(eq(studioInvoices.id,id),eq(studioInvoices.organizationId,user.organization_id)));
+ const [row]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.id,id),eq(studioInvoices.organizationId,user.organization_id)));
  return row&&await allowedInvoiceArtist(user,row.artistId)?row:null;
 }
