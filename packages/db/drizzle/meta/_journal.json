@@ -204,6 +204,20 @@
       "when": 1794682214989,
       "tag": "0028_awesome_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794854400000,
+      "tag": "0029_studio_invoice_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795286400000,
+      "tag": "0030_walk_in_appointments",
+      "breakpoints": true
     }
   ]
 }

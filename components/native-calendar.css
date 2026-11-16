@@ -18,3 +18,8 @@
 .native-walk-in-toggle p{margin:0;font-size:12px;line-height:1.4;color:#666}
 .native-event.native-walk-in-event{border-left-color:#008a42;background:color-mix(in srgb,#008a42 10%,white)}
 .native-event.native-walk-in-event strong::after{content:' · Walk-in';color:#008a42;font-weight:600}
+.native-error-container{display:flex;align-items:center;gap:12px;padding:14px;background:#fff3f3;border:1px solid #d9757d;border-radius:12px;border-left:4px solid #a12424}
+.native-error-container p{margin:0;font-size:14px;color:#a12424;line-height:1.4}
+.native-error-container button{padding:8px 14px;font-size:12px;border:1px solid #a12424;background:#fff;color:#a12424;border-radius:8px;cursor:pointer;white-space:nowrap}
+.native-error-container button:hover:not(:disabled){background:#fef0f0}
+.native-error-container button:disabled{opacity:0.5;cursor:not-allowed}
