@@ -442,6 +442,7 @@ export const appointments = pgTable("appointments", {
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
   artistId: uuid("artist_id").references(() => artists.id).notNull(),
   clientId: uuid("client_id").references(() => clients.id).notNull(),
+  locationId: uuid("location_id"),
   conversationId: uuid("conversation_id"),
   serviceId: uuid("service_id").references(() => services.id),
   startsAt: timestamp("starts_at").notNull(),
@@ -467,6 +468,7 @@ export const appointments = pgTable("appointments", {
   tenantArtistIdReference: foreignKey({ name: "appointments_artist_id_tenant_fk", columns: [table.artistId, table.organizationId], foreignColumns: [artists.id, artists.organizationId] }),
   tenantClientIdReference: foreignKey({ name: "appointments_client_id_tenant_fk", columns: [table.clientId, table.organizationId], foreignColumns: [clients.id, clients.organizationId] }),
   tenantServiceIdReference: foreignKey({ name: "appointments_service_id_tenant_fk", columns: [table.serviceId, table.organizationId], foreignColumns: [services.id, services.organizationId] }),
+  tenantLocationIdReference: foreignKey({ name: "appointments_location_id_tenant_fk", columns: [table.locationId, table.organizationId], foreignColumns: [studioLocations.id, studioLocations.organizationId] }).onDelete("set null"),
 }));
 
 export const conversations = pgTable("conversations", {

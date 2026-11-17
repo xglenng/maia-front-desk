@@ -10,11 +10,11 @@ import {calendarMinute} from '@/packages/studio/calendar-layout';
 import { useSession } from '@/components/session-gate';
 
 type Payment = { tipCents:number; refundedCents:number; purpose: string; id: string; provider: string; amountCents: number; status: string; confirmationMethod: string | null; confirmedAt: string | null };
-type ExternalWaiver = { id: string; status: string; sentAt: string | null; completedAt: string | null; formName: string };
+type ExternalWaiver = { id: string; status: string; sentAt: string | null; completedAt: string | null; formName: string; provider: string };
 type SignedWaiver = { id: string; signedAt: string; templateName: string };
 type AppointmentDetail = {
   location:{name:string;addressLine1:string|null;addressLine2:string|null;city:string|null;region:string|null;postalCode:string|null}|null;organization:{name:string;timezone:string};
-  appointment: { artistId:string;schedulingProvider:string|null;providerBookingId:string|null;calendarEventId:string|null;scheduleRevision:number; notes:string|null; id: string; startsAt: string; endsAt: string; status: string; holdExpiresAt:string|null; priceCents:number|null; depositCents: number | null; depositStatus: string; paymentProvider: string | null; completedAt: string | null };
+  appointment: { artistId:string;schedulingProvider:string|null;providerBookingId:string|null;calendarEventId:string|null;scheduleRevision:number; notes:string|null; id: string; startsAt: string; endsAt: string; status: string; holdExpiresAt:string|null; priceCents:number|null; depositCents: number | null; depositStatus: string; paymentProvider: string | null; completedAt: string | null; isWalkIn: boolean };
   client: { firstName: string; lastName: string | null; phone: string | null; email: string | null };
   service: { name: string; paymentProvider: string; depositType: string } | null;
   payments: Payment[];
@@ -39,6 +39,10 @@ export default function AppointmentDetailPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [nativePayments,setNativePayments]=useState(false);
+  const [waiverDialogOpen, setWaiverDialogOpen] = useState(false);
+  const [clientDialogOpen, setClientDialogOpen] = useState(false);
+  const [waiverFormLink, setWaiverFormLink] = useState<string | null>(null);
+  const [clientEditData, setClientEditData] = useState<{ firstName: string; phone: string; email: string } | null>(null);
   useEffect(()=>{setNativePayments(Boolean((window as unknown as {webkit?:{messageHandlers?:{maiaTapToPay?:unknown}}}).webkit?.messageHandlers?.maiaTapToPay));},[]);
   function openNativePayment(){(window as unknown as {webkit:{messageHandlers:{maiaTapToPay:{postMessage:(body:{appointmentId:string})=>void}}}}).webkit.messageHandlers.maiaTapToPay.postMessage({appointmentId:params.id});}
   const [receiptUrls,setReceiptUrls]=useState<Record<string,string>>({});
@@ -52,6 +56,84 @@ export default function AppointmentDetailPage() {
   async function refund(payment:Payment){
     if(!window.confirm(`Refund the ${money(payment.amountCents)} test ${paymentLabel(payment).toLowerCase()}? The appointment will stay booked.`))return;
     await runAction('/api/payments/connect/refund','POST',{appointmentId:params.id,paymentId:payment.id});
+  }
+
+  async function createWaiverLink(formId?: string) {
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/waiver-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'CREATE_LINK',
+          appointmentId: params.id,
+          ...(formId ? { externalWaiverFormId: formId } : {}),
+        }),
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || 'Unable to create waiver link.');
+      setWaiverFormLink(value.url);
+      setWaiverDialogOpen(false);
+      await load();
+      setNotice('Waiver link created. You can share or copy the link.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to create waiver link.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendWaiverBySms(formId?: string) {
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/waiver-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'SEND',
+          appointmentId: params.id,
+          ...(formId ? { externalWaiverFormId: formId } : {}),
+        }),
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || 'Unable to send waiver.');
+      setWaiverDialogOpen(false);
+      await load();
+      setNotice('Waiver sent via SMS.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to send waiver.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateClientDetails() {
+    if (!clientEditData) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/appointment-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointmentId: params.id,
+          firstName: clientEditData.firstName,
+          phone: clientEditData.phone || null,
+          email: clientEditData.email || null,
+        }),
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || 'Unable to update client details.');
+      setClientDialogOpen(false);
+      await load();
+      setNotice('Client details updated.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to update client details.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function load() {
@@ -99,7 +181,7 @@ export default function AppointmentDetailPage() {
     {user.role==='OWNER'&&paymentProvider==='STRIPE'&&['CONFIRMED','COMPLETED'].includes(appointment.status)&&summary.remainingCents!=null&&summary.remainingCents>0&&!data.payments.some(p=>p.status.startsWith('REFUND'))&&<section style={section}><CheckoutTipReview balanceCents={summary.remainingCents} choice={tipChoice} custom={tipInput} disabled={cardEntry} onChoice={setTipChoice} onCustom={setTipInput}/><button style={secondary} disabled={busy||cardEntry||!validTip} onClick={()=>setCardEntry(true)}>{cardEntry?'Card form open':validTip&&checkoutTotal!=null?`Continue to card entry · ${money(checkoutTotal)}`:'Continue to card entry'}</button><p>Secure sandbox card form. No real cards or charges.</p>{cardEntry&&<StudioCardEntry appointmentId={params.id} tipCents={tipCents} onClose={()=>{setCardEntry(false);void load().catch(()=>setError('Unable to refresh payment status.'));}}/>}</section>}
     {appointment.notes&&<section style={section}><h2>Appointment notes</h2><p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{appointment.notes}</p></section>}
     <section style={section}><h2>Amount due</h2><strong style={{fontSize:30}}>{summary.remainingCents==null?'Price not set':money(summary.remainingCents)}</strong>{summary.needsReview&&<p role="status">Payment needs review before collecting more money.</p>}</section>
-    <section style={section}><h2>Business location</h2><strong>{data.location?.name||data.organization.name}</strong>{data.location?<p>{[data.location.addressLine1,data.location.addressLine2,data.location.city,data.location.region,data.location.postalCode].filter(Boolean).join(', ')}</p>:<p>No primary business address configured.</p>}</section>
+    <section style={section}><h2>Business location</h2><strong>{data.location?.name||data.organization.name}</strong>{data.location&&(data.location.addressLine1||data.location.addressLine2||data.location.city||data.location.region||data.location.postalCode)?<p style={{margin:'4px 0 0'}}>{[data.location.addressLine1,data.location.addressLine2].filter(Boolean).join(', ')}{(data.location.addressLine1||data.location.addressLine2)&&(data.location.city||data.location.region||data.location.postalCode)?' · ':''}{[data.location.city,(data.location.region||'')+' '+(data.location.postalCode||'')].filter(Boolean).join(' ')}</p>:<p style={{margin:'4px 0 0',color:'#706b66'}}>No studio address configured.{user.role==='OWNER'&&<><br/><a href="/settings/locations" style={{color:'inherit',textDecoration:'underline'}}>Add address in Studio locations</a></>}</p>}</section>
     {['CONFIRMED','PAYMENT_PENDING'].includes(appointment.status)&&appointment.schedulingProvider==='INTERNAL'&&!appointment.providerBookingId&&!appointment.calendarEventId&&<section style={section}><h2>Block extra time</h2><p>Extend the end of this appointment without changing the price or deposit.</p><label style={{display:'grid',gap:8,fontWeight:600}}>Additional time<select style={{fontSize:16,padding:12,maxWidth:'100%'}} value={extraMinutes} onChange={event=>setExtraMinutes(Number(event.target.value))}>{[15,30,45,60,90,120,180,240].map(minutes=><option key={minutes} value={minutes}>{minutes} minutes</option>)}</select></label><button type="button" style={{...secondary,marginTop:12}} disabled={busy} onClick={()=>{const zone=data.organization.timezone;const minute=calendarMinute(appointment.startsAt,zone);void runAction('/api/calendar','PATCH',{artistId:appointment.artistId,appointmentId:appointment.id,expectedRevision:appointment.scheduleRevision,extraMinutes,localStart:localDateString(new Date(appointment.startsAt),zone)+'T'+String(Math.floor(minute/60)).padStart(2,'0')+':'+String(minute%60).padStart(2,'0')});}}>Save extra time</button></section>}
 
     <section style={section}>
@@ -123,8 +205,56 @@ export default function AppointmentDetailPage() {
       {data.signedWaivers.length > 0 ? data.signedWaivers.map(waiver => <p key={waiver.id}>{waiver.templateName} · Signed {new Date(waiver.signedAt).toLocaleString()}</p>)
         : data.externalWaivers.length > 0 ? data.externalWaivers.map(waiver => <p key={waiver.id}>{waiver.formName} · {waiver.status}{waiver.completedAt ? ` · Completed ${new Date(waiver.completedAt).toLocaleString()}` : waiver.sentAt ? ` · Sent ${new Date(waiver.sentAt).toLocaleString()}` : ''}</p>)
           : <p>No waiver has been issued for this appointment.</p>}
+      {!data.signedWaivers.length && <button type="button" style={secondary} disabled={busy} onClick={() => { setWaiverDialogOpen(true); setWaiverFormLink(null); }}>Create consent form link</button>}
+      {waiverFormLink && <div style={{ marginTop: 12, padding: 12, backgroundColor: '#f5f1f0', borderRadius: 6 }}>
+        <p style={{ margin: '0 0 8px 0', fontSize: 14 }}>Waiver link created</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" style={secondary} onClick={() => { navigator.clipboard.writeText(waiverFormLink); setNotice('Link copied to clipboard'); }}>Copy link</button>
+          <a href={waiverFormLink} target="_blank" rel="noopener noreferrer" style={secondary as React.CSSProperties}>Open for signing</a>
+        </div>
+      </div>}
     </section>
-    <section style={section}><h2>Client</h2><p>{data.client.phone || 'No phone number'}{data.client.email ? ` · ${data.client.email}` : ''}</p></section>
+    <section style={section}>
+      <h2>Client</h2>
+      <p>{data.client.phone || 'No phone number'}{data.client.email ? ` · ${data.client.email}` : ''}</p>
+      {appointment.isWalkIn && <button type="button" style={secondary} disabled={busy} onClick={() => { setClientEditData({ firstName: data.client.firstName === 'Walk-in' ? '' : data.client.firstName, phone: data.client.phone || '', email: data.client.email || '' }); setClientDialogOpen(true); }}>Add client details</button>}
+      {!appointment.isWalkIn && <button type="button" style={secondary} disabled={busy} onClick={() => { setClientEditData({ firstName: data.client.firstName, phone: data.client.phone || '', email: data.client.email || '' }); setClientDialogOpen(true); }}>Edit client details</button>}
+    </section>
+    {waiverDialogOpen && <dialog style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={(e) => e.target === e.currentTarget && setWaiverDialogOpen(false)}>
+      <div style={{ backgroundColor: '#fff', padding: 20, borderRadius: 8, maxWidth: 400, width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ marginTop: 0 }}>Create waiver link or send via SMS</h3>
+        {error && <p style={{ color: '#8b1e1e' }}>{error}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button type="button" style={action} disabled={busy} onClick={() => void createWaiverLink()}>Create shareable link</button>
+          {data.client.phone && <button type="button" style={action} disabled={busy} onClick={() => void sendWaiverBySms()}>Send via SMS</button>}
+        </div>
+        <button type="button" style={secondary} disabled={busy} onClick={() => setWaiverDialogOpen(false)}>Cancel</button>
+      </div>
+    </dialog>}
+    {clientDialogOpen && clientEditData && <dialog style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={(e) => e.target === e.currentTarget && setClientDialogOpen(false)}>
+      <div style={{ backgroundColor: '#fff', padding: 20, borderRadius: 8, maxWidth: 400, width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ marginTop: 0 }}>{appointment.isWalkIn ? 'Add client details' : 'Edit client details'}</h3>
+        {error && <p style={{ color: '#8b1e1e' }}>{error}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label>
+            Name
+            <input type="text" value={clientEditData.firstName} onChange={(e) => setClientEditData({ ...clientEditData, firstName: e.target.value })} style={{ width: '100%', padding: 8, marginTop: 4, border: '1px solid #d7d1cb', borderRadius: 4, boxSizing: 'border-box' }} />
+          </label>
+          <label>
+            Phone
+            <input type="tel" value={clientEditData.phone} onChange={(e) => setClientEditData({ ...clientEditData, phone: e.target.value })} style={{ width: '100%', padding: 8, marginTop: 4, border: '1px solid #d7d1cb', borderRadius: 4, boxSizing: 'border-box' }} />
+          </label>
+          <label>
+            Email
+            <input type="email" value={clientEditData.email} onChange={(e) => setClientEditData({ ...clientEditData, email: e.target.value })} style={{ width: '100%', padding: 8, marginTop: 4, border: '1px solid #d7d1cb', borderRadius: 4, boxSizing: 'border-box' }} />
+          </label>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button type="button" style={action} disabled={busy} onClick={() => void updateClientDetails()}>Save</button>
+          <button type="button" style={secondary} disabled={busy} onClick={() => setClientDialogOpen(false)}>Cancel</button>
+        </div>
+      </div>
+    </dialog>}
     {data.payments.length > 0 && <section style={section}><h2>Payment history</h2>{data.payments.map(payment => <p key={payment.id}><strong>{paymentLabel(payment)} · {money(payment.amountCents)}</strong>{payment.tipCents>0&&<> (includes {money(payment.tipCents)} tip)</>} · {payment.status.replaceAll('_',' ')}{payment.refundedCents>0&&<> · Returned {money(payment.refundedCents)}</>} · {payment.provider === 'stripe_terminal' ? 'Phone test payment' : payment.provider === 'stripe_connect' ? 'Stripe test payment' : payment.provider}{user.role==='OWNER'&&['stripe_connect','stripe_terminal'].includes(payment.provider)&&['PAID','REFUND_PENDING'].includes(payment.status)&&<button style={{...secondary,marginLeft:12}} disabled={busy} onClick={()=>void refund(payment)}>{payment.status==='REFUND_PENDING'?`Retry ${money(payment.amountCents)} refund`:`Refund ${money(payment.amountCents)} ${paymentLabel(payment).toLowerCase()}`}</button>}{user.role==='OWNER'&&['stripe_connect','stripe_terminal'].includes(payment.provider)&&['PAID','REFUNDED','REFUND_PENDING','REFUND_REVIEW'].includes(payment.status)&&(receiptUrls[payment.id]?<a href={receiptUrls[payment.id]} target="_blank" rel="noopener noreferrer" style={{marginLeft:12}}>Open Stripe test receipt</a>:<button style={{...secondary,marginLeft:12}} disabled={busy} onClick={()=>void receipt(payment.id)}>Get test receipt</button>)}{data.refundAudit.filter(a=>a.paymentId===payment.id).map(a=><small key={a.paymentId} style={{display:'block'}}>Refund requested by {a.requestedBy} · {new Date(a.requestedAt).toLocaleString()}</small>)}</p>)}</section>}
   </main>;
 }

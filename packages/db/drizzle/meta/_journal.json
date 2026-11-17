@@ -218,6 +218,27 @@
       "when": 1795286400000,
       "tag": "0030_walk_in_appointments",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795373000000,
+      "tag": "0031_walk_in_waivers",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795373100000,
+      "tag": "0032_walk_in_waiver_submissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795460400000,
+      "tag": "0033_appointment_location",
+      "breakpoints": true
     }
   ]
 }

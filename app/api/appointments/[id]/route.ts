@@ -21,7 +21,22 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
     .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(services.organizationId, appointments.organizationId)))
     .where(and(eq(appointments.id, id), eq(appointments.organizationId, organizationId)));
   if (!row || !canAccessArtist(user.role, user.id, row.artistUserId)) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
-  const [location]=await db.select().from(studioLocations).where(and(eq(studioLocations.organizationId,organizationId),eq(studioLocations.active,true),eq(studioLocations.isPrimary,true))).limit(1);
+  
+  // Fetch appointment's assigned location, then fall back to primary location
+  let location = null;
+  if (row.appointment.locationId) {
+    const [assignedLoc] = await db.select().from(studioLocations)
+      .where(and(eq(studioLocations.id, row.appointment.locationId), eq(studioLocations.organizationId, organizationId)))
+      .limit(1);
+    location = assignedLoc || null;
+  }
+  if (!location) {
+    const [primaryLoc] = await db.select().from(studioLocations)
+      .where(and(eq(studioLocations.organizationId, organizationId), eq(studioLocations.active, true), eq(studioLocations.isPrimary, true)))
+      .limit(1);
+    location = primaryLoc || null;
+  }
+  
   const [organization]=await db.select({name:organizations.name,timezone:organizations.timezone}).from(organizations).where(eq(organizations.id,organizationId)).limit(1);
   const paymentRows = await db.select().from(payments).where(and(eq(payments.appointmentId, id), eq(payments.organizationId, organizationId)));
   const refundAudit = await db.select({paymentId:payments.id,requestedBy:users.name,requestedAt:payments.refundRequestedAt}).from(payments).innerJoin(users,and(eq(users.id,payments.refundRequestedByUserId),eq(users.organizationId,payments.organizationId))).where(and(eq(payments.appointmentId,id),eq(payments.organizationId,organizationId)));
@@ -29,7 +44,7 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
     .from(automationJobs).leftJoin(messages, eq(messages.id, automationJobs.resultMessageId))
     .where(and(eq(automationJobs.organizationId, organizationId), eq(automationJobs.appointmentId, id), eq(automationJobs.type, 'APPOINTMENT_CONFIRMATION'))).limit(1);
   const [externalWaivers, signedWaivers] = await Promise.all([
-    db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name })
+    db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name, provider: externalWaiverForms.provider })
       .from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id))
       .where(and(eq(externalWaiverAssignments.organizationId, organizationId), eq(externalWaiverAssignments.appointmentId, id))),
     db.select({ id: waiverSubmissions.id, signedAt: waiverSubmissions.signedAt, templateName: waiverTemplates.name })
@@ -37,7 +52,7 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
       .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
   ]);
   const metadata = confirmation?.metadata && typeof confirmation.metadata === 'object' && !Array.isArray(confirmation.metadata) ? confirmation.metadata as Record<string, unknown> : null;
-  return NextResponse.json({ location:location||null, organization, appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers, confirmation: confirmation ? { status: confirmation.status, errorCode: confirmation.errorCode, providerStatus: typeof metadata?.status === 'string' ? metadata.status : null } : null });
+  return NextResponse.json({ location, organization, appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers, confirmation: confirmation ? { status: confirmation.status, errorCode: confirmation.errorCode, providerStatus: typeof metadata?.status === 'string' ? metadata.status : null } : null });
 }
 
 async function handleDELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
