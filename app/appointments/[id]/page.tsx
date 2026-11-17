@@ -48,6 +48,10 @@ export default function AppointmentDetailPage() {
     if (waiverDialogOpen && !waiverDialog.current?.open) waiverDialog.current?.showModal();
   }, [waiverDialogOpen]);
   const [clientDialogOpen, setClientDialogOpen] = useState(false);
+  const clientDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (clientDialogOpen && !clientDialog.current?.open) clientDialog.current?.showModal();
+  }, [clientDialogOpen]);
   const [waiverFormLink, setWaiverFormLink] = useState<string | null>(null);
   const [clientEditData, setClientEditData] = useState<{ firstName: string; phone: string; email: string } | null>(null);
   useEffect(()=>{setNativePayments(Boolean((window as unknown as {webkit?:{messageHandlers?:{maiaTapToPay?:unknown}}}).webkit?.messageHandlers?.maiaTapToPay));},[]);
@@ -209,7 +213,10 @@ export default function AppointmentDetailPage() {
     </section>
     <section style={section}>
       <h2>Waiver</h2>
-      {data.signedWaivers.length > 0 ? data.signedWaivers.map(waiver => <p key={waiver.id}>{waiver.templateName} · Signed {new Date(waiver.signedAt).toLocaleString()}</p>)
+      {data.signedWaivers.length > 0 ? data.signedWaivers.map(waiver => {
+        const isValidDate = waiver.signedAt && !isNaN(new Date(waiver.signedAt).getTime());
+        return <p key={waiver.id}>{waiver.templateName}{isValidDate ? ` · Signed ${new Date(waiver.signedAt).toLocaleString()}` : ' · Signed'}</p>;
+      })
         : data.externalWaivers.length > 0 ? data.externalWaivers.map(waiver => <p key={waiver.id}>{waiver.formName} · {waiver.status}{waiver.completedAt ? ` · Completed ${new Date(waiver.completedAt).toLocaleString()}` : waiver.sentAt ? ` · Sent ${new Date(waiver.sentAt).toLocaleString()}` : ''}</p>)
           : <p>No waiver has been issued for this appointment.</p>}
       {!data.signedWaivers.length && <button type="button" style={secondary} disabled={busy} onClick={() => { setError(''); setWaiverFormId(''); setWaiverDialogOpen(true); }}>Send consent form</button>}
@@ -253,29 +260,31 @@ export default function AppointmentDetailPage() {
         </footer>
       </form>
     </dialog>}
-    {clientDialogOpen && clientEditData && <dialog style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={(e) => e.target === e.currentTarget && setClientDialogOpen(false)}>
-      <div style={{ backgroundColor: '#fff', padding: 20, borderRadius: 8, maxWidth: 400, width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ marginTop: 0 }}>{appointment.isWalkIn ? 'Add client details' : 'Edit client details'}</h3>
-        {error && <p style={{ color: '#8b1e1e' }}>{error}</p>}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <label>
-            Name
-            <input type="text" value={clientEditData.firstName} onChange={(e) => setClientEditData({ ...clientEditData, firstName: e.target.value })} style={{ width: '100%', padding: 8, marginTop: 4, border: '1px solid #d7d1cb', borderRadius: 4, boxSizing: 'border-box' }} />
-          </label>
-          <label>
-            Phone
-            <input type="tel" value={clientEditData.phone} onChange={(e) => setClientEditData({ ...clientEditData, phone: e.target.value })} style={{ width: '100%', padding: 8, marginTop: 4, border: '1px solid #d7d1cb', borderRadius: 4, boxSizing: 'border-box' }} />
-          </label>
-          <label>
-            Email
-            <input type="email" value={clientEditData.email} onChange={(e) => setClientEditData({ ...clientEditData, email: e.target.value })} style={{ width: '100%', padding: 8, marginTop: 4, border: '1px solid #d7d1cb', borderRadius: 4, boxSizing: 'border-box' }} />
-          </label>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button type="button" style={action} disabled={busy} onClick={() => void updateClientDetails()}>Save</button>
-          <button type="button" style={secondary} disabled={busy} onClick={() => setClientDialogOpen(false)}>Cancel</button>
-        </div>
-      </div>
+    {clientDialogOpen && clientEditData && <dialog className="native-dialog appointment-client-dialog" ref={clientDialog} aria-labelledby="appointment-client-title"
+      onCancel={event => { event.preventDefault(); if (!busy) setClientDialogOpen(false); }}>
+      <form onSubmit={event => event.preventDefault()}>
+        <header>
+          <h2 id="appointment-client-title">{appointment.isWalkIn ? 'Add client details' : 'Edit client details'}</h2>
+          <button type="button" aria-label="Close" disabled={busy} onClick={() => setClientDialogOpen(false)}>×</button>
+        </header>
+        <label>
+          Name
+          <input type="text" value={clientEditData.firstName} onChange={(e) => setClientEditData({ ...clientEditData, firstName: e.target.value })} disabled={busy} />
+        </label>
+        <label>
+          Phone
+          <input type="tel" value={clientEditData.phone} onChange={(e) => setClientEditData({ ...clientEditData, phone: e.target.value })} disabled={busy} />
+        </label>
+        <label>
+          Email
+          <input type="email" value={clientEditData.email} onChange={(e) => setClientEditData({ ...clientEditData, email: e.target.value })} disabled={busy} />
+        </label>
+        {error && <div className="native-error" role="alert">{error}</div>}
+        <footer>
+          <button type="button" disabled={busy} onClick={() => setClientDialogOpen(false)}>Cancel</button>
+          <button type="button" className="native-primary" disabled={busy} onClick={() => void updateClientDetails()}>Save</button>
+        </footer>
+      </form>
     </dialog>}
     {data.payments.length > 0 && <section style={section}><h2>Payment history</h2>{data.payments.map(payment => <p key={payment.id}><strong>{paymentLabel(payment)} · {money(payment.amountCents)}</strong>{payment.tipCents>0&&<> (includes {money(payment.tipCents)} tip)</>} · {payment.status.replaceAll('_',' ')}{payment.refundedCents>0&&<> · Returned {money(payment.refundedCents)}</>} · {payment.provider === 'stripe_terminal' ? 'Phone test payment' : payment.provider === 'stripe_connect' ? 'Stripe test payment' : payment.provider}{user.role==='OWNER'&&['stripe_connect','stripe_terminal'].includes(payment.provider)&&['PAID','REFUND_PENDING'].includes(payment.status)&&<button style={{...secondary,marginLeft:12}} disabled={busy} onClick={()=>void refund(payment)}>{payment.status==='REFUND_PENDING'?`Retry ${money(payment.amountCents)} refund`:`Refund ${money(payment.amountCents)} ${paymentLabel(payment).toLowerCase()}`}</button>}{user.role==='OWNER'&&['stripe_connect','stripe_terminal'].includes(payment.provider)&&['PAID','REFUNDED','REFUND_PENDING','REFUND_REVIEW'].includes(payment.status)&&(receiptUrls[payment.id]?<a href={receiptUrls[payment.id]} target="_blank" rel="noopener noreferrer" style={{marginLeft:12}}>Open Stripe test receipt</a>:<button style={{...secondary,marginLeft:12}} disabled={busy} onClick={()=>void receipt(payment.id)}>Get test receipt</button>)}{data.refundAudit.filter(a=>a.paymentId===payment.id).map(a=><small key={a.paymentId} style={{display:'block'}}>Refund requested by {a.requestedBy} · {new Date(a.requestedAt).toLocaleString()}</small>)}</p>)}</section>}
   </main>;

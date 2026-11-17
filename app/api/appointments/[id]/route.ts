@@ -47,6 +47,9 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
     db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name, provider: externalWaiverForms.provider })
       .from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id))
       .where(and(eq(externalWaiverAssignments.organizationId, organizationId), eq(externalWaiverAssignments.appointmentId, id))),
+    db.select({ id: waiverSubmissions.id, signedAt: waiverSubmissions.signedAt, templateName: waiverTemplates.name })
+      .from(waiverSubmissions).innerJoin(waiverTemplates, eq(waiverSubmissions.waiverTemplateId, waiverTemplates.id))
+      .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
     db.select({ id: externalWaiverForms.id, name: externalWaiverForms.name, audience: externalWaiverForms.audience })
       .from(externalWaiverForms)
       .where(and(
@@ -55,9 +58,6 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
         or(isNull(externalWaiverForms.artistId), eq(externalWaiverForms.artistId, row.appointment.artistId)),
       ))
       .orderBy(externalWaiverForms.name),
-    db.select({ id: waiverSubmissions.id, signedAt: waiverSubmissions.signedAt, templateName: waiverTemplates.name })
-      .from(waiverSubmissions).innerJoin(waiverTemplates, eq(waiverSubmissions.waiverTemplateId, waiverTemplates.id))
-      .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
   ]);
   const metadata = confirmation?.metadata && typeof confirmation.metadata === 'object' && !Array.isArray(confirmation.metadata) ? confirmation.metadata as Record<string, unknown> : null;
   return NextResponse.json({ location, organization, appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers, availableWaiverForms, confirmation: confirmation ? { status: confirmation.status, errorCode: confirmation.errorCode, providerStatus: typeof metadata?.status === 'string' ? metadata.status : null } : null });
