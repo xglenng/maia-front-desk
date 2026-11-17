@@ -53,7 +53,8 @@ async function post(request:NextRequest){
   if(plannedItems.length!==plannedIds.length)throw new Error('A planned item is no longer available for this artist.');
   const plannedNote=plannedItems.length?'\nPlanned items — collect payment at checkout:\n'+plannedItems.map(item=>'• '+item.name).join('\n'):'';
   const depositCents=nativeDeposit(service,input.priceCents);
-  if(!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt))throw new Error('That time is outside bookable hours or is no longer available.');
+  if(!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt,undefined,input.isWalkIn))throw new Error('That time is outside bookable hours or is no longer available.');
+
   let clientId=input.clientId;
   if(!clientId){
    if(input.isWalkIn){
@@ -115,7 +116,7 @@ async function patch(request:NextRequest){
   const endsAt=new Date(startsAt.getTime()+current.endsAt.getTime()-current.startsAt.getTime()+(input.extraMinutes||0)*60000);
   if((endsAt.getTime()-startsAt.getTime())/60000>1440)throw new Error('Total appointment duration cannot exceed 24 hours.');
   if(current.scheduleRevision!==input.expectedRevision)throw new Error('This appointment changed. Refresh before rescheduling.');
-  if(!Number.isFinite(startsAt.getTime())||!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt,current.id))throw new Error('That time is outside bookable hours or is no longer available.');
+  if(!Number.isFinite(startsAt.getTime())||!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt,current.id,current.isWalkIn))throw new Error('That time is outside bookable hours or is no longer available.');
   if(current.startsAt.getTime()===startsAt.getTime()&&current.endsAt.getTime()===endsAt.getTime())return current;
   return (await tx.update(appointments).set({startsAt,endsAt,scheduleRevision:current.scheduleRevision+1,updatedAt:new Date()}).where(and(eq(appointments.id,current.id),eq(appointments.organizationId,input.organizationId))).returning())[0];
  });

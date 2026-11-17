@@ -44,40 +44,55 @@ async function handlePOST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const parsed = sendSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const [row] = await db.select({ appointment: appointments, client: clients, artist: artists, organization: organizations })
-    .from(appointments).innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId))).innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(appointments.organizationId, artists.organizationId))).innerJoin(organizations, eq(appointments.organizationId, organizations.id))
-    .where(and(eq(appointments.id, parsed.data.appointmentId), eq(appointments.organizationId, user.organization_id)));
-  if (!row || !canAccessArtist(user.role, user.id, row.artist.userId)) return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
-  if (parsed.data.action!=="CREATE_LINK" && (!row.client.phone || !row.client.smsOptIn)) return NextResponse.json({ error: "Client is not opted in to SMS or has no phone number." }, { status: 409 });
+  
+  const [appointment] = await db.select().from(appointments).where(and(eq(appointments.id, parsed.data.appointmentId), eq(appointments.organizationId, user.organization_id)));
+  if (!appointment) return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
+  
+  const [artist] = await db.select().from(artists).where(and(eq(artists.id, appointment.artistId), eq(artists.organizationId, user.organization_id)));
+  if (!artist || !canAccessArtist(user.role, user.id, artist.userId)) return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
+  
+  const [organization] = await db.select().from(organizations).where(eq(organizations.id, appointment.organizationId));
+  
+  let client = appointment.clientId ? (await db.select().from(clients).where(and(eq(clients.id, appointment.clientId), eq(clients.organizationId, user.organization_id))))[0] : null;
+  
+  if (parsed.data.action !== "CREATE_LINK" && client && (!client.phone || !client.smsOptIn)) {
+    return NextResponse.json({ error: "Client is not opted in to SMS or has no phone number." }, { status: 409 });
+  }
+  
   const forms = await db.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.organizationId, user.organization_id), eq(externalWaiverForms.active, true)));
-  const age = ageOn(row.client.dateOfBirth, row.appointment.startsAt);
-  const selected = parsed.data.externalWaiverFormId ? forms.find(form => form.id === parsed.data.externalWaiverFormId) : selectWaiverForm(forms, { artistId: row.artist.id, serviceId: row.appointment.serviceId, isMinor: age == null ? null : age < 18 });
-  if (selected && selected.artistId && selected.artistId !== row.artist.id) return NextResponse.json({error:"This form belongs to another artist."},{status:403});
+  
+  const age = client ? ageOn(client.dateOfBirth, appointment.startsAt) : null;
+  const selected = parsed.data.externalWaiverFormId ? forms.find(form => form.id === parsed.data.externalWaiverFormId) : selectWaiverForm(forms, { artistId: appointment.artistId, serviceId: appointment.serviceId, isMinor: age == null ? null : age < 18 });
+  if (selected && selected.artistId && selected.artistId !== appointment.artistId) return NextResponse.json({error:"This form belongs to another artist."},{status:403});
   if (!selected) return NextResponse.json({ error: age == null ? "No universal waiver matches this appointment. Add the client's birth date or choose a form manually." : "No active waiver form matches this appointment." }, { status: 409 });
+  
   const rawToken = crypto.randomBytes(24).toString("hex");
   const trackingTokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const waiverUrl=assignedFormUrl(selected,rawToken,new URL(process.env.NEXT_PUBLIC_APP_URL||request.url).origin);
-  const dueAt = new Date(Math.max(Date.now(), row.appointment.startsAt.getTime() - 24 * 60 * 60 * 1000));
-  const [assignment] = await db.insert(externalWaiverAssignments).values({ organizationId: user.organization_id, waiverFormId: selected.id, appointmentId: row.appointment.id, clientId: row.client.id, trackingTokenHash, dueAt, status: "PENDING" }).returning();
+  const dueAt = new Date(Math.max(Date.now(), appointment.startsAt.getTime() - 24 * 60 * 60 * 1000));
+  const [assignment] = await db.insert(externalWaiverAssignments).values({ organizationId: user.organization_id, waiverFormId: selected.id, appointmentId: appointment.id, clientId: client?.id || null, trackingTokenHash, dueAt, status: "PENDING" }).returning();
   if(parsed.data.action==='CREATE_LINK'){
     await db.insert(externalWaiverEvents).values({organizationId:user.organization_id,assignmentId:assignment.id,userId:user.id,action:'LINK_CREATED'});
     return NextResponse.json({assignment,url:waiverUrl},{status:201});
   }
-  const body = `${row.organization.name}: Please complete your ${selected.name} before your appointment: ${waiverUrl} Reply STOP to opt out.`;
+  
+  if (!client || !client.phone) return NextResponse.json({ error: "Cannot send SMS to a walk-in without contact details. Use CREATE_LINK to generate a shareable waiver link." }, { status: 409 });
+  
+  const body = `${organization?.name}: Please complete your ${selected.name} before your appointment: ${waiverUrl} Reply STOP to opt out.`;
   try {
-    const sent = await sendStudioSms({ organizationId: user.organization_id, artistId: row.artist.id, to: row.client.phone!, body });
+    const sent = await sendStudioSms({ organizationId: user.organization_id, artistId: appointment.artistId, to: client.phone!, body });
     const now = new Date();
     await db.update(externalWaiverAssignments).set({ status: "SENT", sentAt: now, updatedAt: now, providerMetadata: { messageSid: sent.sid } }).where(eq(externalWaiverAssignments.id, assignment.id));
     await db.insert(externalWaiverEvents).values({ organizationId: user.organization_id, assignmentId: assignment.id, userId: user.id, action: "SENT", details: { channel: "SMS", messageSid: sent.sid } });
-    let [conversation] = await db.select().from(conversations).where(and(eq(conversations.organizationId, user.organization_id), eq(conversations.artistId, row.artist.id), eq(conversations.clientId, row.client.id), eq(conversations.channel, "SMS"), eq(conversations.status, "OPEN"))).limit(1);
-    if (!conversation) conversation = (await db.insert(conversations).values({ organizationId: user.organization_id, artistId: row.artist.id, clientId: row.client.id, channel: "SMS", status: "OPEN", aiEnabled: true, lastMessageAt: now }).returning())[0];
+    let [conversation] = await db.select().from(conversations).where(and(eq(conversations.organizationId, user.organization_id), eq(conversations.artistId, appointment.artistId), eq(conversations.clientId, client.id), eq(conversations.channel, "SMS"), eq(conversations.status, "OPEN"))).limit(1);
+    if (!conversation) conversation = (await db.insert(conversations).values({ organizationId: user.organization_id, artistId: appointment.artistId, clientId: client.id, channel: "SMS", status: "OPEN", aiEnabled: true, lastMessageAt: now }).returning())[0];
     await db.insert(messages).values({ conversationId: conversation.id, senderType: "SYSTEM", role: "assistant", content: body, externalMessageId: sent.sid, metadata: { waiverAssignmentId: assignment.id, provider: "twilio", studioPhone: sent.studioPhone } });
     await db.update(conversations).set({ lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, conversation.id));
     if (dueAt.getTime() > Date.now() + 60_000) await db.insert(automationJobs).values({
       organizationId: user.organization_id,
-      artistId: row.artist.id,
-      clientId: row.client.id,
-      appointmentId: row.appointment.id,
+      artistId: appointment.artistId,
+      clientId: client.id,
+      appointmentId: appointment.id,
       conversationId: conversation.id,
       dedupeKey: `WAIVER_REMINDER:${assignment.id}`,
       type: "WAIVER_REMINDER",

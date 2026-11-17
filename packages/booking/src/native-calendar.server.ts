@@ -6,7 +6,7 @@ type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export async function lockArtistCalendar(tx:Transaction,organizationId:string,artistId:string) {
   await tx.execute(sql`SELECT id FROM artists WHERE organization_id=${organizationId} AND id=${artistId} FOR UPDATE`);
 }
-export async function nativeSlotAvailable(tx:Transaction,organizationId:string,artistId:string,startsAt:Date,endsAt:Date,excludeId?:string) {
+export async function nativeSlotAvailable(tx:Transaction,organizationId:string,artistId:string,startsAt:Date,endsAt:Date,excludeId?:string,skipBookableHours?:boolean) {
   const now=new Date();
   const [rules,busy,[organization],timeOff]=await Promise.all([
     tx.select().from(availabilityRules).where(and(eq(availabilityRules.organizationId,organizationId),eq(availabilityRules.artistId,artistId),eq(availabilityRules.active,true))),
@@ -16,6 +16,8 @@ export async function nativeSlotAvailable(tx:Transaction,organizationId:string,a
   ]);
   const minutes=(endsAt.getTime()-startsAt.getTime())/60000;
   if(!Number.isInteger(minutes)||minutes<=0||startsAt<=now)return false;
+  if(busy.length>0||timeOff.length>0)return false;
+  if(skipBookableHours)return true;
   return getAvailableSlots(rules,[...busy,...timeOff],{from:startsAt,to:endsAt,durationMinutes:minutes,slotIntervalMinutes:1,timeZone:organization?.timezone||'UTC',now}).some(slot=>slot.startsAt.getTime()===startsAt.getTime());
 }
 
