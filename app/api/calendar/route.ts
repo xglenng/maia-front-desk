@@ -30,7 +30,7 @@ async function get(request:NextRequest){
  ]);
  return NextResponse.json({timeOff,appointments:rows,services:serviceRows,clients:clientRows,hours:rules,timezone,provider});
 }
-const booking=z.object({...scope,requestId:z.string().uuid(),plannedItemIds:z.array(z.string().uuid()).max(50).default([]),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:calendarClientSchema.optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000),isWalkIn:z.boolean().default(false)}).refine(input=>input.isWalkIn||Boolean(input.clientId)!==Boolean(input.newClient),'Choose an existing client or enter a new client.');
+const booking=z.object({...scope,requestId:z.string().uuid(),plannedItemIds:z.array(z.string().uuid()).max(50).default([]),serviceId:z.string().uuid(),clientId:z.string().uuid().optional(),newClient:calendarClientSchema.optional(),localStart:z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),durationMinutes:z.number().int().min(5).max(1440),priceCents:z.number().int().min(0).max(10000000),isWalkIn:z.boolean().default(false)}).refine(input=>input.isWalkIn||Boolean(input.clientId)||Boolean(input.newClient),'For regular bookings, choose an existing client or enter a new client.').refine(input=>!input.isWalkIn||(!input.clientId&&!input.newClient),'Walk-in appointments cannot have client details.');
 async function post(request:NextRequest){
  if((await request.clone().json()).action==='TIME_OFF')return timeOff(request);
  const parsed=booking.safeParse(await request.json());if(!parsed.success){const phoneError=parsed.error.issues.find(issue=>issue.path.includes('phone'))?.message;const fieldError=parsed.error.issues.length>0?parsed.error.issues[0].path.join('.')+': '+parsed.error.issues[0].message:'';return NextResponse.json({error:phoneError||fieldError||'Check client, service, date, duration and price.'},{status:400});}
@@ -57,9 +57,7 @@ async function post(request:NextRequest){
   let clientId=input.clientId;
   if(!clientId){
    if(input.isWalkIn){
-    // For walk-ins, create a temporary client entry if one doesn't exist
-    const clientName=input.newClient?.firstName||'Walk-in';
-    const [walkInClient]=await tx.insert(clients).values({organizationId:input.organizationId,firstName:clientName,phone:input.newClient?.phone||null,email:input.newClient?.email||null,notes:'Walk-in appointment - no contact follow-up'}).returning({id:clients.id});
+    const [walkInClient]=await tx.insert(clients).values({organizationId:input.organizationId,firstName:'Walk-in',phone:null,email:null,notes:'Walk-in appointment - no contact follow-up'}).returning({id:clients.id});
     clientId=walkInClient.id;
    }else if(input.newClient){
     const [newClient]=await tx.insert(clients).values({organizationId:input.organizationId,...input.newClient}).returning({id:clients.id});
