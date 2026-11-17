@@ -1,7 +1,7 @@
 import { googleAccessToken } from "@/packages/integrations/google-credentials";
 import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@db/index';
 import { appointments, organizations, studioLocations, artists, automationJobs, calendarConnections, clients, externalWaiverAssignments, externalWaiverForms, messages, payments, users, services, waiverSubmissions, waiverTemplates } from '@db/schema';
 import { GoogleCalendarAdapter } from '@integrations/index';
@@ -43,16 +43,24 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
   const [confirmation] = await db.select({ status: automationJobs.status, errorCode: automationJobs.lastErrorCode, metadata: messages.metadata })
     .from(automationJobs).leftJoin(messages, eq(messages.id, automationJobs.resultMessageId))
     .where(and(eq(automationJobs.organizationId, organizationId), eq(automationJobs.appointmentId, id), eq(automationJobs.type, 'APPOINTMENT_CONFIRMATION'))).limit(1);
-  const [externalWaivers, signedWaivers] = await Promise.all([
+  const [externalWaivers, signedWaivers, availableWaiverForms] = await Promise.all([
     db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name, provider: externalWaiverForms.provider })
       .from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id))
       .where(and(eq(externalWaiverAssignments.organizationId, organizationId), eq(externalWaiverAssignments.appointmentId, id))),
+    db.select({ id: externalWaiverForms.id, name: externalWaiverForms.name, audience: externalWaiverForms.audience })
+      .from(externalWaiverForms)
+      .where(and(
+        eq(externalWaiverForms.organizationId, user.organization_id),
+        eq(externalWaiverForms.active, true),
+        or(isNull(externalWaiverForms.artistId), eq(externalWaiverForms.artistId, row.appointment.artistId)),
+      ))
+      .orderBy(externalWaiverForms.name),
     db.select({ id: waiverSubmissions.id, signedAt: waiverSubmissions.signedAt, templateName: waiverTemplates.name })
       .from(waiverSubmissions).innerJoin(waiverTemplates, eq(waiverSubmissions.waiverTemplateId, waiverTemplates.id))
       .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
   ]);
   const metadata = confirmation?.metadata && typeof confirmation.metadata === 'object' && !Array.isArray(confirmation.metadata) ? confirmation.metadata as Record<string, unknown> : null;
-  return NextResponse.json({ location, organization, appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers, confirmation: confirmation ? { status: confirmation.status, errorCode: confirmation.errorCode, providerStatus: typeof metadata?.status === 'string' ? metadata.status : null } : null });
+  return NextResponse.json({ location, organization, appointment: row.appointment, client: row.client, service: row.service, payments: paymentRows, refundAudit, externalWaivers, signedWaivers, availableWaiverForms, confirmation: confirmation ? { status: confirmation.status, errorCode: confirmation.errorCode, providerStatus: typeof metadata?.status === 'string' ? metadata.status : null } : null });
 }
 
 async function handleDELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {CheckoutTipReview} from '@/components/checkout-tip-review';
 import {checkoutTip,type TipChoice} from '@/packages/integrations/checkout-tip';
@@ -7,6 +7,7 @@ import {StudioCardEntry} from '@/components/studio-card-entry';
 import {paymentSummary} from '@/packages/integrations/payment-summary';
 import {localDateString} from '@/packages/booking/src/time';
 import {calendarMinute} from '@/packages/studio/calendar-layout';
+import '@/components/native-calendar.css';
 import { useSession } from '@/components/session-gate';
 
 type Payment = { tipCents:number; refundedCents:number; purpose: string; id: string; provider: string; amountCents: number; status: string; confirmationMethod: string | null; confirmedAt: string | null };
@@ -21,6 +22,7 @@ type AppointmentDetail = {
   refundAudit:{paymentId:string;requestedBy:string;requestedAt:string}[];
   externalWaivers: ExternalWaiver[];
   signedWaivers: SignedWaiver[];
+  availableWaiverForms: { id: string; name: string; audience: string }[];
   confirmation: { status: string; errorCode: string | null; providerStatus: string | null } | null;
 };
 const section = { borderTop: '1px solid #e4dfda', padding: '18px 0' };
@@ -40,6 +42,11 @@ export default function AppointmentDetailPage() {
   const [notice, setNotice] = useState('');
   const [nativePayments,setNativePayments]=useState(false);
   const [waiverDialogOpen, setWaiverDialogOpen] = useState(false);
+  const waiverDialog = useRef<HTMLDialogElement>(null);
+  const [waiverFormId, setWaiverFormId] = useState('');
+  useEffect(() => {
+    if (waiverDialogOpen && !waiverDialog.current?.open) waiverDialog.current?.showModal();
+  }, [waiverDialogOpen]);
   const [clientDialogOpen, setClientDialogOpen] = useState(false);
   const [waiverFormLink, setWaiverFormLink] = useState<string | null>(null);
   const [clientEditData, setClientEditData] = useState<{ firstName: string; phone: string; email: string } | null>(null);
@@ -205,7 +212,7 @@ export default function AppointmentDetailPage() {
       {data.signedWaivers.length > 0 ? data.signedWaivers.map(waiver => <p key={waiver.id}>{waiver.templateName} · Signed {new Date(waiver.signedAt).toLocaleString()}</p>)
         : data.externalWaivers.length > 0 ? data.externalWaivers.map(waiver => <p key={waiver.id}>{waiver.formName} · {waiver.status}{waiver.completedAt ? ` · Completed ${new Date(waiver.completedAt).toLocaleString()}` : waiver.sentAt ? ` · Sent ${new Date(waiver.sentAt).toLocaleString()}` : ''}</p>)
           : <p>No waiver has been issued for this appointment.</p>}
-      {!data.signedWaivers.length && <button type="button" style={secondary} disabled={busy} onClick={() => { setWaiverDialogOpen(true); setWaiverFormLink(null); }}>Create consent form link</button>}
+      {!data.signedWaivers.length && <button type="button" style={secondary} disabled={busy} onClick={() => { setError(''); setWaiverFormId(''); setWaiverDialogOpen(true); }}>Send consent form</button>}
       {waiverFormLink && <div style={{ marginTop: 12, padding: 12, backgroundColor: '#f5f1f0', borderRadius: 6 }}>
         <p style={{ margin: '0 0 8px 0', fontSize: 14 }}>Waiver link created</p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -216,20 +223,35 @@ export default function AppointmentDetailPage() {
     </section>
     <section style={section}>
       <h2>Client</h2>
+      <p><strong>{clientName}</strong></p>
       <p>{data.client.phone || 'No phone number'}{data.client.email ? ` · ${data.client.email}` : ''}</p>
       {appointment.isWalkIn && <button type="button" style={secondary} disabled={busy} onClick={() => { setClientEditData({ firstName: data.client.firstName === 'Walk-in' ? '' : data.client.firstName, phone: data.client.phone || '', email: data.client.email || '' }); setClientDialogOpen(true); }}>Add client details</button>}
       {!appointment.isWalkIn && <button type="button" style={secondary} disabled={busy} onClick={() => { setClientEditData({ firstName: data.client.firstName, phone: data.client.phone || '', email: data.client.email || '' }); setClientDialogOpen(true); }}>Edit client details</button>}
     </section>
-    {waiverDialogOpen && <dialog style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={(e) => e.target === e.currentTarget && setWaiverDialogOpen(false)}>
-      <div style={{ backgroundColor: '#fff', padding: 20, borderRadius: 8, maxWidth: 400, width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ marginTop: 0 }}>Create waiver link or send via SMS</h3>
-        {error && <p style={{ color: '#8b1e1e' }}>{error}</p>}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <button type="button" style={action} disabled={busy} onClick={() => void createWaiverLink()}>Create shareable link</button>
-          {data.client.phone && <button type="button" style={action} disabled={busy} onClick={() => void sendWaiverBySms()}>Send via SMS</button>}
-        </div>
-        <button type="button" style={secondary} disabled={busy} onClick={() => setWaiverDialogOpen(false)}>Cancel</button>
-      </div>
+    {waiverDialogOpen && <dialog className="native-dialog appointment-waiver-dialog" ref={waiverDialog} aria-labelledby="appointment-waiver-title"
+      onCancel={event => { event.preventDefault(); if (!busy) setWaiverDialogOpen(false); }}>
+      <form onSubmit={event => event.preventDefault()}>
+        <header>
+          <h2 id="appointment-waiver-title">Send consent form</h2>
+          <button type="button" aria-label="Close" disabled={busy} onClick={() => setWaiverDialogOpen(false)}>×</button>
+        </header>
+        <label>
+          Consent form
+          <select value={waiverFormId} disabled={busy} onChange={event => { setWaiverFormId(event.target.value); setError(''); }}>
+            <option value="">Auto-select</option>
+            {data.availableWaiverForms.map(form => <option key={form.id} value={form.id}>{form.name} · {form.audience === 'ANY' ? 'All ages' : form.audience === 'MINOR' ? 'Minor' : 'Adult'}</option>)}
+          </select>
+        </label>
+        {!data.availableWaiverForms.length && <p>No active consent forms are available for this artist.</p>}
+        {error && <div className="native-error" role="alert">{error}</div>}
+        <footer>
+          <button type="button" disabled={busy} onClick={() => setWaiverDialogOpen(false)}>Cancel</button>
+          <div className="native-actions">
+            <button type="button" disabled={busy || !data.availableWaiverForms.length} onClick={() => void createWaiverLink(waiverFormId)}>Create shareable link</button>
+            {data.client.phone && <button type="button" className="native-primary" disabled={busy || !data.availableWaiverForms.length} onClick={() => void sendWaiverBySms(waiverFormId)}>Send via SMS</button>}
+          </div>
+        </footer>
+      </form>
     </dialog>}
     {clientDialogOpen && clientEditData && <dialog style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={(e) => e.target === e.currentTarget && setClientDialogOpen(false)}>
       <div style={{ backgroundColor: '#fff', padding: 20, borderRadius: 8, maxWidth: 400, width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>

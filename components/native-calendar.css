@@ -23,3 +23,9 @@
 .native-error-container button{padding:8px 14px;font-size:12px;border:1px solid #a12424;background:#fff;color:#a12424;border-radius:8px;cursor:pointer;white-space:nowrap}
 .native-error-container button:hover:not(:disabled){background:#fef0f0}
 .native-error-container button:disabled{opacity:0.5;cursor:not-allowed}
+
+.appointment-waiver-dialog{margin:auto}
+.appointment-waiver-dialog button{border:1px solid #ddd;background:#fff;padding:10px 16px;border-radius:999px;min-height:44px;color:#111}
+.appointment-waiver-dialog .native-primary{background:#111;color:#fff;border-color:#111}
+.appointment-waiver-dialog button:disabled{opacity:.5}
+.appointment-waiver-dialog select{border:1px solid #ddd;border-radius:10px;padding:10px;background:#fff;color:#111;min-height:44px}
