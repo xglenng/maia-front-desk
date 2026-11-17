@@ -39,7 +39,29 @@ export async function POST(request: NextRequest) {
     .where(and(eq(clients.id, appointment.clientId), eq(clients.organizationId, user.organization_id)));
   if (!currentClient) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
 
-  // Update client details
+  // For anonymous walk-ins (system "Walk-in" client), create a real client instead of updating the system record
+  if (currentClient.firstName === 'Walk-in' && currentClient.notes === 'Walk-in appointment - no contact follow-up') {
+    // Create a new real client for this walk-in
+    const [newClient] = await db.insert(clients).values({
+      organizationId: user.organization_id,
+      firstName,
+      phone: phone || null,
+      email: email || null,
+    }).returning();
+
+    // Update the appointment to link to the new client
+    const [updated] = await db.update(appointments)
+      .set({
+        clientId: newClient.id,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(appointments.id, appointmentId), eq(appointments.organizationId, user.organization_id)))
+      .returning();
+
+    return NextResponse.json({ client: newClient, appointment: updated });
+  }
+
+  // For regular appointments, update client details
   const [updated] = await db.update(clients)
     .set({
       firstName,

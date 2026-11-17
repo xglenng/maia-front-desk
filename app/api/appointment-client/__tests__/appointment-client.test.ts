@@ -71,4 +71,13 @@ test('appointment client details update validation', () => {
     email: null,
   };
   assert.deepEqual(validateClientUpdate(walkInUpdate), { success: true });
+
+  // Test case 7: Detect anonymous walk-in client (system record)
+  const isAnonymousWalkIn = (firstName: string, notes: string) => {
+    return firstName === 'Walk-in' && notes === 'Walk-in appointment - no contact follow-up';
+  };
+  assert.equal(isAnonymousWalkIn('Walk-in', 'Walk-in appointment - no contact follow-up'), true);
+  assert.equal(isAnonymousWalkIn('John Doe', 'Walk-in appointment - no contact follow-up'), false);
+  assert.equal(isAnonymousWalkIn('Walk-in', 'Some other note'), false);
 });
+
