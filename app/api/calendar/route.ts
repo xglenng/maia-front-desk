@@ -53,7 +53,10 @@ async function post(request:NextRequest){
   if(plannedItems.length!==plannedIds.length)throw new Error('A planned item is no longer available for this artist.');
   const plannedNote=plannedItems.length?'\nPlanned items — collect payment at checkout:\n'+plannedItems.map(item=>'• '+item.name).join('\n'):'';
   const depositCents=nativeDeposit(service,input.priceCents);
-  if(!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt,undefined,input.isWalkIn))throw new Error('That time is outside bookable hours or is no longer available.');
+  if(input.isWalkIn && startsAt.getTime()<=Date.now())throw new Error('Choose a walk-in start time in the future.');
+  if(!await nativeSlotAvailable(tx,input.organizationId,input.artistId,startsAt,endsAt,undefined,input.isWalkIn)){
+   throw new Error(input.isWalkIn?'This time overlaps an appointment or time off. Choose another start time.':'That time is outside bookable hours or is no longer available.');
+  }
 
   let clientId=input.clientId;
   if(!clientId){

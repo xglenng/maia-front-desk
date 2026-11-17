@@ -41,8 +41,12 @@ export default function NativeCalendar({artistId,artistName,color,supervised,tim
  function openBooking(day=date,time='09:00'){
   setError('');requestId.current=crypto.randomUUID();setLocalStart(`${day}T${time}`);setExtraMinutes(0);setPlannedItemIds([]);setClientId('');setClientName('');setClientPhone('');setIsWalkIn(false);selectService('');setPanel('BOOK');
  }
- function openWalkInBooking(day=date,time='09:00'){
-  setError('');requestId.current=crypto.randomUUID();setLocalStart(`${day}T${time}`);setExtraMinutes(0);setPlannedItemIds([]);setClientId('');setClientName('');setClientPhone('');setIsWalkIn(true);selectService('');setPanel('BOOK');
+ function openWalkInBooking(){
+  const zone=data?.timezone||timezone;
+  const nextStart=new Date(Date.now()+5*60_000);
+  const nextDay=localDateString(nextStart,zone);
+  const start=date>nextDay?`${date}T09:00`:`${nextDay}T${clock(calendarMinute(nextStart.toISOString(),zone))}`;
+  setError('');requestId.current=crypto.randomUUID();setLocalStart(start);setExtraMinutes(0);setPlannedItemIds([]);setClientId('');setClientName('');setClientPhone('');setIsWalkIn(true);selectService('');setPanel('BOOK');
  }
 
  async function submit(event:FormEvent<HTMLFormElement>){
