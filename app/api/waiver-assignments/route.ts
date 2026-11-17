@@ -28,7 +28,7 @@ async function handleGET(request: NextRequest) {
     artistName: artists.displayName,
     serviceName: services.name,
   }).from(appointments)
-    .innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId)))
+    .leftJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId)))
     .innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(appointments.organizationId, artists.organizationId)))
     .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(appointments.organizationId, services.organizationId)))
     .where(and(...conditions)).orderBy(asc(appointments.startsAt));
@@ -36,7 +36,7 @@ async function handleGET(request: NextRequest) {
   const assignmentRows = appointmentIds.length ? await db.select({ assignment: externalWaiverAssignments, formName: externalWaiverForms.name, provider: externalWaiverForms.provider, hasPhotoId:sql<boolean>`EXISTS (SELECT 1 FROM ${waiverIdentityDocuments} WHERE ${waiverIdentityDocuments.assignmentId} = ${externalWaiverAssignments.id} AND ${waiverIdentityDocuments.organizationId} = ${externalWaiverAssignments.organizationId})` }).from(externalWaiverAssignments).innerJoin(externalWaiverForms, and(eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id),eq(externalWaiverAssignments.organizationId,externalWaiverForms.organizationId))).where(and(eq(externalWaiverAssignments.organizationId,user.organization_id),inArray(externalWaiverAssignments.appointmentId, appointmentIds))).orderBy(desc(externalWaiverAssignments.createdAt)) : [];
   const byAppointment = new Map<string, typeof assignmentRows>();
   for (const assignment of assignmentRows) byAppointment.set(assignment.assignment.appointmentId, [...(byAppointment.get(assignment.assignment.appointmentId) ?? []), assignment]);
-  return NextResponse.json({ appointments: rows.map(row => ({ ...row, clientName: `${row.clientName}${row.clientLastName ? ` ${row.clientLastName}` : ""}`, assignments: byAppointment.get(row.appointment.id) ?? [] })) });
+  return NextResponse.json({ appointments: rows.map(row => ({ ...row, clientName: row.clientName && row.clientLastName ? `${row.clientName} ${row.clientLastName}` : row.clientName || "", assignments: byAppointment.get(row.appointment.id) ?? [] })) });
 }
 
 async function handlePOST(request: NextRequest) {

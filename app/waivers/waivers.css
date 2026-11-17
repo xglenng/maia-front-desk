@@ -257,3 +257,48 @@
  .waiver-admin .create-form-text{display:none}
  .waiver-admin .consent-add-link{flex:0 1 auto}
 }
+
+/* Independent loading and error states for forms and appointments sections */
+.waiver-admin .loading {
+  padding: 30px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.waiver-admin .error-state {
+  padding: 30px;
+  background: #fff5f3;
+  border: 1px solid #e8c8c0;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.waiver-admin .error-state p {
+  margin: 0 0 16px;
+  color: #9b2f20;
+  font-size: 14px;
+  line-height: 1.6;
+  role: alert;
+}
+
+.waiver-admin .error-state button {
+  border: 1px solid #9b2f20;
+  background: white;
+  color: #9b2f20;
+  border-radius: 999px;
+  padding: 10px 20px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.waiver-admin .error-state button:hover {
+  background: #fff5f3;
+}
+
+.waiver-admin .error-state button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
