@@ -302,3 +302,75 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Custom form dialog with tab interface */
+.waiver-admin .custom-form-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #d7d7d7;
+  margin: 0 -28px 24px;
+  padding: 0 28px;
+}
+
+.waiver-admin .tab-button {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 12px 16px;
+  color: #706b66;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  min-height: auto;
+  transition: all 0.2s ease;
+}
+
+.waiver-admin .tab-button[aria-selected="true"] {
+  color: #111;
+  border-bottom-color: #111;
+}
+
+.waiver-admin .tab-button:hover:not(:disabled) {
+  color: #111;
+}
+
+.waiver-admin .tab-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.waiver-admin .routing-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.waiver-admin .existing-field-error {
+  color: #9b2f20;
+  font-size: 12px;
+  font-weight: 600;
+  display: block;
+  margin-top: -12px;
+}
+
+.waiver-admin .form-save-feedback {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.waiver-admin .form-save-feedback.error {
+  background: #fae7e3;
+  color: #9b2f20;
+  border: 1px solid #f0ddd7;
+}
+
+.waiver-admin .form-save-feedback.success {
+  background: #e6f2ea;
+  color: #246d48;
+  border: 1px solid #d3e8d9;
+}
+

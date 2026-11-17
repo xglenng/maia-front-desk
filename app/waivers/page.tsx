@@ -149,12 +149,47 @@ export default function WaiversPage() {
   }
 
   return <main className="waiver-admin">
-    <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Manage the consent forms available to your artists and send them to clients.</p><div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new" aria-label="Create form"><span className="create-form-plus" aria-hidden="true">+</span><span className="create-form-text">Create form</span></a><button type="button" className="consent-add-link" disabled={busy||customSaving} onClick={()=>{setCustomError(null);setJotFeedback("");customDialog.current?.showModal();}}>+ Add existing form</button><a href="/waivers/archive">View signed forms →</a></div></header>
+    <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Manage the consent forms available to your artists and send them to clients.</p><div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new" aria-label="Create form"><span className="create-form-plus" aria-hidden="true">+</span><span className="create-form-text">Create form</span></a><button type="button" className="consent-add-link" disabled={busy||customSaving} onClick={()=>{setCustomError(null);setJotFeedback("");setProvider("LINK");customDialog.current?.showModal();}}>Connect to existing form</button><a href="/waivers/archive">View signed forms →</a></div></header>
     {message && <div className="waiver-notice" role="status">{message}</div>}
 
     <section className="waiver-section"><div className="section-heading"><div><h2>Current forms</h2><p>Your available consent forms. Edit a form to choose when it is used and whether it is active.</p></div><strong>{!setupLoading && setup.forms.length > 0 ? setup.forms.length : (setupLoading ? "-" : "0")} forms</strong></div>{setupLoading ? <div className="loading">Loading…</div> : setupError ? <div className="error-state"><p role="alert">Couldn't load forms. {setupError}</p><button type="button" onClick={() => refreshSetup()}>Retry</button></div> : setup.forms.length === 0 ? <div className="empty">No forms yet. Create a Maia form or add an existing form link.</div> : <div className="form-list">{setup.forms.map(form => <FormEditor key={form.id} form={form} setup={setup} busy={busy} onSaved={refresh} onDeleted={setMessage} />)}</div>}</section>
 
     <section className="waiver-section"><div className="section-heading"><div><h2>Upcoming appointments</h2><p>Auto-select applies the routing rules above. Choose a form manually when needed.</p></div><strong>{!appointmentsLoading && appointments.length > 0 ? appointments.length : (appointmentsLoading ? "-" : "0")} appointments</strong></div><div className="appointment-list">{appointmentsLoading ? <div className="loading">Loading…</div> : appointmentsError ? <div className="error-state"><p role="alert">Couldn't load appointments. {appointmentsError}</p><button type="button" onClick={() => refreshAppointments()}>Retry</button></div> : appointments.length === 0 ? <div className="empty">No upcoming appointments.</div> : appointments.map(row => <AppointmentWaivers key={row.appointment.id} row={row} formLink={formLinks[row.appointment.id]} notice={appointmentMessages[row.appointment.id]} forms={setup.forms.filter(f=>!f.artistId||f.artistId===row.appointment.artistId)} busy={busy} onSend={sendWaiver} onCreateLink={createLink} onAction={assignmentAction} />)}</div></section>
+
+    <dialog ref={customDialog} className="routing-dialog" aria-labelledby="custom-form-title" onCancel={event => { if (customSaving || busy) event.preventDefault(); }}>
+      <div className="routing-dialog-heading"><h2 id="custom-form-title">Connect to existing form</h2><button type="button" className="routing-edit" aria-label="Close dialog" disabled={customSaving || busy} onClick={() => customDialog.current?.close()}>×</button></div>
+      
+      <div className="custom-form-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={provider === "LINK"} aria-controls="form-link-panel" disabled={customSaving || busy} onClick={() => { setProvider("LINK"); setCustomError(null); }} className="tab-button">External form link</button>
+        <button type="button" role="tab" aria-selected={provider === "JOTFORM"} aria-controls="form-jotform-panel" disabled={customSaving || busy} onClick={() => { setProvider("JOTFORM"); setCustomError(null); setJotFeedback(""); }} className="tab-button">Jotform</button>
+      </div>
+
+      {provider === "LINK" && <form id="form-link-panel" role="tabpanel" onSubmit={addCustom} onChangeCapture={() => setCustomError(null)}>
+        <fieldset disabled={customSaving || busy} className="routing-fields">
+          <label>Form name<input type="text" placeholder="e.g., Adult tattoo consent" value={custom.name} onChange={event => setCustom({ ...custom, name: event.target.value })} required /></label>
+          {customFieldError("name")}
+          <label>Form URL<input type="url" placeholder="https://example.com/form" value={custom.formUrl} onChange={event => setCustom({ ...custom, formUrl: event.target.value })} required /></label>
+          {customFieldError("formUrl")}
+          <label>Category<select value={custom.category} onChange={event => setCustom({ ...custom, category: event.target.value })}><option value="GENERAL">General consent</option><option value="MEDICAL">Medical history</option><option value="LIABILITY">Liability waiver</option><option value="AFTERCARE">Aftercare instructions</option></select></label>
+          <label>Audience<select value={custom.audience} onChange={event => setCustom({ ...custom, audience: event.target.value as FormRow["audience"] })}><option value="ANY">Any age</option><option value="ADULT">Adult</option><option value="MINOR">Minor</option></select></label>
+          <label>Artist<select value={custom.artistId ?? ""} onChange={event => setCustom({ ...custom, artistId: event.target.value || "" })}><option value="">All artists</option>{setup.artists.map(artist => <option key={artist.id} value={artist.id}>{artist.name}</option>)}</select></label>
+        </fieldset>
+        {customError && customError.field && customError.message && <p className="form-save-feedback error" role="alert">{customError.message}</p>}
+        {customError && !customError.field && <p className="form-save-feedback error" role="alert">{customError.message}</p>}
+        <footer><button type="button" className="routing-edit" disabled={customSaving} onClick={() => { customDialog.current?.close(); setCustom({ name: "", formUrl: "", category: "GENERAL", audience: "ANY", artistId: "" }); setCustomError(null); }}>Cancel</button><button type="submit" disabled={customSaving || busy}>{customSaving ? "Adding…" : "Add form"}</button></footer>
+      </form>}
+
+      {provider === "JOTFORM" && <form id="form-jotform-panel" role="tabpanel" onSubmit={connect} onChangeCapture={() => setCustomError(null)}>
+        <fieldset disabled={customSaving || busy} className="routing-fields">
+          <label>Jotform API key<input type="password" placeholder="Enter your Jotform API key" value={apiKey} onChange={event => setApiKey(event.target.value)} required /></label>
+          {customFieldError("apiKey")}
+          <label>Region<select value={region} onChange={event => setRegion(event.target.value)}><option value="STANDARD">Standard (US)</option><option value="EU">Europe</option></select></label>
+        </fieldset>
+        {customError && <p className="form-save-feedback error" role="alert">{customError.message}</p>}
+        {jotFeedback && <p className="form-save-feedback" role="status">{jotFeedback}</p>}
+        <footer><button type="button" className="routing-edit" disabled={customSaving} onClick={() => { customDialog.current?.close(); setApiKey(""); setCustomError(null); setJotFeedback(""); }}>Cancel</button><button type="submit" disabled={customSaving || busy}>{customSaving ? "Connecting…" : "Connect Jotform"}</button></footer>
+      </form>}
+    </dialog>
   </main>;
 }
 
