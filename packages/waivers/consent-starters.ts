@@ -4,7 +4,7 @@ import type {WaiverAudience} from './selection';
 export const consentStarterKinds = ['TATTOO','PIERCING','MINOR_TATTOO','MINOR_PIERCING'] as const;
 export type ConsentStarterKind = typeof consentStarterKinds[number];
 export function consentStarterKindsForAudience(audience:WaiverAudience):ConsentStarterKind[]{
- return consentStarterKinds.filter(kind=>audience==='ADULT'?!kind.startsWith('MINOR_'):audience==='MINOR'&&kind.startsWith('MINOR_'));
+ return consentStarterKinds.filter(kind=>audience==='ANY'||(audience==='ADULT'?!kind.startsWith('MINOR_'):kind.startsWith('MINOR_')));
 }
 export const consentStarterReferences = [
  {name:'Association of Professional Piercers: consent and documentation',url:'https://safepiercing.org/wp-content/uploads/2020/10/APP_Procedures_2013_A_Web.pdf'},

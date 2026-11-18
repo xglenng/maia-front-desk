@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildConsentStarter,consentStarterKindsForAudience} from '../consent-starters';
+import {buildConsentStarter,consentStarterKinds,consentStarterKindsForAudience} from '../consent-starters';
 import {nativeDefinition,validateNativeAnswers} from '../forms';
-test('starter choices match the selected audience and exclude any-age routing',()=>{
+test('starter choices match the selected audience, or show all for any age',()=>{
  assert.deepEqual(consentStarterKindsForAudience('ADULT'),['TATTOO','PIERCING']);
  assert.deepEqual(consentStarterKindsForAudience('MINOR'),['MINOR_TATTOO','MINOR_PIERCING']);
- assert.deepEqual(consentStarterKindsForAudience('ANY'),[]);
+ assert.deepEqual(consentStarterKindsForAudience('ANY'),[...consentStarterKinds]);
  for(const audience of ['ADULT','MINOR'] as const){
   for(const kind of consentStarterKindsForAudience(audience))assert.equal(buildConsentStarter(kind,'Studio','Artist').audience,audience);
  }

@@ -48,11 +48,12 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   try {
    if(!currentArtist)throw Error('Ask the studio owner to create an artist profile and link it to your sign-in before creating a form.');
    const draft=buildConsentStarter(kind,starterBrand,currentArtist.name);
-   if(draft.audience!==audience)throw Error('Choose a template that matches the selected audience.');
+   if(audience!=='ANY'&&draft.audience!==audience)throw Error('Choose a template that matches the selected audience.');
+   if(audience==='ANY')setAudience(draft.audience);
    setName(draft.name);setBody(draft.definition.body);setFields(draft.definition.fields||[]);
    setNameError(false);
    setBrand(starterBrand.trim());setPreparedFor({artistId:currentArtist.id,artistName:currentArtist.name,brand:starterBrand.trim()});setPickerOpen(false);
-   setMessage('Editable template loaded. Review it for your studio and services before saving.');
+   setMessage(audience==='ANY'?`Editable template loaded. Audience set to ${draft.audience==='ADULT'?'Adult':'Minor / guardian'}. Review it for your studio and services before saving.`:'Editable template loaded. Review it for your studio and services before saving.');
   } catch(error) {return error instanceof Error?error.message:'Unable to load template.';}
  }
  async function save(event:React.FormEvent) {
@@ -112,7 +113,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   <p>Artist profile: <strong>{currentArtist.name}</strong></p>
   {preparedFor&&<p>Draft prepared for <strong>{preparedFor.artistName}</strong> at <strong>{preparedFor.brand}</strong>.</p>}
   {bindingChanged&&<p role="alert">Studio brand changed. Reload the template before saving so its wording uses the current brand.</p>}
-  <label>Audience<select value={audience} onChange={event=>{const value=event.target.value;if(value==='ADULT'||value==='ANY'||value==='MINOR')changeAudience(value);}}><option value="ADULT">Adult</option><option value="ANY">Any age</option><option value="MINOR">Minor / guardian</option></select></label>
+  <label>Audience<select value={audience} onChange={event=>{const value=event.target.value;if(value==='ADULT'||value==='ANY'||value==='MINOR')changeAudience(value);}}><option value="ADULT">Adult</option><option value="ANY">All</option><option value="MINOR">Minor / guardian</option></select></label>
   <dialog ref={audienceDialog} className="template-picker" aria-labelledby="change-audience-title" onClose={()=>setPendingAudience(null)}>
    <h3 id="change-audience-title">Change audience?</h3>
    <p>Changing the audience will clear the current template draft, including your edits and selected logo. Start a blank form for the new audience?</p>
@@ -144,7 +145,7 @@ function TemplatePicker({audience,brand,artistName,hasEdits,onApply,onClose}:{au
   <div className="template-picker-header"><h3 id="template-picker-title">Use a template</h3><button type="button" aria-label="Close template picker" onClick={dismiss}>✕</button></div>
   {error&&<p role="alert">{error}</p>}
   {pending?<div className="template-picker-confirm"><p>Replace your current unsaved draft with “{title(pending)}”?</p><div><button type="button" className="template-picker-primary" onClick={()=>apply(pending)}>Replace draft</button><button type="button" autoFocus onClick={dismiss}>Keep editing</button></div></div>:<>
-   {available.length?<><p>{audience==='ADULT'?'Adult starters use your studio and artist’s names.':'Minor starters identify the parent or legal guardian as the signer.'} Each is an editable starting point for studio review; review and edit all wording before saving.</p>
+   {available.length?<><p>{audience==='ADULT'?'Adult starters use your studio and artist’s names.':audience==='MINOR'?'Minor starters identify the parent or legal guardian as the signer.':'Choosing a template sets the audience to Adult or Minor / guardian to match its wording.'} Each is an editable starting point for studio review; review and edit all wording before saving.</p>
    <label>Brand or studio name<input maxLength={160} value={draftBrand} onChange={event=>setDraftBrand(event.target.value)} placeholder="Your brand name"/></label>
    {!artistName&&<p role="status">Your artist profile must be linked before applying a template.</p>}
    {!draftBrand.trim()&&<p role="status">Enter a brand or studio name to apply a template.</p>}
@@ -155,7 +156,7 @@ function TemplatePicker({audience,brand,artistName,hasEdits,onApply,onClose}:{au
     {available.includes('MINOR_PIERCING')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('MINOR_PIERCING')}><strong>Minor Piercing Consent</strong><span>Editable starting point for studio review, including the minor’s details and parent or legal guardian consent and signature.</span></button>}
    </div>
    <details><summary>About these starters</summary><p>These editable examples cover procedure details, risk acknowledgment, voluntary consent, questions, aftercare, and optional photo or apprentice permission. Review them for your services and local requirements before use. They include an optional photo ID element; select it to require an upload if your studio needs it. They do not include medical questionnaires or staff-only records.</p><p>Reference examples:</p><ul>{consentStarterReferences.map(reference=><li key={reference.url}><a href={reference.url} target="_blank" rel="noreferrer">{reference.name}</a></li>)}</ul></details>
-   </>:<p>No templates are available for Any age. Build a custom form and review its wording for both adult and minor clients.</p>}
+   </>:<p>No templates are available for the selected audience. Build a custom form and review its wording before saving.</p>}
   </>}
  </dialog>;
 }
