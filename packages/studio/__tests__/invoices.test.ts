@@ -16,6 +16,13 @@ test('invoice messages use the provider deadline without inventing expiration',(
  assert.equal(invoiceDeadlineText(1793721600),' Payment due by 2026-11-03T16:00:00.000Z (UTC).');
 });
 
+test('new invoice customers validate and normalize optional phone numbers',()=>{
+ assert.equal(invoiceInput.parse({...base,newClient:{phone:'(435) 555-1212'}}).newClient?.phone,'+14355551212');
+ assert.equal(invoiceInput.parse({...base,newClient:{}}).newClient?.phone,undefined);
+ assert.equal(invoiceInput.safeParse({...base,newClient:{phone:'123'}}).success,false);
+ assert.equal(invoiceInput.safeParse({...base,clientId:base.artistId,newClient:{}}).success,false);
+});
+
 test('invoice failure logging excludes provider messages and unsafe fields',()=>{
  const details=invoiceErrorDetails(new InvoiceIssueError('Retry','invoice_create',{type:'StripeInvalidRequestError',code:'account_invalid',param:'customer@example.test',statusCode:400,message:'private customer data'}));
  assert.deepEqual(details,{stage:'invoice_create',type:'StripeInvalidRequestError',code:'account_invalid',param:undefined,statusCode:400});

@@ -67,6 +67,7 @@ export default function Invoices() {
     [clientsError, setClientsError] = useState("");
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
+    [customerPhone, setCustomerPhone] = useState(""),
     [note, setNote] = useState(""),
     [dueDays, setDueDays] = useState(1),
     [lines, setLines] = useState([{ name: "", quantity: 1, price: "" }]),
@@ -204,6 +205,7 @@ export default function Invoices() {
     setClientId("");
     setName("");
     setEmail("");
+    setCustomerPhone("");
     setClients([]);
     setClientsError("");
     if (!artistId) {
@@ -249,7 +251,7 @@ export default function Invoices() {
           action: "CREATE",
           artistId,
           requestId,
-          ...(clientId ? { clientId } : {}),
+          ...(clientId ? { clientId } : { newClient: { ...(customerPhone.trim() ? { phone: customerPhone.trim() } : {}) } }),
           clientName: name,
           clientEmail: email,
           note,
@@ -473,6 +475,7 @@ export default function Invoices() {
             setClientId("");
             setName("");
             setEmail("");
+            setCustomerPhone("");
             setNote("");
             setLines([{ name: "", quantity: 1, price: "" }]);
             setRequestId(crypto.randomUUID());
@@ -547,8 +550,8 @@ export default function Invoices() {
                     <div>
                       <strong>{name}</strong>
                       <div className="invoice-customer-details">
-                        {email || "No email"} ·{" "}
-                        {clientId ? "Existing client" : "Link sharing only"}
+                        {email || "No email"}{customerPhone ? ` · ${customerPhone}` : ""} ·{" "}
+                        {clientId ? "Existing client" : "New customer"}
                       </div>
                     </div>
                   </div>
@@ -1228,11 +1231,12 @@ export default function Invoices() {
           clients={clients}
           loading={clientsLoading}
           error={clientsError}
-          value={{ clientId, name, email }}
+          value={{ clientId, name, email, phone: customerPhone }}
           onSave={(value) => {
             setClientId(value.clientId);
             setName(value.name);
             setEmail(value.email);
+            setCustomerPhone(value.phone);
             setCustomerOpen(false);
           }}
           onClose={() => setCustomerOpen(false)}
