@@ -141,10 +141,27 @@ export default function StudioSettingsPage() {
     if (!organizationId || saving) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      const { id, hours, businessHoursConfigured: _businessHoursConfigured, ...values } = locationDraft;
+      const { id, hours } = locationDraft;
+      const payload = {
+        organizationId,
+        ...(id ? { locationId: id } : {}),
+        name: locationDraft.name,
+        addressLine1: locationDraft.addressLine1,
+        addressLine2: locationDraft.addressLine2,
+        city: locationDraft.city,
+        region: locationDraft.region,
+        postalCode: locationDraft.postalCode,
+        country: locationDraft.country,
+        phone: locationDraft.phone,
+        email: locationDraft.email,
+        timezone: locationDraft.timezone,
+        isPrimary: locationDraft.isPrimary,
+        active: locationDraft.active,
+        hours,
+      };
       const response = await fetch('/api/studio/locations', {
         method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId, ...(id ? { locationId: id } : {}), ...values, hours }),
+        body: JSON.stringify(payload),
       });
       const result = await readJson(response);
       setNotice('Location and business hours saved.');
