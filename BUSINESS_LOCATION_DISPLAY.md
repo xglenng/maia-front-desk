@@ -34,7 +34,7 @@ Updated "Business location" section to:
   - Clean spacing and wrapping for mobile
 - Handle missing address gracefully:
   - Show "No studio address configured" in gray text
-  - For OWNER role: provide a link to `/settings/locations` to add address
+  - For OWNER role: provide a link to `/settings/studio` to add address
   - For other roles: message only
 - Use inline styles for responsive layout on mobile
 
