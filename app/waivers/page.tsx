@@ -35,7 +35,7 @@ export default function WaiversPage() {
   const [formLinks,setFormLinks]=useState<Record<string,string>>({});
   const [appointmentMessages,setAppointmentMessages]=useState<Record<string,string>>({});
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{text:string;created?:boolean} | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refreshSetup = useCallback(async () => {
@@ -79,7 +79,7 @@ export default function WaiversPage() {
   useEffect(() => {
     void refresh();
     if (new URLSearchParams(window.location.search).get("created") === "1") {
-      setMessage("Consent form created. It is now available in Current forms.");
+      setMessage({text:"Consent form created. It is now available in Current forms.",created:true});
     }
   }, [refresh]);
 
@@ -87,7 +87,7 @@ export default function WaiversPage() {
     event.preventDefault(); if(busy)return; setBusy(true);setCustomError(null);
     try {
       const result = await readJson<{ webhookUrl: string; formsImported: number }>(await fetch("/api/waiver-integrations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CONNECT_JOTFORM", apiKey, region, label: "Jotform" }) }));
-      setApiKey(""); setWebhookUrl(result.webhookUrl);customDialog.current?.close();const refreshed=await refresh();setMessage(refreshed?`${result.formsImported} Jotform forms synchronized.`:"Jotform connected, but the form list could not be refreshed. Refresh the page.");
+      setApiKey(""); setWebhookUrl(result.webhookUrl);customDialog.current?.close();const refreshed=await refresh();setMessage({text:refreshed?`${result.formsImported} Jotform forms synchronized.`:"Jotform connected, but the form list could not be refreshed. Refresh the page."});
     } catch (error) { setCustomError({message:error instanceof Error ? error.message : "Unable to connect Jotform"}); } finally { setBusy(false); }
   }
 
@@ -107,7 +107,7 @@ export default function WaiversPage() {
       customDialog.current?.close();
       setCustom({ name: "", formUrl: "", category: "GENERAL", audience: "ANY", artistId:"" });
       const refreshed=await refresh();
-      setMessage(refreshed?"Existing form added.": "Existing form added, but the list could not be refreshed. Refresh the page to see it.");
+      setMessage({text:refreshed?"Existing form added.": "Existing form added, but the list could not be refreshed. Refresh the page to see it."});
     } catch (error) { setCustomError({message:error instanceof Error ? error.message : "Unable to add form"}); } finally { setCustomSaving(false); }
   }
 
@@ -116,7 +116,7 @@ export default function WaiversPage() {
   }
 
   async function rotateWebhook(connectionId: string) {
-    setBusy(true);setCustomError(null); try { const result = await readJson<{ webhookUrl: string }>(await fetch("/api/waiver-integrations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ROTATE_WEBHOOK", connectionId }) })); setWebhookUrl(result.webhookUrl);customDialog.current?.close(); setMessage("New webhook URL created. Replace the old URL on every Jotform."); } catch (error) { setCustomError({message:error instanceof Error ? error.message : "Unable to rotate webhook URL"}); } finally { setBusy(false); }
+    setBusy(true);setCustomError(null); try { const result = await readJson<{ webhookUrl: string }>(await fetch("/api/waiver-integrations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ROTATE_WEBHOOK", connectionId }) })); setWebhookUrl(result.webhookUrl);customDialog.current?.close(); setMessage({text:"New webhook URL created. Replace the old URL on every Jotform."}); } catch (error) { setCustomError({message:error instanceof Error ? error.message : "Unable to rotate webhook URL"}); } finally { setBusy(false); }
   }
 
   async function sendWaiver(appointmentId: string, externalWaiverFormId?: string) {
@@ -141,7 +141,7 @@ export default function WaiversPage() {
     finally{await refresh();setBusy(false);}
   }
   async function assignmentAction(id: string, action: "MARK_COMPLETE" | "MARK_REVIEWED" | "VOID") {
-    setBusy(true); try { await readJson(await fetch(`/api/waiver-assignments/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) })); await refresh(); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to update waiver"); } finally { setBusy(false); }
+    setBusy(true); try { await readJson(await fetch(`/api/waiver-assignments/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) })); await refresh(); } catch (error) { setMessage({text:error instanceof Error ? error.message : "Unable to update waiver"}); } finally { setBusy(false); }
   }
 
   function customFieldError(field:string) {
@@ -150,9 +150,9 @@ export default function WaiversPage() {
 
   return <main className="waiver-admin">
     <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Manage the consent forms available to your artists and send them to clients.</p><div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new" aria-label="Create form"><span className="create-form-plus" aria-hidden="true">+</span><span className="create-form-text">Create form</span></a><button type="button" className="consent-add-link" disabled={busy||customSaving} onClick={()=>{setCustomError(null);setJotFeedback("");setProvider("LINK");customDialog.current?.showModal();}}>Connect to existing form</button><a href="/waivers/archive">View signed forms →</a></div></header>
-    {message && <div className="waiver-notice" role="status">{message}</div>}
+    {message && <div className={`waiver-notice${message.created ? " success" : ""}`} role="status">{message.text}</div>}
 
-    <section className="waiver-section"><div className="section-heading"><div><h2>Current forms</h2><p>Your available consent forms. Edit a form to choose when it is used and whether it is active.</p></div><strong>{!setupLoading && setup.forms.length > 0 ? setup.forms.length : (setupLoading ? "-" : "0")} forms</strong></div>{setupLoading ? <div className="loading">Loading…</div> : setupError ? <div className="error-state"><p role="alert">Couldn't load forms. {setupError}</p><button type="button" onClick={() => refreshSetup()}>Retry</button></div> : setup.forms.length === 0 ? <div className="empty">No forms yet. Create a Maia form or add an existing form link.</div> : <div className="form-list">{setup.forms.map(form => <FormEditor key={form.id} form={form} setup={setup} busy={busy} onSaved={refresh} onDeleted={setMessage} />)}</div>}</section>
+    <section className="waiver-section"><div className="section-heading"><div><h2>Current forms</h2><p>Your available consent forms. Edit a form to choose when it is used and whether it is active.</p></div><strong>{!setupLoading && setup.forms.length > 0 ? setup.forms.length : (setupLoading ? "-" : "0")} forms</strong></div>{setupLoading ? <div className="loading">Loading…</div> : setupError ? <div className="error-state"><p role="alert">Couldn't load forms. {setupError}</p><button type="button" onClick={() => refreshSetup()}>Retry</button></div> : setup.forms.length === 0 ? <div className="empty">No forms yet. Create a Maia form or add an existing form link.</div> : <div className="form-list">{setup.forms.map(form => <FormEditor key={form.id} form={form} setup={setup} busy={busy} onSaved={refresh} onDeleted={text=>setMessage({text})} />)}</div>}</section>
 
     <section className="waiver-section"><div className="section-heading"><div><h2>Upcoming appointments</h2><p>Auto-select applies the routing rules above. Choose a form manually when needed.</p></div><strong>{!appointmentsLoading && appointments.length > 0 ? appointments.length : (appointmentsLoading ? "-" : "0")} appointments</strong></div><div className="appointment-list">{appointmentsLoading ? <div className="loading">Loading…</div> : appointmentsError ? <div className="error-state"><p role="alert">Couldn't load appointments. {appointmentsError}</p><button type="button" onClick={() => refreshAppointments()}>Retry</button></div> : appointments.length === 0 ? <div className="empty">No upcoming appointments.</div> : appointments.map(row => <AppointmentWaivers key={row.appointment.id} row={row} formLink={formLinks[row.appointment.id]} notice={appointmentMessages[row.appointment.id]} forms={setup.forms.filter(f=>!f.artistId||f.artistId===row.appointment.artistId)} busy={busy} onSend={sendWaiver} onCreateLink={createLink} onAction={assignmentAction} />)}</div></section>
 

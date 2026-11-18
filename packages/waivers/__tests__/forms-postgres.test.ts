@@ -17,6 +17,8 @@ test('artist form library and hosted signatures enforce scope, immutable evidenc
  try{
   assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,`${socket}/data`);
   await local.query(readFileSync('packages/db/staging/schema.sql','utf8'));
+  await local.query(readFileSync('packages/db/drizzle/0030_walk_in_appointments.sql','utf8'));
+  await local.query(readFileSync('packages/db/drizzle/0033_appointment_location.sql','utf8'));
   t.mock.method(pool,'query',local.query.bind(local));t.mock.method(pool,'connect',local.connect.bind(local));
   t.mock.method(globalThis,'fetch',async()=>{throw Error('Provider calls are forbidden in this test.');});
   const org=randomUUID(),otherOrg=randomUUID(),user=randomUUID(),artist=randomUUID(),peer=randomUUID(),foreign=randomUUID(),client=randomUUID(),appointment=randomUUID();
@@ -38,7 +40,8 @@ test('artist form library and hosted signatures enforce scope, immutable evidenc
   assert.equal((await previewServicePage(pageRequest(peer),undefined)).status,404);
   const previousIsolation=process.env.MAIA_STAGING_ISOLATED;process.env.MAIA_STAGING_ISOLATED='1';
   try{assert.equal((await previewServicePage(pageRequest(artist),undefined)).status,503);}finally{if(previousIsolation===undefined)delete process.env.MAIA_STAGING_ISOLATED;else process.env.MAIA_STAGING_ISOLATED=previousIsolation;}
-  const draft={action:'ADD_NATIVE_FORM',name:'Synthetic consent',artistId:artist,audience:'ADULT',definition:{body:'Studio-reviewed synthetic consent text.',fields:[{id:'design',type:'CHOICE',label:'Design preference',required:true,options:['A','B']},{id:'ack',type:'ACKNOWLEDGMENT',label:'I read the policy',required:true},{id:'contact',type:'EMAIL',label:'Email',required:true},{id:'preferences',type:'MULTI_CHOICE',label:'Preferences',required:true,options:['A','B']}]}};
+  const textBlocks=[{id:'text_one',type:'PARAGRAPH',label:'First block\nFirst line',required:false},{id:'text_two',type:'PARAGRAPH',label:'Second block\nSecond line',required:false}];
+  const draft={action:'ADD_NATIVE_FORM',name:'Synthetic consent',artistId:artist,audience:'ADULT',definition:{body:'Studio-reviewed synthetic consent text.',fields:[...textBlocks,{id:'design',type:'CHOICE',label:'Design preference',required:true,options:['A','B']},{id:'ack',type:'ACKNOWLEDGMENT',label:'I read the policy',required:true},{id:'contact',type:'EMAIL',label:'Email',required:true},{id:'preferences',type:'MULTI_CHOICE',label:'Preferences',required:true,options:['A','B']}]}};
   assert.equal((await createForm(request({...draft,artistId:foreign}),undefined)).status,404);
   const created=await createForm(request(draft),undefined);assert.equal(created.status,201);const {form}=await created.json();
   assert.equal((await local.query('SELECT active FROM waiver_templates WHERE id=$1',[(form.metadata as {templateId:string}).templateId])).rows[0].active,false);
@@ -46,14 +49,15 @@ test('artist form library and hosted signatures enforce scope, immutable evidenc
   assert.equal((await createForm(request({action:'ADD_CUSTOM_FORM',name:'Bad',artistId:artist,formUrl:'javascript:alert(1)'}),undefined)).status,400);
   const listing=await library(new NextRequest('http://localhost/api/waiver-integrations',{headers:{cookie:`inkflow_session=${cookie}`}}),undefined);
   const listed=await listing.json();assert.equal(listed.artists.length,2);assert.equal(listed.isOwner,true);assert.equal(listed.forms.length,2);
+  assert.deepEqual(listed.forms.find((item:{id:string})=>item.id===form.id).metadata.definition.fields.slice(0,2),textBlocks);
   await local.query("INSERT INTO clients(id,organization_id,first_name) VALUES($1,$2,'Synthetic Client')",[client,org]);
   await local.query("INSERT INTO appointments(id,organization_id,artist_id,client_id,starts_at,ends_at,status,price_cents,deposit_cents,deposit_status,scheduling_provider) VALUES($1,$2,$3,$4,'2035-01-08 16:00:00','2035-01-08 17:00:00','CONFIRMED',100,0,'NOT_REQUIRED','INTERNAL')",[appointment,org,artist,client]);
   const linkResponse=await assignForm(new NextRequest('http://localhost/api/waiver-assignments',{method:'POST',headers:{origin:'http://localhost',cookie:`inkflow_session=${cookie}`,'content-type':'application/json'},body:JSON.stringify({action:'CREATE_LINK',appointmentId:appointment,externalWaiverFormId:form.id})}),undefined);
-  assert.equal(linkResponse.status,201);const link=await linkResponse.json();assert.equal(new URL(link.url).pathname,'/waiver');assert.equal(new URL(link.url).searchParams.get('waiverToken')?.length,48);
+  assert.equal(linkResponse.status,201,await linkResponse.clone().text());const link=await linkResponse.json();assert.equal(new URL(link.url).pathname,'/waiver');assert.equal(new URL(link.url).searchParams.get('waiverToken')?.length,48);
   assert.equal(link.assignment.status,'PENDING');
   const assignment=randomUUID();
   await local.query("INSERT INTO external_waiver_assignments(id,organization_id,waiver_form_id,appointment_id,client_id,tracking_token_hash) VALUES($1,$2,$3,$4,$5,$6)",[assignment,org,form.id,appointment,client,digest(token)]);
-  const read=await readForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${token}`));assert.equal(read.status,200);const readBody=await read.json();assert.equal(readBody.definition.body,draft.definition.body);assert.equal(readBody.clientId,undefined);
+  const read=await readForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${token}`));assert.equal(read.status,200);const readBody=await read.json();assert.equal(readBody.definition.body,draft.definition.body);assert.deepEqual(readBody.definition.fields.slice(0,2),textBlocks);assert.equal(readBody.clientId,undefined);
   assert.equal((await readForm(new NextRequest(`http://localhost/api/public/waivers/native?token=${'c'.repeat(48)}`))).status,404);
   const sign=(change:Record<string,unknown>={})=>signForm(new NextRequest('http://localhost/api/public/waivers/native',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({token,signedName:'Synthetic Client',agreed:true,answers:{design:'A',ack:true,contact:'synthetic@example.test',preferences:['B']},signature:{strokes:[[{x:0.1,y:0.5},{x:0.4,y:0.2},{x:0.8,y:0.6}]]},...change})}));
   assert.equal((await sign({agreed:false})).status,400);

@@ -374,3 +374,9 @@
   border: 1px solid #d3e8d9;
 }
 
+.waiver-admin .waiver-notice.success {
+  background: #e6f2ea;
+  color: #246d48;
+  border-color: #d3e8d9;
+}
+
