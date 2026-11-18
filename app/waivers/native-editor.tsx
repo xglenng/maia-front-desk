@@ -2,13 +2,14 @@
 import {useEffect,useRef,useState} from 'react';
 import QuestionBuilder from './question-builder';
 import {nativeDefinition,type NativeField} from '@/packages/waivers/forms';
-import {buildConsentStarter,consentStarterReferences,type ConsentStarterKind} from '@/packages/waivers/consent-starters';
+import {buildConsentStarter,consentStarterKindsForAudience,consentStarterReferences,type ConsentStarterKind} from '@/packages/waivers/consent-starters';
+import type {WaiverAudience} from '@/packages/waivers/selection';
 
 type ArtistProfile={id:string;name:string};
 export default function NativeEditor({currentArtist,artistProfileCount,studioBrand,studioLogoAssetId,studioLogoAvailable,busy,onSaved}:{
  currentArtist:ArtistProfile|null;artistProfileCount:number;studioBrand:string;studioLogoAssetId:string|null;studioLogoAvailable:boolean;busy:boolean;onSaved:()=>Promise<void>;
 }) {
- const [name,setName]=useState(''),[body,setBody]=useState(''),[audience,setAudience]=useState('ADULT');
+ const [name,setName]=useState(''),[body,setBody]=useState(''),[audience,setAudience]=useState<WaiverAudience>('ADULT');
  const [saving,setSaving]=useState(false),[message,setMessage]=useState('');
  const [fields,setFields]=useState<NativeField[]>([]),[brand,setBrand]=useState('');
  const [logoSelected,setLogoSelected]=useState(false),[pickerOpen,setPickerOpen]=useState(false);
@@ -18,6 +19,8 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
  const [nameError,setNameError]=useState(false);
  const nameInput=useRef<HTMLInputElement>(null);
  const previewDialog=useRef<HTMLDialogElement>(null);
+ const audienceDialog=useRef<HTMLDialogElement>(null);
+ const [pendingAudience,setPendingAudience]=useState<WaiverAudience|null>(null);
  const [preparedFor,setPreparedFor]=useState<{artistId:string;artistName:string;brand:string}|null>(null);
  useEffect(()=>{setBrand(current=>current||studioBrand);},[studioBrand]);
  async function uploadLogo(){
@@ -45,7 +48,8 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   try {
    if(!currentArtist)throw Error('Ask the studio owner to create an artist profile and link it to your sign-in before creating a form.');
    const draft=buildConsentStarter(kind,starterBrand,currentArtist.name);
-   setName(draft.name);setBody(draft.definition.body);setFields(draft.definition.fields||[]);setAudience(draft.audience);
+   if(draft.audience!==audience)throw Error('Choose a template that matches the selected audience.');
+   setName(draft.name);setBody(draft.definition.body);setFields(draft.definition.fields||[]);
    setNameError(false);
    setBrand(starterBrand.trim());setPreparedFor({artistId:currentArtist.id,artistName:currentArtist.name,brand:starterBrand.trim()});setPickerOpen(false);
    setMessage('Editable template loaded. Review it for your studio and services before saving.');
@@ -91,13 +95,29 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   previewDialog.current?.close();
   setPreviewUrl(null);
  }
+ function changeAudience(value:WaiverAudience){
+  if(value===audience)return;
+  if(preparedFor){setPendingAudience(value);audienceDialog.current?.showModal();}
+  else setAudience(value);
+ }
+ function confirmAudienceChange(){
+  if(!pendingAudience)return;
+  setAudience(pendingAudience);setName('');setBody('');setFields([]);setLogoSelected(false);
+  setPreparedFor(null);setNameError(false);setMessage('');setPreviewError('');
+  audienceDialog.current?.close();
+ }
  if(!currentArtist)return <div className="waiver-card" role="alert"><h2>Artist profile needed</h2><p>{artistProfileCount>1?'More than one artist profile is linked to your sign-in. Ask the studio owner to resolve the profile before saving a form.':'No artist profile is linked to your sign-in in this studio. Ask the studio owner to create an artist profile and link it to your user before saving a consent form.'}</p></div>;
  return <form className="waiver-card" onSubmit={save}>
   <div className="card-title"><div><h2>Create a Maia form</h2><p>Start with a consent template or write your own. Clients read it and draw their signature.</p></div><span className="provider-pill">Maia hosted</span></div>
   <p>Artist profile: <strong>{currentArtist.name}</strong></p>
   {preparedFor&&<p>Draft prepared for <strong>{preparedFor.artistName}</strong> at <strong>{preparedFor.brand}</strong>.</p>}
   {bindingChanged&&<p role="alert">Studio brand changed. Reload the template before saving so its wording uses the current brand.</p>}
-  <label>Audience<select value={audience} onChange={event=>setAudience(event.target.value)}><option value="ADULT">Adult</option><option value="ANY">Any age</option><option value="MINOR">Minor / guardian</option></select></label>
+  <label>Audience<select value={audience} onChange={event=>{const value=event.target.value;if(value==='ADULT'||value==='ANY'||value==='MINOR')changeAudience(value);}}><option value="ADULT">Adult</option><option value="ANY">Any age</option><option value="MINOR">Minor / guardian</option></select></label>
+  <dialog ref={audienceDialog} className="template-picker" aria-labelledby="change-audience-title" onClose={()=>setPendingAudience(null)}>
+   <h3 id="change-audience-title">Change audience?</h3>
+   <p>Changing the audience will clear the current template draft, including your edits and selected logo. Start a blank form for the new audience?</p>
+   <div className="template-picker-confirm"><div><button type="button" className="template-picker-primary" onClick={confirmAudienceChange}>Clear draft and change audience</button><button type="button" autoFocus onClick={()=>audienceDialog.current?.close()}>Keep editing</button></div></div>
+  </dialog>
   <p>Use wording approved for your studio, services, and local requirements. For minors, include the appropriate guardian wording. Photo ID uploads can be optional or required. Medical questionnaires are not included, and signing does not opt a client into SMS.</p>
   <QuestionBuilder fields={fields} onChange={setFields} name={name} onNameChange={value=>{setName(value);if(value.trim())setNameError(false);}} nameInput={nameInput} nameError={nameError} body={body} onBodyChange={setBody} onUseTemplate={()=>setPickerOpen(true)} onPreview={()=>void preview()} previewDisabled={busy||saving||previewing||logoProgress!==null} templateDisabled={busy||saving} logoAssetId={logoSelected?currentLogoId:null} availableLogoAssetId={currentLogoId} logoAvailable={studioLogoAvailable} logoUrl={currentLogoId?`/api/public/studio-logo/${currentLogoId}`:null} onLogoChange={value=>setLogoSelected(Boolean(value))} logoUpload={<div className="builder-logo-upload"><p>{currentLogoId?'Replacing the logo updates the studio’s saved logo for future forms. Signed forms keep their original logo.':'Upload a JPEG, PNG, or WebP logo up to 2 MB.'}</p><label>{currentLogoId?'Choose replacement logo':'Choose logo'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={logoProgress!==null||!studioLogoAvailable} onChange={event=>{setLogoFile(event.target.files?.[0]||null);event.target.value='';setLogoError('');}}/></label>{logoFile&&<p>Selected: {logoFile.name}</p>}<button type="button" className="routing-edit" disabled={!logoFile||logoProgress!==null||!studioLogoAvailable} onClick={()=>void uploadLogo()}>{currentLogoId?'Replace logo':'Upload logo'}</button>{logoProgress!==null&&<p role="status">Uploading logo… {logoProgress}%</p>}{logoError&&<p role="alert">{logoError} Select a file or try again.</p>}</div>} minorSigner={audience==='MINOR'}/>
   {previewError&&<p role="alert" className="waiver-notice">{previewError} <button type="button" className="secondary" onClick={()=>void preview()} disabled={previewing}>{previewing?'Generating…':'Try again'}</button></p>}
@@ -106,12 +126,12 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
    {previewUrl&&<iframe title="Consent form draft PDF preview" src={previewUrl}/>}
    {previewUrl&&<p><a href={previewUrl} target="_blank" rel="noopener noreferrer">Open PDF in a new tab</a></p>}
   </dialog>
-  {pickerOpen&&<TemplatePicker brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected||audience!=='ADULT')} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
+  {pickerOpen&&<TemplatePicker audience={audience} brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected)} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
   <button disabled={busy||saving||logoProgress!==null}>{saving?'Saving…':'Create form'}</button>{message&&<p role="status">{message}</p>}
  </form>;
 }
 
-function TemplatePicker({brand,artistName,hasEdits,onApply,onClose}:{brand:string;artistName:string|undefined;hasEdits:boolean;onApply:(kind:ConsentStarterKind,brand:string)=>string|undefined;onClose:()=>void}){
+function TemplatePicker({audience,brand,artistName,hasEdits,onApply,onClose}:{audience:WaiverAudience;brand:string;artistName:string|undefined;hasEdits:boolean;onApply:(kind:ConsentStarterKind,brand:string)=>string|undefined;onClose:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null);
  const [draftBrand,setDraftBrand]=useState(brand),[pending,setPending]=useState<ConsentStarterKind|null>(null),[error,setError]=useState('');
  useEffect(()=>{dialog.current?.showModal();},[]);
@@ -119,21 +139,23 @@ function TemplatePicker({brand,artistName,hasEdits,onApply,onClose}:{brand:strin
  function apply(kind:ConsentStarterKind){const failure=onApply(kind,draftBrand);if(failure)setError(failure);else dialog.current?.close();}
  function choose(kind:ConsentStarterKind){if(hasEdits)setPending(kind);else apply(kind);}
  const title=(kind:ConsentStarterKind)=>kind==='TATTOO'?'Tattoo consent · adult':kind==='PIERCING'?'Piercing consent · adult':kind==='MINOR_TATTOO'?'Minor Tattoo Consent':'Minor Piercing Consent';
+ const available=consentStarterKindsForAudience(audience);
  return <dialog ref={dialog} className="template-picker" aria-labelledby="template-picker-title" onCancel={event=>{event.preventDefault();dismiss();}} onKeyDown={event=>{if(event.key==='Escape'&&!event.nativeEvent.isComposing){event.preventDefault();dismiss();}}}>
   <div className="template-picker-header"><h3 id="template-picker-title">Use a template</h3><button type="button" aria-label="Close template picker" onClick={dismiss}>✕</button></div>
   {error&&<p role="alert">{error}</p>}
   {pending?<div className="template-picker-confirm"><p>Replace your current unsaved draft with “{title(pending)}”?</p><div><button type="button" className="template-picker-primary" onClick={()=>apply(pending)}>Replace draft</button><button type="button" autoFocus onClick={dismiss}>Keep editing</button></div></div>:<>
-   <p>Adult starters use your studio and artist’s names. Minor starters identify the parent or legal guardian as the signer. Each is an editable starting point for studio review; review and edit all wording before saving.</p>
+   {available.length?<><p>{audience==='ADULT'?'Adult starters use your studio and artist’s names.':'Minor starters identify the parent or legal guardian as the signer.'} Each is an editable starting point for studio review; review and edit all wording before saving.</p>
    <label>Brand or studio name<input maxLength={160} value={draftBrand} onChange={event=>setDraftBrand(event.target.value)} placeholder="Your brand name"/></label>
    {!artistName&&<p role="status">Your artist profile must be linked before applying a template.</p>}
    {!draftBrand.trim()&&<p role="status">Enter a brand or studio name to apply a template.</p>}
    <div className="template-picker-options">
-    <button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('TATTOO')}><strong>Tattoo consent · adult</strong><span>Adult tattoo procedure details, risks, aftercare, and consent.</span></button>
-    <button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('PIERCING')}><strong>Piercing consent · adult</strong><span>Adult piercing procedure details, risks, aftercare, and consent.</span></button>
-    <button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('MINOR_TATTOO')}><strong>Minor Tattoo Consent</strong><span>Editable starting point for studio review, including the minor’s details and parent or legal guardian consent and signature.</span></button>
-    <button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('MINOR_PIERCING')}><strong>Minor Piercing Consent</strong><span>Editable starting point for studio review, including the minor’s details and parent or legal guardian consent and signature.</span></button>
+    {available.includes('TATTOO')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('TATTOO')}><strong>Tattoo consent · adult</strong><span>Adult tattoo procedure details, risks, aftercare, and consent.</span></button>}
+    {available.includes('PIERCING')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('PIERCING')}><strong>Piercing consent · adult</strong><span>Adult piercing procedure details, risks, aftercare, and consent.</span></button>}
+    {available.includes('MINOR_TATTOO')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('MINOR_TATTOO')}><strong>Minor Tattoo Consent</strong><span>Editable starting point for studio review, including the minor’s details and parent or legal guardian consent and signature.</span></button>}
+    {available.includes('MINOR_PIERCING')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('MINOR_PIERCING')}><strong>Minor Piercing Consent</strong><span>Editable starting point for studio review, including the minor’s details and parent or legal guardian consent and signature.</span></button>}
    </div>
    <details><summary>About these starters</summary><p>These editable examples cover procedure details, risk acknowledgment, voluntary consent, questions, aftercare, and optional photo or apprentice permission. Review them for your services and local requirements before use. They include an optional photo ID element; select it to require an upload if your studio needs it. They do not include medical questionnaires or staff-only records.</p><p>Reference examples:</p><ul>{consentStarterReferences.map(reference=><li key={reference.url}><a href={reference.url} target="_blank" rel="noreferrer">{reference.name}</a></li>)}</ul></details>
+   </>:<p>No templates are available for Any age. Build a custom form and review its wording for both adult and minor clients.</p>}
   </>}
  </dialog>;
 }

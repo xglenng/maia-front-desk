@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildConsentStarter} from '../consent-starters';
+import {buildConsentStarter,consentStarterKindsForAudience} from '../consent-starters';
 import {nativeDefinition,validateNativeAnswers} from '../forms';
+test('starter choices match the selected audience and exclude any-age routing',()=>{
+ assert.deepEqual(consentStarterKindsForAudience('ADULT'),['TATTOO','PIERCING']);
+ assert.deepEqual(consentStarterKindsForAudience('MINOR'),['MINOR_TATTOO','MINOR_PIERCING']);
+ assert.deepEqual(consentStarterKindsForAudience('ANY'),[]);
+ for(const audience of ['ADULT','MINOR'] as const){
+  for(const kind of consentStarterKindsForAudience(audience))assert.equal(buildConsentStarter(kind,'Studio','Artist').audience,audience);
+ }
+});
 test('adult starters fit existing fields and resolve each artist brand without source studio data',()=>{
  for(const kind of ['TATTOO','PIERCING'] as const){
   const draft=buildConsentStarter(kind,' North & South $& Studio ',' Alex Rivera ');
