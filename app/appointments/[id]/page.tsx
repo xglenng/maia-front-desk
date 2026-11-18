@@ -12,7 +12,7 @@ import { useSession } from '@/components/session-gate';
 
 type Payment = { tipCents:number; refundedCents:number; purpose: string; id: string; provider: string; amountCents: number; status: string; confirmationMethod: string | null; confirmedAt: string | null };
 type ExternalWaiver = { id: string; status: string; sentAt: string | null; completedAt: string | null; formName: string; provider: string };
-type SignedWaiver = { id: string; signedAt: string; templateName: string };
+type SignedWaiver = { id: string; submissionId: string; signedAt: string; templateName: string };
 type AppointmentDetail = {
   location:{name:string;addressLine1:string|null;addressLine2:string|null;city:string|null;region:string|null;postalCode:string|null}|null;organization:{name:string;timezone:string};
   appointment: { artistId:string;schedulingProvider:string|null;providerBookingId:string|null;calendarEventId:string|null;scheduleRevision:number; notes:string|null; id: string; startsAt: string; endsAt: string; status: string; holdExpiresAt:string|null; priceCents:number|null; depositCents: number | null; depositStatus: string; paymentProvider: string | null; completedAt: string | null; isWalkIn: boolean };
@@ -52,6 +52,28 @@ export default function AppointmentDetailPage() {
   useEffect(() => {
     if (clientDialogOpen && !clientDialog.current?.open) clientDialog.current?.showModal();
   }, [clientDialogOpen]);
+  const [viewingSignedWaiverId, setViewingSignedWaiverId] = useState<string | null>(null);
+  const [signedWaiverData, setSignedWaiverData] = useState<Record<string, unknown> | null>(null);
+  const signedWaiverDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (viewingSignedWaiverId && !signedWaiverDialog.current?.open) signedWaiverDialog.current?.showModal();
+  }, [viewingSignedWaiverId]);
+  async function openSignedWaiver(submissionId: string) {
+    setBusy(true);
+    setError('');
+    setSignedWaiverData(null);
+    try {
+      const response = await fetch(`/api/waivers/${submissionId}/view?appointmentId=${params.id}`, { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to open form.');
+      setSignedWaiverData(data.form);
+      setViewingSignedWaiverId(submissionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to open form.');
+    } finally {
+      setBusy(false);
+    }
+  }
   const [waiverFormLink, setWaiverFormLink] = useState<string | null>(null);
   const [clientEditData, setClientEditData] = useState<{ firstName: string; phone: string; email: string } | null>(null);
   useEffect(()=>{setNativePayments(Boolean((window as unknown as {webkit?:{messageHandlers?:{maiaTapToPay?:unknown}}}).webkit?.messageHandlers?.maiaTapToPay));},[]);
@@ -215,7 +237,10 @@ export default function AppointmentDetailPage() {
       <h2>Waiver</h2>
       {data.signedWaivers.length > 0 ? data.signedWaivers.map(waiver => {
         const isValidDate = waiver.signedAt && !isNaN(new Date(waiver.signedAt).getTime());
-        return <p key={waiver.id}>{waiver.templateName}{isValidDate ? ` · Signed ${new Date(waiver.signedAt).toLocaleString()}` : ' · Signed'}</p>;
+        return <div key={waiver.id} style={{display:'flex',gap:8,alignItems:'center',justifyContent:'space-between'}}>
+          <p style={{margin:0}}>{waiver.templateName}{isValidDate ? ` · Signed ${new Date(waiver.signedAt).toLocaleString()}` : ' · Signed'}</p>
+          <button type="button" style={{...secondary,whiteSpace:'nowrap'}} disabled={busy} onClick={()=>void openSignedWaiver(waiver.submissionId)}>View signed form</button>
+        </div>;
       })
         : data.externalWaivers.length > 0 ? data.externalWaivers.map(waiver => <p key={waiver.id}>{waiver.formName} · {waiver.status}{waiver.completedAt ? ` · Completed ${new Date(waiver.completedAt).toLocaleString()}` : waiver.sentAt ? ` · Sent ${new Date(waiver.sentAt).toLocaleString()}` : ''}</p>)
           : <p>No waiver has been issued for this appointment.</p>}
@@ -285,6 +310,38 @@ export default function AppointmentDetailPage() {
           <button type="button" className="native-primary" disabled={busy} onClick={() => void updateClientDetails()}>Save</button>
         </footer>
       </form>
+    </dialog>}
+    {viewingSignedWaiverId && signedWaiverData && <dialog className="native-dialog signed-record" ref={signedWaiverDialog} aria-labelledby="signed-waiver-title"
+      onCancel={event => { event.preventDefault(); if (!busy) setViewingSignedWaiverId(null); }}>
+      <div style={{maxHeight:'80vh',overflow:'auto'}}>
+        <div style={{display:'flex',gap:8,marginBottom:16,position:'sticky',top:0,backgroundColor:'white',padding:'12px 0',borderBottom:'1px solid #e4dfda'}}>
+          <button type="button" disabled={busy} onClick={() => setViewingSignedWaiverId(null)}>Close form</button>
+          <button type="button" disabled={busy} onClick={() => window.print()}>Print / Save PDF</button>
+        </div>
+        {typeof signedWaiverData?.formName === 'string' && <h2>{signedWaiverData.formName}</h2>}
+        {typeof signedWaiverData?.signedName === 'string' && typeof signedWaiverData?.signedAt === 'string' && <p>Signed by {signedWaiverData.signedName} · {new Date(signedWaiverData.signedAt).toLocaleString()}</p>}
+        {typeof signedWaiverData?.body === 'string' && <p style={{whiteSpace:'pre-wrap',lineHeight:1.7}}>{signedWaiverData.body}</p>}
+        {Array.isArray(signedWaiverData?.fields) && signedWaiverData.fields.map((field:Record<string,unknown>) => {
+          const answer = typeof signedWaiverData?.answers === 'object' && signedWaiverData.answers ? (signedWaiverData.answers as Record<string, unknown>)[field.id as string] : undefined;
+          const fieldLabel = typeof field.label === 'string' ? field.label : '';
+          const fieldType = typeof field.type === 'string' ? field.type : '';
+          const answerText = fieldType === 'PHOTO_ID' ? 'Photo ID stored privately.' : typeof answer === 'boolean' ? (answer ? 'Yes / acknowledged' : 'No') : Array.isArray(answer) ? (answer as string[]).join(', ') : typeof answer === 'string' ? answer : 'Not answered';
+          return <div key={String(field.id)} style={{marginBottom:12}}>
+            {fieldType === 'DIVIDER' ? <hr /> : <>
+              <strong>{fieldLabel}</strong>
+              {!['HEADING','PARAGRAPH'].includes(fieldType) && <p>{answerText}</p>}
+            </>}
+          </div>;
+        })}
+        {typeof signedWaiverData?.drawnSignature === 'object' && signedWaiverData.drawnSignature && 'strokes' in signedWaiverData.drawnSignature && <div>
+          <h3>Client signature</h3>
+          <svg role="img" aria-label="Signed client signature" viewBox="0 0 600 200" style={{width:'100%',maxWidth:600,border:'1px solid #ddd'}}>
+            {((signedWaiverData.drawnSignature as Record<string, unknown>).strokes as Array<Array<{x:number;y:number}>>).map((stroke:Array<{x:number;y:number}>, i:number) => (
+              <polyline key={i} points={stroke.map(p => `${p.x*600},${p.y*200}`).join(' ')} fill="none" stroke="#111" strokeWidth="2.5" />
+            ))}
+          </svg>
+        </div>}
+      </div>
     </dialog>}
     {data.payments.length > 0 && <section style={section}><h2>Payment history</h2>{data.payments.map(payment => <p key={payment.id}><strong>{paymentLabel(payment)} · {money(payment.amountCents)}</strong>{payment.tipCents>0&&<> (includes {money(payment.tipCents)} tip)</>} · {payment.status.replaceAll('_',' ')}{payment.refundedCents>0&&<> · Returned {money(payment.refundedCents)}</>} · {payment.provider === 'stripe_terminal' ? 'Phone test payment' : payment.provider === 'stripe_connect' ? 'Stripe test payment' : payment.provider}{user.role==='OWNER'&&['stripe_connect','stripe_terminal'].includes(payment.provider)&&['PAID','REFUND_PENDING'].includes(payment.status)&&<button style={{...secondary,marginLeft:12}} disabled={busy} onClick={()=>void refund(payment)}>{payment.status==='REFUND_PENDING'?`Retry ${money(payment.amountCents)} refund`:`Refund ${money(payment.amountCents)} ${paymentLabel(payment).toLowerCase()}`}</button>}{user.role==='OWNER'&&['stripe_connect','stripe_terminal'].includes(payment.provider)&&['PAID','REFUNDED','REFUND_PENDING','REFUND_REVIEW'].includes(payment.status)&&(receiptUrls[payment.id]?<a href={receiptUrls[payment.id]} target="_blank" rel="noopener noreferrer" style={{marginLeft:12}}>Open Stripe test receipt</a>:<button style={{...secondary,marginLeft:12}} disabled={busy} onClick={()=>void receipt(payment.id)}>Get test receipt</button>)}{data.refundAudit.filter(a=>a.paymentId===payment.id).map(a=><small key={a.paymentId} style={{display:'block'}}>Refund requested by {a.requestedBy} · {new Date(a.requestedAt).toLocaleString()}</small>)}</p>)}</section>}
   </main>;

@@ -47,7 +47,7 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
     db.select({ id: externalWaiverAssignments.id, status: externalWaiverAssignments.status, sentAt: externalWaiverAssignments.sentAt, completedAt: externalWaiverAssignments.completedAt, formName: externalWaiverForms.name, provider: externalWaiverForms.provider })
       .from(externalWaiverAssignments).innerJoin(externalWaiverForms, eq(externalWaiverAssignments.waiverFormId, externalWaiverForms.id))
       .where(and(eq(externalWaiverAssignments.organizationId, organizationId), eq(externalWaiverAssignments.appointmentId, id))),
-    db.select({ id: waiverSubmissions.id, signedAt: waiverSubmissions.signedAt, templateName: waiverTemplates.name })
+    db.select({ id: waiverSubmissions.id, submissionId: waiverSubmissions.id, signedAt: waiverSubmissions.signedAt, templateName: waiverTemplates.name })
       .from(waiverSubmissions).innerJoin(waiverTemplates, eq(waiverSubmissions.waiverTemplateId, waiverTemplates.id))
       .where(and(eq(waiverSubmissions.organizationId, organizationId), eq(waiverSubmissions.appointmentId, id))),
     db.select({ id: externalWaiverForms.id, name: externalWaiverForms.name, audience: externalWaiverForms.audience })
