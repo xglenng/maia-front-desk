@@ -37,6 +37,7 @@ export function validateNativeAnswers(definition:NativeDefinition,input:unknown)
  const fields=definition.fields||[];
  if(Object.keys(parsed.data).some(id=>!fields.some(field=>field.id===id)))return {success:false,error:'Unknown question.'};
  const answers:NativeAnswers={};
+ const today=new Date();today.setUTCHours(0,0,0,0);
  for(const field of fields){
   const value=parsed.data[field.id];
   if(['HEADING','PARAGRAPH','DIVIDER'].includes(field.type)){
@@ -68,6 +69,7 @@ export function validateNativeAnswers(definition:NativeDefinition,input:unknown)
    if(text&&field.type==='PHONE'&&!/^\+?[0-9() .-]{7,30}$/.test(text))return {success:false,error:'Enter a valid phone number.'};
    if(text&&field.type==='NUMBER'&&(!/^-?(?:\d+\.?\d*|\.\d+)$/.test(text)||!Number.isFinite(Number(text))))return {success:false,error:'Enter a valid number.'};
    if(text&&field.type==='DATE'&&(!/^\d{4}-\d{2}-\d{2}$/.test(text)||!Number.isFinite(Date.parse(text))||new Date(text).toISOString().slice(0,10)!==text))return {success:false,error:'Enter a valid date.'};
+   if(text&&field.type==='DATE'&&field.id.endsWith('date_of_birth')&&new Date(text)>today)return {success:false,error:'Date of birth cannot be in the future.'};
    answers[field.id]=text;
   }
  }

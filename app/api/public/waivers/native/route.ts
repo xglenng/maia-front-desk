@@ -3,16 +3,18 @@ import {and,eq,sql,inArray} from 'drizzle-orm';
 import {NextRequest,NextResponse} from 'next/server';
 import {z} from 'zod';
 import {db} from '@/packages/db/src';
-import {appointments,externalWaiverAssignments,externalWaiverForms,studioLogoAssets,waiverTemplates,waiverSubmissions,externalWaiverEvents,automationJobs,waiverIdentityDocuments} from '@/packages/db/src/schema';
+import {appointments,externalWaiverAssignments,externalWaiverForms,studioLogoAssets,waiverTemplates,waiverSubmissions,externalWaiverEvents,automationJobs,waiverIdentityDocuments,organizations} from '@/packages/db/src/schema';
+import {localDateString} from '@/packages/booking/src/time';
 import {nativeDefinition,nativeAnswers,validateNativeAnswers} from '@/packages/waivers/forms';
 import {boundedBody} from '@/packages/waivers/bounded-body';
 import {drawnSignature} from '@/packages/waivers/signature';
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const tokenSchema=z.string().regex(/^[a-f0-9]{48}$/);
 async function resolve(token:string){
- const [row]=await db.select({assignment:externalWaiverAssignments,form:externalWaiverForms,appointment:appointments}).from(externalWaiverAssignments)
+ const [row]=await db.select({assignment:externalWaiverAssignments,form:externalWaiverForms,appointment:appointments,organization:organizations}).from(externalWaiverAssignments)
  .innerJoin(externalWaiverForms,and(eq(externalWaiverAssignments.waiverFormId,externalWaiverForms.id),eq(externalWaiverAssignments.organizationId,externalWaiverForms.organizationId)))
  .innerJoin(appointments,and(eq(externalWaiverAssignments.appointmentId,appointments.id),eq(externalWaiverAssignments.organizationId,appointments.organizationId)))
+ .innerJoin(organizations,eq(externalWaiverAssignments.organizationId,organizations.id))
  .where(eq(externalWaiverAssignments.trackingTokenHash,digest(token)));
  if(!row||row.form.provider!=='MAIA'||row.assignment.status==='VOID'||['CANCELLED','NO_SHOW'].includes(row.appointment.status)||Date.now()>row.appointment.startsAt.getTime()+7*86400000)return null;
  const meta=row.form.metadata as {templateId?:string;definition?:unknown}|null;
@@ -29,7 +31,7 @@ async function resolve(token:string){
 export async function GET(request:NextRequest){
  const token=tokenSchema.safeParse(request.nextUrl.searchParams.get('token'));if(!token.success)return NextResponse.json({error:'Invalid form link.'},{status:404});
  const row=await resolve(token.data);if(!row)return NextResponse.json({error:'This form link is unavailable or expired.'},{status:404});
- return NextResponse.json({name:row.form.name,audience:row.form.audience,definition:row.definition,complete:['COMPLETED','REVIEWED'].includes(row.assignment.status)},{headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});
+ return NextResponse.json({name:row.form.name,audience:row.form.audience,definition:row.definition,timezone:row.organization.timezone,complete:['COMPLETED','REVIEWED'].includes(row.assignment.status)},{headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});
 }
 const submission=z.object({token:tokenSchema,signedName:z.string().trim().min(2).max(200),agreed:z.literal(true),answers:nativeAnswers.optional(),signature:drawnSignature});
 export async function POST(request:NextRequest){
