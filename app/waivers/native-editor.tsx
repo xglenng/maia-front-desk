@@ -9,7 +9,7 @@ type ArtistProfile={id:string;name:string};
 export default function NativeEditor({currentArtist,artistProfileCount,studioBrand,studioLogoAssetId,studioLogoAvailable,busy,onSaved}:{
  currentArtist:ArtistProfile|null;artistProfileCount:number;studioBrand:string;studioLogoAssetId:string|null;studioLogoAvailable:boolean;busy:boolean;onSaved:()=>Promise<void>;
 }) {
- const [name,setName]=useState(''),[body,setBody]=useState(''),[audience,setAudience]=useState<WaiverAudience>('ADULT');
+ const [name,setName]=useState(''),[body,setBody]=useState(''),[audience,setAudience]=useState<WaiverAudience>('ANY');
  const [saving,setSaving]=useState(false),[message,setMessage]=useState('');
  const [fields,setFields]=useState<NativeField[]>([]),[brand,setBrand]=useState('');
  const [logoSelected,setLogoSelected]=useState(false),[pickerOpen,setPickerOpen]=useState(false);
