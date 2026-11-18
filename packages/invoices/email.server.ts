@@ -2,6 +2,7 @@ import { db } from '@/packages/db/src';
 import { studioInvoices, artists, organizations, studioLogoAssets } from '@/packages/db/src/schema';
 import { eq, and } from 'drizzle-orm';
 import { Resend } from 'resend';
+import { z } from 'zod';
 
 // Extract PostgreSQL error details from Drizzle ORM errors
 // PostgreSQL error codes: 42703 = column not found, 42P01 = table not found, etc.
@@ -39,12 +40,25 @@ function getResend() {
   return new Resend(apiKey);
 }
 
+function invoiceSender(configuredFrom: string, studioName: string | undefined) {
+  const match = configuredFrom.match(/^(?:[^<>\r\n]*<([^<>\s]+)>|([^<>\s]+))$/);
+  const address = match?.[1] || match?.[2];
+  if (!address || !z.string().email().safeParse(address).success) {
+    throw new Error('Invoice email is unavailable. Configure a valid verified email sender.');
+  }
+  const name = studioName?.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029<>]/g, ' ').trim();
+  if (!name) {
+    throw new Error('Invoice email is unavailable. Configure the studio name.');
+  }
+  return `"${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" <${address}>`;
+}
+
 // Get invoice context data: artist, organization, and logo
 async function getInvoiceContext(invoice: typeof studioInvoices.$inferSelect) {
   const artist = await db
     .select({ id: artists.id, displayName: artists.displayName })
     .from(artists)
-    .where(eq(artists.id, invoice.artistId))
+    .where(and(eq(artists.id, invoice.artistId), eq(artists.organizationId, invoice.organizationId)))
     .limit(1)
     .then((rows) => rows[0]);
 
@@ -379,11 +393,12 @@ export async function sendInvoiceEmail(
   try {
     // Get context data
     const { artist, org, logo } = await getInvoiceContext(invoice);
+    const sender = invoiceSender(from, org?.publicName?.trim() || org?.name?.trim());
 
     // Send via Resend
     const resend = getResend();
     const { data, error } = await resend.emails.send({
-      from,
+      from: sender,
       to: email,
       subject: `Invoice Payment Required`,
       html: generateInvoiceEmailHtml(
