@@ -1,6 +1,6 @@
 import type { SVGProps } from 'react';
 
-export type IconName = 'services' | 'card' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off' | 'edit' | 'refresh' | 'sun' | 'moon' | 'copy' | 'bell';
+export type IconName = 'services' | 'card' | 'bank' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off' | 'edit' | 'refresh' | 'sun' | 'moon' | 'copy' | 'bell';
 const paths: Record<IconName, React.ReactNode> = {
   bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-2 7-2 9h16c0-2-2-2-2-9ZM10 20a2 2 0 0 0 4 0"/></>,
   copy: <><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></>,
@@ -10,6 +10,7 @@ const paths: Record<IconName, React.ReactNode> = {
   edit: <><path d="m16 3 5 5L9 20l-6 1 1-6ZM14 5l5 5"/></>,
   services: <><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="2" fill="white"/><circle cx="16" cy="12" r="2" fill="white"/><circle cx="10" cy="19" r="2" fill="white"/></>,
   card: <><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></>,
+  bank: <><path d="M3 9h18L12 3 3 9ZM4 21h16M6 18h12M7 9v9m5-9v9m5-9v9"/></>,
   chart: <><path d="M4 3v18h17M8 16v-4m5 4V8m5 8V5"/></>,
   document: <><path d="M14 2H5v20h14V7Z M14 2v5h5M8 12h8m-8 4h6"/></>,
   message: <path d="M3 4h18v13H9l-6 4ZM7 9h10m-10 4h6"/>,

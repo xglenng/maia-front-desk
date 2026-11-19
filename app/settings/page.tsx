@@ -14,6 +14,7 @@ export default function SettingsPage() {
     <p style={{ color: '#77736e' }}>Manage studio operations and the information Maia can share with clients.</p>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16, marginTop: 24 }}>
       {owner&&<a href="/settings/payments" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="card" />Studio payments</strong><p>Manage the studio’s Stripe connection and payment setup.</p></a>}
+      {owner&&<a href="/banking" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="bank" />Banking</strong><p>View studio balances, payout schedules, and recent payouts.</p></a>}
       {owner&&<a href="/settings/team" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="clients" />Team &amp; invitations</strong><p>Invite artists and apprentices to set up their own studio login.</p></a>}
       <a href="/usage" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="chart" />Usage dashboard</strong><p>View SMS segments, AI tokens, and estimated AI costs by artist.</p></a>
       <a href="/onboarding" style={{...card,borderColor:'#b98b7f'}}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="wand" />Guided studio activation</strong><p>Follow one production checklist from business profile through tested go-live.</p></a>
