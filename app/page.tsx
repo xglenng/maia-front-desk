@@ -6,6 +6,7 @@ import "./dashboard.css";
 import { calendarBlock, calendarMinute } from "@/packages/studio/calendar-layout";
 import { artistColor } from '@/packages/studio/artist-colors';
 import NativeCalendar from '@/components/native-calendar';
+import { StripeBalance } from '@/components/stripe-balance';
 import UiIcon from '@/components/ui-icon';
 import { ContinueSetupBanner } from '@/components/continue-setup-banner';
 import { BusinessManagerPanel } from '@/components/business-manager-panel';
@@ -14,7 +15,7 @@ import { BusinessManagerLauncher } from '@/components/business-manager-launcher'
 type Appointment = { id: string; startsAt: string; endsAt: string; client: string; service: string; status: string; priceCents: number | null; depositCents: number | null; depositStatus: string; };
 type ConversationData = { id: string; name: string; preview: string; lastMessageAt: string | null; aiEnabled: boolean; unreadCount: number; status: string; };
 type ClientData = { id: string; name: string; email: string | null; phone: string | null; createdAt: string; };
-type DashboardData = { organization: { name: string; timezone: string } | null; signedInArtist: {id:string;displayName:string}|null; artists: Array<{ id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean }>; artist: { id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
+type DashboardData = { invoiceSummary: { paidCount: number; pendingCount: number; paidCents: number; pendingCents: number }; organization: { name: string; timezone: string } | null; signedInArtist: {id:string;displayName:string}|null; artists: Array<{ id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean }>; artist: { id: string; displayName: string; calendarColor: string | null; requiresSupervisorApproval:boolean; aiMode: string; bookingEnabled: boolean }; date: string; appointments: Appointment[]; conversations: ConversationData[]; clients: ClientData[]; stats: { appointmentsToday: number; confirmedAppointments: number; depositsPaidAppointments: number; clientCount: number }; };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -171,16 +172,17 @@ export default function Home() {
 }
 
 function Overview({ data, onNavigate }: { data: DashboardData; onNavigate: (view: "Calendar" | "Inbox" | "Clients") => void }) {
-  const revenue = data.appointments.reduce((sum, a) => sum + (a.priceCents ?? 0), 0);
-  const deposits = data.appointments.reduce((sum, a) => sum + (a.depositStatus === "PAID" ? (a.depositCents ?? 0) : 0), 0);
+  const user = useSession();
+  const invoiceMoney = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
   return <div className="content">
     <ContinueSetupBanner />
     <section className="metric-grid">
       <Metric label="Appointments today" value={String(data.stats.appointmentsToday)} note={`${data.appointments.filter(a => a.status === "AI_HOLD").length} AI holds`} icon="▣" />
       <Metric label="Clients" value={String(data.stats.clientCount)} note="Clients in your studio" icon="♙" />
-      <Metric label="Revenue booked" value={`$${(revenue / 100).toLocaleString()}`} note={`$${(deposits / 100).toLocaleString()} deposits paid today`} icon="$" />
+      <Metric label="Invoices · All time" value={invoiceMoney(data.invoiceSummary.paidCents)} note={`${data.invoiceSummary.paidCount} paid · ${data.invoiceSummary.pendingCount} pending (${invoiceMoney(data.invoiceSummary.pendingCents)})`} icon="$" />
       <Metric label="AI conversations" value={String(data.conversations.length)} note={`${data.conversations.filter(c => c.aiEnabled).length} AI enabled`} icon="✦" />
     </section>
+    {user?.role === 'OWNER' && <StripeBalance />}
     <section className="grid-two">
       <div className="panel schedule-panel">
         <div className="panel-head"><div><h2>Today&apos;s schedule</h2><p>{formatDate(data.date)}</p></div><button className="text-btn" onClick={() => onNavigate("Calendar")}>View calendar →</button></div>

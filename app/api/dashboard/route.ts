@@ -2,7 +2,7 @@ import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from "next/server";
 import { sql, and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import { db } from "@db/index";
-import { artists, clients, conversations, messages, appointments, services, organizations } from "@db/schema";
+import { artists, clients, conversations, messages, appointments, services, organizations, studioInvoices } from "@db/schema";
 import { localDateTimeToUtc } from '@/packages/scheduling/square/time';
 import { canAccessArtist } from '@/packages/inbox/state';
 import { ONBOARDING_PREVIEW_CLIENT_NOTE } from '@/packages/onboarding/readiness';
@@ -99,6 +99,16 @@ async function handleGET(request: NextRequest) {
       db.select({ count: count() }).from(clients).where(clientScope),
     ]);
 
+    const [invoiceSummary] = await db.select({
+      paidCount: sql<number>`count(*) filter (where ${studioInvoices.status} = 'PAID')::int`,
+      pendingCount: sql<number>`count(*) filter (where ${studioInvoices.status} = 'OPEN')::int`,
+      paidCents: sql<number>`coalesce(sum(${studioInvoices.totalCents}) filter (where ${studioInvoices.status} = 'PAID'), 0)::bigint`,
+      pendingCents: sql<number>`coalesce(sum(${studioInvoices.totalCents}) filter (where ${studioInvoices.status} = 'OPEN'), 0)::bigint`,
+    }).from(studioInvoices).where(and(
+      eq(studioInvoices.organizationId, user.organization_id),
+      eq(studioInvoices.artistId, artist.id),
+    ));
+
     const messageByConversation = new Map<string, { content: string; createdAt: Date }>();
     for (const m of latestMessages) {
       const previous = messageByConversation.get(m.conversationId);
@@ -106,6 +116,7 @@ async function handleGET(request: NextRequest) {
     }
 
     return NextResponse.json({
+      invoiceSummary: { paidCount: Number(invoiceSummary.paidCount), pendingCount: Number(invoiceSummary.pendingCount), paidCents: Number(invoiceSummary.paidCents), pendingCents: Number(invoiceSummary.pendingCents) },
       organization: org, signedInArtist, artist: { ...artist, aiMode: artist.requiresSupervisorApproval ? 'DRAFT' : artist.aiMode }, artists: availableArtists, date,
       appointments: todayAppointments.map(a => ({
         ...a, client: `${a.clientFirstName}${a.clientLastName ? ` ${a.clientLastName}` : ""}`,
