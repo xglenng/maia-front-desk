@@ -5,6 +5,7 @@ import { db, pool } from '@db/index';
 import { appointments, artists, clients, organizations, services } from '@db/schema';
 import { generateText } from 'ai';
 import { configuredLanguageModel } from '@/packages/ai/src/model-config';
+import { localDateString, localDateTimeToUtc, addLocalDays } from '@/packages/scheduling/square/time';
 import { z } from 'zod';
 
 async function handlePOST(request: NextRequest) {
@@ -67,12 +68,41 @@ async function handlePOST(request: NextRequest) {
 
     // Get this week's bookings
     const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-    weekEnd.setHours(0, 0, 0, 0);
+    const timezone = org.timezone || 'UTC';
+    const localToday = localDateString(now, timezone);
+    const localWeekday = new Date(`${localToday}T12:00:00Z`).getUTCDay();
+    const midnight = localDateTimeToUtc(`${localToday}T00:00:00`, timezone);
+    const weekStart = addLocalDays(midnight, -((localWeekday + 6) % 7), timezone);
+    const weekEnd = addLocalDays(weekStart, 7, timezone);
+    const dateTime = (value: Date) => value.toLocaleString('en-US', { timeZone: timezone, dateStyle: 'full', timeStyle: 'short' });
+    businessContext += `Current studio date and time: ${dateTime(now)} (${timezone}).`;
+
+    try {
+      const upcoming = await db.select({
+        startsAt: appointments.startsAt,
+        clientFirstName: clients.firstName,
+        clientLastName: clients.lastName,
+        serviceName: services.name,
+      }).from(appointments)
+        .innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(appointments.organizationId, clients.organizationId)))
+        .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(appointments.organizationId, services.organizationId)))
+        .where(and(
+          eq(appointments.organizationId, org.id),
+          inArray(appointments.artistId, artistIds),
+          eq(appointments.status, 'CONFIRMED'),
+          gte(appointments.startsAt, now),
+        ))
+        .orderBy(appointments.startsAt, appointments.id)
+        .limit(11);
+      businessContext += `\n\nUpcoming confirmed appointments (next ${Math.min(upcoming.length, 10)}${upcoming.length > 10 ? ', more exist' : ''}):`;
+      if (!upcoming.length) businessContext += ' None scheduled.';
+      for (const booking of upcoming.slice(0, 10)) {
+        const name = [booking.clientFirstName, booking.clientLastName].filter(Boolean).join(' ');
+        businessContext += `\n- ${name} — ${booking.serviceName || 'Service'} — ${dateTime(booking.startsAt)}`;
+      }
+    } catch {
+      businessContext += '\n\nUpcoming confirmed appointments: Unable to load.';
+    }
 
     try {
       const thisWeekBookings = await db
@@ -98,11 +128,11 @@ async function handlePOST(request: NextRequest) {
         .orderBy(appointments.startsAt);
 
       if (thisWeekBookings.length > 0) {
-        businessContext += `\n\nThis week's bookings (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}):`;
+        businessContext += `\n\nThis week's bookings (${localDateString(weekStart, timezone)} to ${localDateString(weekEnd, timezone)} exclusive; includes past bookings):`;
         thisWeekBookings.forEach(b => {
-          const date = new Date(b.startsAt).toLocaleDateString();
-          const clientName = `${b.clientFirstName} ${b.clientLastName}`.trim();
-          businessContext += `\n- ${clientName} - ${b.serviceName || 'Service'} on ${date} (${b.status})`;
+          const date = dateTime(b.startsAt);
+          const clientName = `${b.clientFirstName} ${b.clientLastName || ''}`.trim();
+          businessContext += `\n- ${clientName} - ${b.serviceName || 'Service'} on ${date} (${b.status}; ${b.startsAt < now ? 'past' : 'upcoming'})`;
         });
       } else {
         businessContext += `\n\nThis week's bookings: No appointments scheduled.`;
@@ -165,6 +195,7 @@ You have access to the following data for ${org.name}:${businessContext}${onboar
 
 When users ask about their business:
 - Provide accurate information based on the data provided
+- For upcoming appointments, use only the Upcoming confirmed appointments section. Never describe past weekly bookings as upcoming. If that section could not load, explain that upcoming appointments could not be verified. The next 10 appointments may not be the complete schedule.
 - Use the studio's timezone (${org.timezone || 'UTC'}) for dates/times
 - Show revenue breakdowns and invoice totals clearly
 - Distinguish between paid and unpaid invoices
