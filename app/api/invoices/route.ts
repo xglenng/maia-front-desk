@@ -12,6 +12,7 @@ import {invoiceInput} from '@/packages/invoices/input';
 import {InvoiceIssueError,invoiceErrorDetails,issueInvoice} from '@/packages/invoices/issue.server';
 import {counterCardConfiguration} from '@/packages/checkout/card-config.server';
 import {getStripe} from '@/packages/integrations/payments';
+import {invoiceDelivery} from '@/packages/invoices/delivery';
 const headers={'Cache-Control':'private, no-store'};
 async function get(request:NextRequest){
  const user=(await identity(request))!;
@@ -80,11 +81,11 @@ async function post(request:NextRequest){
   if(remote.livemode!==counterCardConfiguration().livemode||remote.currency!=='usd'||remote.metadata?.artistId!==row.artistId||remote.metadata?.maiaInvoiceId!==row.id||remote.metadata?.organizationId!==user.organization_id||remote.total!==row.totalCents)throw Error('Invoice reference mismatch.');
   if(action.data.action==='SEND_SMS'){
    if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
-   try{return NextResponse.json(await sendInvoiceSms(row,undefined,remote.due_date),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice SMS.',invoice:updated},{status:409,headers});}
+   try{return NextResponse.json(await sendInvoiceSms(row,undefined,invoiceDelivery(remote)),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice SMS.',invoice:updated},{status:409,headers});}
   }
   if(action.data.action==='SEND_EMAIL'){
    if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
-   try{return NextResponse.json(await sendInvoiceEmail(row,action.data.recipientEmail),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice email.',invoice:updated},{status:409,headers});}
+   try{return NextResponse.json(await sendInvoiceEmail(row,action.data.recipientEmail,invoiceDelivery(remote)),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice email.',invoice:updated},{status:409,headers});}
   }
   if(action.data.action==='VOID' && remote.status==='open'){
    try {
