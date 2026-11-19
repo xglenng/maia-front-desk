@@ -277,5 +277,50 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const ownHistory=await (await transactions(request('/api/transactions'),undefined)).json();assert.equal(ownHistory.rows.length,1);assert.equal(ownHistory.rows[0].artist_id,artist);
   assert.equal((await (await transactions(request('/api/transactions','a'),undefined)).json()).rows.length,2);
   assert.equal((await transactions(request('/api/transactions?page=-1'),undefined)).status,400);
+  const {POST:businessChat}=await import('../../../app/api/business-manager/chat/route');
+  for(const [orgId,artistId,creator,name,status] of [[org,artist,user,'Own invoice','OPEN'],[org,peer,peerUser,'Peer invoice','OPEN'],[other,foreign,foreignUser,'Foreign invoice','OPEN'],[org,artist,user,'Paid invoice','PAID']]){
+   await local.query("INSERT INTO studio_invoices(organization_id,artist_id,created_by_user_id,request_id,client_name,client_email,lines,total_cents,status) VALUES($1,$2,$3,$4,$5,'','[]',1250,$6)",[orgId,artistId,creator,randomUUID(),name,status]);
+  }
+  const ask=async(who:string,message='Unpaid invoices')=>{
+   const response=await businessChat(request('/api/business-manager/chat',who,{message}),undefined);
+   assert.equal(response.status,200);
+   assert.equal(response.headers.get('cache-control'),'no-store');
+   return (await response.json()).reply as string;
+  };
+  const ownReply=await ask('b'),peerReply=await ask('c'),ownerReply=await ask('a'),foreignReply=await ask('d');
+  assert.match(ownReply,/Own invoice: \$12\.50 original amount/);
+  assert.doesNotMatch(ownReply,/Peer invoice|Foreign invoice|Paid invoice/);
+  assert.match(peerReply,/Peer invoice/);assert.doesNotMatch(peerReply,/Own invoice|Foreign invoice/);
+  assert.match(ownerReply,/Own invoice/);assert.match(ownerReply,/Peer invoice/);assert.doesNotMatch(ownerReply,/Foreign invoice|Paid invoice/);
+  assert.match(foreignReply,/Foreign invoice/);assert.doesNotMatch(foreignReply,/Own invoice|Peer invoice/);
+  assert.match(ownReply,/not necessarily balances due/);assert.match(ownReply,/Refresh payment status/);
+  assert.match(await ask('b','What are my unpaid invoices?'),/Own invoice/);
+  for(let i=0;i<10;i++)await local.query("INSERT INTO studio_invoices(organization_id,artist_id,created_by_user_id,request_id,client_name,client_email,lines,total_cents,status) VALUES($1,$2,$3,$4,$5,'','[]',1250,'OPEN')",[org,peer,peerUser,randomUUID(),`Additional invoice ${i}`]);
+  const many=await ask('c');assert.match(many,/11 invoices are recorded as open/);assert.match(many,/Showing the 10 most recent/);assert.equal((many.match(/• /g)||[]).length,10);
+  await local.query("UPDATE studio_invoices SET status='PAID' WHERE organization_id=$1 AND status='OPEN'",[other]);
+  assert.match(await ask('d','  UNPAID INVOICES?  '),/No invoices are currently recorded as open/);
+  assert.equal((await businessChat(request('/api/business-manager/chat','b',{message:' '}),undefined)).status,400);
+  const previousFetch=globalThis.fetch,previousKey=process.env.OPENAI_API_KEY,previousModel=process.env.OPENAI_MODEL;
+  let modelCalls=0;
+  process.env.OPENAI_API_KEY='synthetic-key';process.env.OPENAI_MODEL='gpt-4o-mini';
+  globalThis.fetch=async(input,init)=>{
+   const url=String(input);
+   if(url==='http://localhost:3000/api/onboarding/readiness')return Response.json({readiness:{steps:[]}});
+   assert.equal(url,'https://api.openai.com/v1/chat/completions');
+   const body=JSON.parse(String(init?.body));
+   assert.equal(body.model,'gpt-4o-mini');
+   assert.ok(body.messages.some((item:{role:string;content:string})=>item.role==='user'&&item.content==='How do I set up my studio?'));
+   modelCalls++;
+   return Response.json({id:'synthetic',object:'chat.completion',created:0,model:'gpt-4o-mini',choices:[{index:0,message:{role:'assistant',content:'Open studio settings to start.'},finish_reason:'stop'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}});
+  };
+  try{
+   assert.equal(await ask('b','How do I set up my studio?'),'Open studio settings to start.');
+   assert.equal(modelCalls,1);
+   await ask('b');assert.equal(modelCalls,1);
+  }finally{
+   globalThis.fetch=previousFetch;
+   if(previousKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=previousKey;
+   if(previousModel===undefined)delete process.env.OPENAI_MODEL;else process.env.OPENAI_MODEL=previousModel;
+  }
  }finally{await local.query(`DROP SCHEMA ${schema} CASCADE`);await local.end();await pool.end();}
 });

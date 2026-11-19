@@ -14,6 +14,8 @@ Stripe requires a valid customer email to issue a `send_invoice` invoice, even w
 
 Refresh payment status retrieves the invoice from Stripe; automatic invoice webhook synchronization is not part of this first version. Payment-mode/account/metadata/amount checks protect reconciliation. Issuance uses a per-invoice database advisory lock, stable Stripe idempotency keys, persisted remote IDs, and per-line metadata to recover partial failures. Ambiguous creation with no stored remote ID older than 23 hours requires support review instead of risking a duplicate invoice.
 
+The Business Manager's “Unpaid invoices” suggestion lists up to ten invoices recorded as open in Maia, scoped to the studio owner or the signed-in artist. These are cached statuses and original totals, not live Stripe balances; refresh payment status in Invoices to check for payments. This invoice summary is generated locally rather than sent to the AI model.
+
 ## Migration and deployment
 
 `0024_studio_invoices.sql` adds only `studio_invoices`, constraints, and indexes. No existing payment rows are modified. Tested against an isolated local PostgreSQL schema, including migration application, artist/tenant isolation, duplicate draft requests, history visibility, and synthetic Stripe timeout/retry behavior. Unit suite, typecheck, and production build must pass before deployment. Live provider issue/SMS/payment has not been exercised by the agent.

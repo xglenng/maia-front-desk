@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, CSSProperties } from 'react';
-import UiIcon from './ui-icon';
+import { useState, useRef, useEffect } from 'react';
 
 type Message = {
   id: string;
@@ -26,6 +25,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
   const [isMobile, setIsMobile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messageIdRef = useRef(0);
 
   // If controlled isOpen prop is provided, use it
   const displayIsOpen = controlledIsOpen !== undefined ? controlledIsOpen : isOpen;
@@ -61,7 +61,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
     if (!input.trim() || loading) return;
 
     const userMessage: Message = {
-      id: String(Date.now()),
+      id: `message-${++messageIdRef.current}`,
       role: 'user',
       content: input,
       timestamp: new Date(),
@@ -82,7 +82,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
       const data = await response.json();
 
       const assistantMessage: Message = {
-        id: String(Date.now()),
+        id: `message-${++messageIdRef.current}`,
         role: 'assistant',
         content: data.reply,
         timestamp: new Date(),
@@ -91,7 +91,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       const errorMessage: Message = {
-        id: String(Date.now()),
+        id: `message-${++messageIdRef.current}`,
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',
         timestamp: new Date(),
@@ -184,6 +184,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
                   background: msg.role === 'user' ? '#111' : '#f0f0f0',
                   color: msg.role === 'user' ? '#fff' : '#111',
                   wordWrap: 'break-word',
+                  whiteSpace: 'pre-wrap',
                 }}
               >
                 {msg.content}
@@ -309,6 +310,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
 
   // Desktop view
   if (!displayIsOpen) {
+    if (controlledIsOpen !== undefined) return null;
     return (
       <button
         onClick={() => setIsOpen(true)}
@@ -344,8 +346,10 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
         position: 'fixed',
         bottom: 20,
         right: 20,
-        width: 360,
-        height: 520,
+        width: isExpanded ? 560 : 360,
+        height: isExpanded ? 720 : 520,
+        maxWidth: 'calc(100vw - 40px)',
+        maxHeight: 'calc(100vh - 40px)',
         background: '#fff',
         borderRadius: 12,
         boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
@@ -433,6 +437,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
                 background: msg.role === 'user' ? '#111' : '#f0f0f0',
                 color: msg.role === 'user' ? '#fff' : '#111',
                 wordWrap: 'break-word',
+                whiteSpace: 'pre-wrap',
               }}
             >
               {msg.content}

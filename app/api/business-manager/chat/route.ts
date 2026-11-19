@@ -1,7 +1,7 @@
 import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
-import { db } from '@db/index';
+import { db, pool } from '@db/index';
 import { appointments, artists, clients, organizations, services } from '@db/schema';
 import { generateText } from 'ai';
 import { configuredLanguageModel } from '@/packages/ai/src/model-config';
@@ -13,7 +13,28 @@ async function handlePOST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
 
     const body = await request.json();
-    const { message } = z.object({ message: z.string().min(1).max(1000) }).parse(body);
+    const parsed = z.object({ message: z.string().trim().min(1).max(1000) }).safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: 'Enter a question of up to 1000 characters.' }, { status: 400 });
+    const { message } = parsed.data;
+
+    if (/^(?:what are (?:my |the )?|show (?:me )?(?:my |the )?)?unpaid invoices[?.!]*$/i.test(message)) {
+      const result = await pool.query<{ client_name: string; total_cents: number; total_count: string }>(
+        `SELECT i.client_name, i.total_cents, count(*) OVER() AS total_count
+         FROM studio_invoices i
+         JOIN artists a ON a.id=i.artist_id AND a.organization_id=i.organization_id
+         WHERE i.organization_id=$1 AND i.status='OPEN' AND ($2::boolean OR a.user_id=$3)
+         ORDER BY i.created_at DESC, i.id DESC LIMIT 10`,
+        [user.organization_id, user.role === 'OWNER', user.id],
+      );
+      const count = Number(result.rows[0]?.total_count ?? 0);
+      const invoices = result.rows.map(row =>
+        `• ${row.client_name}: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(row.total_cents / 100)} original amount`
+      ).join('\n');
+      const reply = count
+        ? `${count} ${count === 1 ? 'invoice is' : 'invoices are'} recorded as open in Maia.${count > result.rows.length ? ` Showing the ${result.rows.length} most recent.` : ''}\n${invoices}\n\nAmounts are original invoice totals, not necessarily balances due. Refresh payment status on the Invoices page to check Stripe for current payment status.`
+        : 'No invoices are currently recorded as open in Maia. Refresh payment status on the Invoices page to check Stripe for current payment status.';
+      return NextResponse.json({ reply });
+    }
 
     // Get the user's organization
     const [org] = await db
@@ -116,8 +137,7 @@ async function handlePOST(request: NextRequest) {
       businessContext += `\n\nMonthly revenue: Unable to load.`;
     }
 
-    // Placeholder for unpaid invoices until that feature is implemented
-    businessContext += `\n\nUnpaid invoices: Invoice management coming soon.`;
+    businessContext += `\n\nInvoice details are not included in this response. For open invoices, ask "Unpaid invoices" or open the Invoices page.`;
 
     // Get onboarding readiness
     const readinessResponse = await fetch('http://localhost:3000/api/onboarding/readiness', {
