@@ -13,3 +13,24 @@ test('banking reads only the resolved account, omits bank details and rejects mo
  payout.livemode=true;await assert.rejects(readStudioBanking(account,provider),/mode/);
  provider.balance.retrieve=async()=>{throw Error('unavailable');};await assert.rejects(readStudioBanking(account,provider),/unavailable/);
 });
+
+test('banking exposes only masked payout destinations and tolerates unavailable account settings', async () => {
+ const account = {stripeAccountId:'acct_synthetic',livemode:false,payoutsEnabled:true};
+ const provider:any = {
+  balance:{retrieve:async()=>({livemode:false,available:[],pending:[]})},
+  payouts:{list:async()=>({data:[]})},
+  accounts:{retrieve:async(id:string)=>{
+   assert.equal(id,account.stripeAccountId);
+   return {settings:{payouts:{schedule:{interval:'weekly',weekly_anchor:'friday'}}},
+    external_accounts:{data:[{object:'bank_account',bank_name:'Test bank',last4:'1234',currency:'usd',default_for_currency:true,routing_number:'private',account_holder_name:'private'}]}};
+  }},
+ };
+ const result = await readStudioBanking(account,provider);
+ assert.equal(result.payoutSettings?.schedule?.weeklyAnchor,'friday');
+ assert.deepEqual(result.payoutSettings?.destinations,[{name:'Test bank',last4:'1234',currency:'usd',defaultForCurrency:true}]);
+ assert.equal(JSON.stringify(result).includes('private'),false);
+ provider.accounts.retrieve=async()=>{throw Error('restricted');};
+ const restricted = await readStudioBanking(account,provider);
+ assert.equal(restricted.payoutSettings,null);
+ assert.equal(restricted.connected,true);
+});
