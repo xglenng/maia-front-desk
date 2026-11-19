@@ -50,7 +50,12 @@
 .invoice-customer-dialog form>header,.invoice-customer-dialog form>.invoice-customer-add-new,.invoice-customer-dialog form>label,.invoice-customer-footer{flex:none}
 .invoice-customer-scroll{min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .invoice-customer-scroll .invoice-customer-results{max-height:none;overflow:visible}
+.invoice-customer-fields{display:flex;flex-direction:column;gap:20px;padding:6px 6px 20px;scroll-padding:6px}
+.invoice-customer-picker .invoice-customer-fields label{margin:0;line-height:1.4}
+.invoice-customer-picker .invoice-customer-fields input{min-height:48px;padding:14px}
+.invoice-customer-fields .invoice-customer-notice{margin:0;line-height:1.5}
 .invoice-customer-footer{padding-top:10px;background:#fff;border-top:1px solid #eee}
+.invoice-customer-fields+.invoice-customer-footer{padding-top:16px}
 .invoice-customer-picker .invoice-customer-footer .checkout-primary{margin:0;min-height:52px}
 @media(max-width:600px){
  .invoice-customer-dialog{position:fixed;top:var(--picker-viewport-top,0px);left:0;right:0;bottom:auto;margin:0;height:var(--picker-viewport-height,100dvh);max-height:var(--picker-viewport-height,100dvh);padding:20px 20px max(16px,env(safe-area-inset-bottom))}
