@@ -16,6 +16,7 @@ export const industrySettings = z.object({
   consentFormsEnabled: z.boolean(),
   requestFormsEnabled: z.boolean(),
 }).strict();
+export type IndustrySettingsValue = z.infer<typeof industrySettings>;
 
 export function suggestedStaffTerm(industries: Industry[]) {
   if (industries.length !== 1) return 'provider';

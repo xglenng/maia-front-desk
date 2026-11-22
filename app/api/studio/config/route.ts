@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { db } from '@db/index';
 import { conversations, automationJobs, artists, businessRules, organizations, studioAftercare, studioFaqs, studioLocations } from '@db/schema';
 import { isValidIanaTimezone } from '@/packages/studio/config-policy';
+import { industrySettings } from '@/packages/onboarding/industry';
 
 const nullableText = (max: number) => z.string().trim().max(max).nullable().optional();
 const timezone = z.string().trim().min(1).max(80).refine(isValidIanaTimezone, 'Must be a valid IANA timezone.');
@@ -71,6 +72,7 @@ const updateSchema = z.object({
   faqs: z.array(faqSchema).max(60).optional(),
   aftercare: z.array(aftercareSchema).max(40).optional(),
   artists: z.array(artistSettingsSchema).max(40).optional(),
+  industry: industrySettings.optional(),
 }).strict();
 
 function uniqueIds(values: Array<{ id?: string }>) {
@@ -108,8 +110,12 @@ async function handleGET(request: NextRequest) {
 async function handlePUT(request: NextRequest) {
   const user=(await identity(request))!;
   const parsed = updateSchema.safeParse(await request.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return NextResponse.json({ error: parsed.error.flatten(), message: `Check ${issue.path.join('.') || 'configuration'}: ${issue.message}` }, { status: 400 });
+  }
   const input = parsed.data;
+  if (input.industry && user.role !== 'OWNER') return NextResponse.json({ error: 'Only the business owner can change specialties and form settings.' }, { status: 403 });
   if (input.rules && !uniqueIds(input.rules)) return NextResponse.json({ error: 'Duplicate business rule IDs.' }, { status: 400 });
   if (input.faqs && !uniqueIds(input.faqs)) return NextResponse.json({ error: 'Duplicate FAQ IDs.' }, { status: 400 });
   if (input.aftercare && !uniqueIds(input.aftercare)) return NextResponse.json({ error: 'Duplicate aftercare IDs.' }, { status: 400 });
@@ -136,22 +142,23 @@ async function handlePUT(request: NextRequest) {
   if (ownedRules.length !== ruleIds.length || ownedFaqs.length !== faqIds.length || ownedAftercare.length !== aftercareIds.length) return NextResponse.json({ error: 'A configuration record does not belong to this studio.' }, { status: 404 });
 
   try {
-    await db.transaction(async tx => {
-      await tx.update(organizations).set({ ...input.profile, updatedAt: new Date() }).where(eq(organizations.id, input.organizationId));
+    const created = await db.transaction(async tx => {
+      const created = { rules: [] as string[], faqs: [] as string[], aftercare: [] as string[] };
+      await tx.update(organizations).set({ ...input.profile, ...input.industry, updatedAt: new Date() }).where(eq(organizations.id, input.organizationId));
       for (const rule of input.rules ?? []) {
         const { id, ...values } = rule;
         if (id) await tx.update(businessRules).set(values).where(and(eq(businessRules.id, id), eq(businessRules.organizationId, input.organizationId)));
-        else await tx.insert(businessRules).values({ ...values, organizationId: input.organizationId });
+        else created.rules.push((await tx.insert(businessRules).values({ ...values, organizationId: input.organizationId }).returning({ id: businessRules.id }))[0].id);
       }
       for (const faq of input.faqs ?? []) {
         const { id, ...values } = faq;
         if (id) await tx.update(studioFaqs).set({ ...values, updatedAt: new Date() }).where(and(eq(studioFaqs.id, id), eq(studioFaqs.organizationId, input.organizationId)));
-        else await tx.insert(studioFaqs).values({ ...values, organizationId: input.organizationId });
+        else created.faqs.push((await tx.insert(studioFaqs).values({ ...values, organizationId: input.organizationId }).returning({ id: studioFaqs.id }))[0].id);
       }
       for (const item of input.aftercare ?? []) {
         const { id, ...values } = item;
         if (id) await tx.update(studioAftercare).set({ ...values, updatedAt: new Date() }).where(and(eq(studioAftercare.id, id), eq(studioAftercare.organizationId, input.organizationId)));
-        else await tx.insert(studioAftercare).values({ ...values, organizationId: input.organizationId });
+        else created.aftercare.push((await tx.insert(studioAftercare).values({ ...values, organizationId: input.organizationId }).returning({ id: studioAftercare.id }))[0].id);
       }
       for (const settings of input.artists ?? []) {
         const { artistId, ...values } = settings;
@@ -164,11 +171,13 @@ async function handlePUT(request: NextRequest) {
         }
         await tx.update(artists).set(values).where(and(eq(artists.id, artistId), eq(artists.organizationId, input.organizationId)));
       }
+      return created;
     });
+    return NextResponse.json({ saved: true, created });
   } catch {
-    return NextResponse.json({ error: 'Unable to save studio configuration.' }, { status: 500 });
+    console.error('Studio configuration transaction failed.');
+    return NextResponse.json({ error: 'Unable to save studio configuration. Your changes are still here; please retry.' }, { status: 500 });
   }
-  return NextResponse.json({ saved: true });
 }
 
 export const GET = protectedRoute(handleGET, true);

@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSession } from '@/components/session-gate';
 import StudioLogoSetting from './studio-logo-setting';
 import IndustrySettings from '@/components/industry-settings';
+import { industrySettings, type IndustrySettingsValue } from '@/packages/onboarding/industry';
 import styles from './studio-settings.module.css';
 
 type Visibility = 'CLIENT_VISIBLE' | 'AI_INTERNAL';
@@ -49,7 +50,7 @@ function timeMinute(value: string) { const [hour, minute] = value.split(':').map
 function nullable(value: string | null | undefined) { return value?.trim() || null; }
 async function readJson(response: Response) {
   const value = await response.json();
-  if (!response.ok) throw new Error(typeof value.error === 'string' ? value.error : 'Unable to save studio configuration.');
+  if (!response.ok) throw new Error(typeof value.message === 'string' ? value.message : typeof value.error === 'string' ? value.error : 'Unable to save studio configuration.');
   return value;
 }
 
@@ -68,6 +69,11 @@ export default function StudioSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [industry, setIndustry] = useState<IndustrySettingsValue | null>(null);
+  const [savedIndustry, setSavedIndustry] = useState<IndustrySettingsValue | null>(null);
+  const [industryError, setIndustryError] = useState('');
+  const [industryRefresh, setIndustryRefresh] = useState(0);
+  const [industrySaveVersion, setIndustrySaveVersion] = useState(0);
 
   async function load() {
     if (!organizationId) return;
@@ -95,15 +101,38 @@ export default function StudioSettingsPage() {
   }
 
   useEffect(() => { void load(); }, [organizationId]);
+  useEffect(() => {
+    if (!organizationId) return;
+    const controller = new AbortController();
+    setIndustry(null); setSavedIndustry(null); setIndustryError('');
+    fetch('/api/studio/industry', { cache: 'no-store', signal: controller.signal }).then(readJson).then(data => {
+      if (!controller.signal.aborted) { setIndustry(data.settings); setSavedIndustry(data.settings); }
+    }).catch(reason => {
+      if (!controller.signal.aborted) setIndustryError(reason instanceof Error ? reason.message : 'Unable to load specialties and forms.');
+    });
+    return () => controller.abort();
+  }, [organizationId, industryRefresh]);
 
   const activeArtist = useMemo(() => config?.artists.find(artist => artist.artistId === selectedArtist), [config, selectedArtist]);
 
   async function saveConfiguration(event: FormEvent) {
     event.preventDefault();
     if (!config || saving) return;
-    setSaving(true); setError(''); setNotice('');
+    setError(''); setNotice('');
+    if (user?.role === 'OWNER' && (!industry || !savedIndustry)) {
+      setError('Load specialties and forms before saving. Retry loading the section.');
+      return;
+    }
+    const changedIndustry = user?.role === 'OWNER' && JSON.stringify(industry) !== JSON.stringify(savedIndustry);
+    const validatedIndustry = changedIndustry ? industrySettings.safeParse(industry) : null;
+    if (validatedIndustry && !validatedIndustry.success) {
+      const issue = validatedIndustry.error.issues[0];
+      setError(issue.path[0] === 'industries' ? 'Select at least one valid business specialty.' : `Check staff terminology: ${issue.message}`);
+      return;
+    }
+    setSaving(true);
     try {
-      await readJson(await fetch('/api/studio/config', {
+      const result = await readJson(await fetch('/api/studio/config', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           organizationId,
@@ -112,10 +141,20 @@ export default function StudioSettingsPage() {
           faqs: config.faqs.map(faq => ({ ...faq, category: nullable(faq.category) })),
           aftercare: config.aftercare.map(item => ({ ...item, category: nullable(item.category), serviceType: nullable(item.serviceType) })),
           artists: config.artists.map(artist => ({ ...artist, bio: nullable(artist.bio), receptionistGreeting: nullable(artist.receptionistGreeting), receptionistInstructions: nullable(artist.receptionistInstructions) })),
+          ...(validatedIndustry?.success ? { industry: validatedIndustry.data } : {}),
         }),
       }));
+      const attachIds = <T extends { id?: string }>(items: T[], ids: string[]) => {
+        let index = 0;
+        return items.map(item => item.id ? item : { ...item, id: ids[index++] });
+      };
+      setConfig(current => current ? { ...current, rules: attachIds(current.rules, result.created.rules), faqs: attachIds(current.faqs, result.created.faqs), aftercare: attachIds(current.aftercare, result.created.aftercare) } : current);
+      if (validatedIndustry?.success) {
+        setIndustry(validatedIndustry.data); setSavedIndustry(validatedIndustry.data);
+        window.dispatchEvent(new Event('maia-industry-settings'));
+      }
+      setIndustrySaveVersion(version => version + 1);
       setNotice('Studio configuration saved.');
-      await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save studio configuration.');
     } finally { setSaving(false); }
@@ -199,21 +238,24 @@ export default function StudioSettingsPage() {
   if (loading && !config) return <main style={{ maxWidth: 960, margin: '0 auto', padding: 32 }}><h1>Studio Configuration</h1><p>Loading studio settings…</p></main>;
   if (!config) return <main style={{ maxWidth: 960, margin: '0 auto', padding: 32 }}><h1>Studio Configuration</h1><p role="alert">{error || 'Studio configuration could not be loaded.'}</p></main>;
 
-  const patchConfig = (update: Partial<Config>) => setConfig(current => current ? { ...current, ...update } : current);
+  const patchConfig = (update: Partial<Config>) => { setNotice(''); setConfig(current => current ? { ...current, ...update } : current); };
   const updateArtist = (update: Partial<ArtistSettings>) => patchConfig({ artists: config.artists.map(artist => artist.artistId === selectedArtist ? { ...artist, ...update } : artist) });
 
   return <main className={styles.page}>
     <a href="/settings">← Settings</a>
     <header className={styles.header}>
       <div><span className={styles.eyebrow}>Your business, your way</span><h1>Studio settings</h1><p>Manage your public details, business specialties, and the knowledge Maia uses.</p></div>
-      <button type="button" onClick={event => { const form = document.getElementById('studio-config-form') as HTMLFormElement | null; form?.requestSubmit(); }} disabled={saving} style={button}>{saving ? 'Saving…' : 'Save configuration'}</button>
+      <button type="submit" form="studio-config-form" disabled={saving || (user.role === 'OWNER' && !industry)} style={button}>{saving ? 'Saving…' : 'Save configuration'}</button>
     </header>
     {error && <p role="alert" style={{ background: '#fff0f0', color: '#8b1e1e', padding: 12, borderRadius: 6 }}>{error}</p>}
     {notice && <p role="status" style={{ background: '#eef5ee', color: '#2f7651', padding: 12, borderRadius: 6 }}>{notice}</p>}
 
-    <IndustrySettings />
+    {industry ? <IndustrySettings mode="embedded" settings={industry} onChange={value => { setIndustry(value); setNotice(''); }} disabled={user.role !== 'OWNER' || saving} saveVersion={industrySaveVersion} /> : <p role={industryError ? 'alert' : 'status'}>{industryError || 'Loading specialties and forms…'} {industryError && <button type="button" onClick={() => setIndustryRefresh(value => value + 1)}>Retry</button>}</p>}
+    {industry && user.role !== 'OWNER' && <p>Only the business owner can change specialties and form settings.</p>}
     <StudioLogoSetting />
+    <form id="artist-create-form" onSubmit={createArtist} />
     <form id="studio-config-form" noValidate onSubmit={saveConfiguration}>
+      <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <section id="business-profile" style={panel}>
         <div className={styles.sectionTitle}><div><span className={styles.eyebrow}>Public website</span><h2>Business profile</h2><p>These details appear on your studio website. Leave phone or email blank to hide it.</p></div>{user.organization_slug && <a className={styles.previewLink} href={`/a/${encodeURIComponent(user.organization_slug)}`} target="_blank" rel="noreferrer">Preview website</a>}</div>
         <div style={grid}>
@@ -303,7 +345,7 @@ export default function StudioSettingsPage() {
 
       <details id="receptionist" style={{...panel,scrollMarginTop:100}} ref={node=>{if(node && window.location.hash==='#receptionist'){node.open=true;node.scrollIntoView();}}}><summary style={{fontWeight:700,cursor:'pointer'}}>Artist permissions &amp; Maia preferences</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Artist &amp; AI receptionist</h2><p style={{ color: '#706b66' }}>Artist ownership and receptionist settings remain artist-scoped.</p></div><button type="button" onClick={() => setAddingArtist(value => !value)} style={secondary}>{addingArtist ? 'Cancel' : 'Add artist'}</button></div>
-        {addingArtist && <form onSubmit={createArtist} style={{ ...panel, padding: 14 }}><div style={grid}><label style={label}>Artist display name<input required minLength={2} maxLength={120} value={newArtistName} onChange={event => setNewArtistName(event.target.value)} style={field} /></label><label style={label}>Public bio<textarea maxLength={1200} rows={2} value={newArtistBio} onChange={event => setNewArtistBio(event.target.value)} style={field} /></label></div><button type="submit" disabled={saving} style={{ ...button, marginTop: 10 }}>{saving ? 'Creating…' : 'Create artist'}</button></form>}
+        {addingArtist && <div style={{ ...panel, padding: 14 }}><div style={grid}><label style={label}>Artist display name<input form="artist-create-form" required minLength={2} maxLength={120} value={newArtistName} onChange={event => setNewArtistName(event.target.value)} style={field} /></label><label style={label}>Public bio<textarea form="artist-create-form" maxLength={1200} rows={2} value={newArtistBio} onChange={event => setNewArtistBio(event.target.value)} style={field} /></label></div><button form="artist-create-form" type="submit" disabled={saving} style={{ ...button, marginTop: 10 }}>{saving ? 'Creating…' : 'Create artist'}</button></div>}
         <label style={label}>Artist profile
           <select value={selectedArtist} onChange={event => setSelectedArtist(event.target.value)} style={field}>{config.artists.map(artist => <option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select>
         </label>
@@ -324,7 +366,8 @@ export default function StudioSettingsPage() {
           </div>
         </>}
       </details>
-      <button type="submit" disabled={saving} style={{ ...button, marginTop: 18 }}>{saving ? 'Saving…' : 'Save configuration'}</button>
+      <button type="submit" disabled={saving || (user.role === 'OWNER' && !industry)} style={{ ...button, marginTop: 18 }}>{saving ? 'Saving…' : 'Save configuration'}</button>
+      </fieldset>
     </form>
   </main>;
 }
