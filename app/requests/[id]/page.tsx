@@ -18,7 +18,7 @@ export default function RequestDetailsPage() {
     return ()=>controller.abort();
   },[id]);
   return <main style={{maxWidth:760,margin:'32px auto',padding:24}}>
-    <a href="/waivers">← Waivers & forms</a><h1>{details?.submission.requestType==='TATTOO_REQUEST'?'Tattoo request':details?'Piercing request':'Request'}</h1>
+    <a href="/requests">← Submitted requests</a><h1>{details?.submission.requestType==='TATTOO_REQUEST'?'Tattoo request':details?'Piercing request':'Request'}</h1>
     {error&&<p role="alert">{error}</p>}{!details&&!error&&<p>Loading request…</p>}
     {details&&<><h2>{details.submission.clientName}</h2><p>Submitted {new Date(details.submission.createdAt).toLocaleString()}</p>
       {details.submission.definition.fields.map(field=>{

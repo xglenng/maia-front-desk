@@ -49,6 +49,7 @@ test('request migration and routes support isolated forms, uploads, retries and 
     const {GET:listForms,POST:saveForm}=await import('@/app/api/request-forms/route');
     const {GET:publicForm,POST:submit}=await import('@/app/api/public/request-forms/route');
     const {GET:notifications,POST:readNotification}=await import('@/app/api/request-notifications/route');
+    const {GET:listRequests}=await import('@/app/api/requests/route');
     const {GET:details}=await import('@/app/api/requests/[id]/route');
     const {GET:image}=await import('@/app/api/requests/[id]/images/[imageId]/route');
     const {GET:consentList,POST:createConsent}=await import('@/app/api/waiver-integrations/route');
@@ -135,6 +136,20 @@ test('request migration and routes support isolated forms, uploads, retries and 
     assert.equal((await readNotification(authenticated('/api/request-notifications','d',{id:notificationId}),undefined)).status,404);
     assert.equal((await readNotification(authenticated('/api/request-notifications','a',{id:notificationId}),undefined)).status,200);
     assert.equal((await notificationList('a')).unread,0);assert.equal((await notificationList('b')).unread,1);
+    const submittedList=async(cookie:string,query='')=>listRequests(authenticated(`/api/requests${query}`,cookie),undefined);
+    const received=(await (await submittedList('a')).json()).requests;
+    assert.equal(received.length,1);
+    assert.equal(received[0].id,saved[0].id);
+    assert.equal(received[0].clientName,'Alex Example');
+    assert.equal('answers' in received[0],false);
+    assert.equal((await (await submittedList('b')).json()).requests.length,1);
+    assert.equal((await (await submittedList('c')).json()).requests.length,0);
+    assert.equal((await (await submittedList('d')).json()).requests.length,0);
+    assert.equal((await (await submittedList('a','?type=PIERCING_REQUEST')).json()).requests.length,0);
+    assert.equal((await (await submittedList('a','?type=TATTOO_REQUEST')).json()).requests.length,1);
+    assert.equal((await submittedList('a','?page=0')).status,400);
+    assert.equal((await submittedList('a','?type=INVALID')).status,400);
+    assert.equal((await listRequests(new NextRequest('http://localhost/api/requests'),undefined)).status,401);
     const getDetails=(cookie:string)=>details(authenticated(`/api/requests/${saved[0].id}`,cookie),{params:Promise.resolve({id:saved[0].id})});
     assert.equal((await getDetails('c')).status,404);assert.equal((await getDetails('d')).status,404);
     const detail=await getDetails('b');assert.equal(detail.status,200);assert.equal((await detail.json()).attachments.length,3);
@@ -195,6 +210,14 @@ test('request migration and routes support isolated forms, uploads, retries and 
     assert.equal(firstPage.unread,secondPage.unread);
     assert.equal(new Set([...firstPage.notifications,...secondPage.notifications].map((item:{id:string})=>item.id)).size,54);
     assert.equal((await notifications(authenticated('/api/request-notifications?page=0','a'),undefined)).status,400);
+    const requestsPage1=await (await submittedList('a')).json();
+    const requestsPage2=await (await submittedList('a','?page=2')).json();
+    assert.equal(requestsPage1.requests.length,50);
+    assert.equal(requestsPage1.hasMore,true);
+    assert.equal(requestsPage2.requests.length,4);
+    assert.equal(requestsPage2.hasMore,false);
+    assert.equal(new Set([...requestsPage1.requests,...requestsPage2.requests].map((item:{id:string})=>item.id)).size,54);
+
   } finally {
     if(createdSchema)await local.query(`DROP SCHEMA ${schema} CASCADE`);
     if(createdJournal)await local.query(`DROP SCHEMA ${journalSchema} CASCADE`);

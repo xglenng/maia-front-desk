@@ -58,6 +58,8 @@ The template picker offers editable piercing and tattoo request forms when Audie
 
 The tattoo template offers three private JPEG or PNG inspiration images, each limited to 5 MB on upload and normalized to at most 2 MB. Images use the existing private photo-ID image normalization and AES-256-GCM encryption mechanism, but are stored separately from signed consent evidence. Requests retain the submitted form definition, answers, assigned artist, and submission time. Owners and the assigned artist can view the submission and its images; unread notification state is per recipient. Notifications are refreshed when the bell opens, through the page refresh action, and periodically. Requests and their notifications are committed together; a submission key retained in browser session storage makes retries idempotent. Changing a form invalidates an unsent page version, while a retry of an already accepted submission remains safe. Public intake uses the existing durable rate limiter.
 
+Submitted inquiries are also available from **Waivers & forms → View submitted requests** at `/requests`. The list includes existing submissions, supports tattoo/piercing filters and pagination, and opens each saved request with its images. Owners can view studio requests; artists can view their assigned requests. Listing requests is independent of notification read status.
+
 ### Request form release and rollback
 
 - The additive migration is `packages/db/drizzle/0034_request_forms.sql`; the corresponding journal entry is in `packages/db/drizzle/meta/_journal.json`. It adds request forms, submissions, encrypted attachments, and per-person notification records with tenant-qualified references.
