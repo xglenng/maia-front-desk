@@ -17,7 +17,7 @@ export async function publicStudioSite(slug: string) {
     db.select({ id: requestForms.id, name: requestForms.name, type: requestForms.requestType, definition: requestForms.definition, encrypted: requestForms.tokenEncrypted, hash: requestForms.tokenHash, artist: artists.displayName })
       .from(requestForms).innerJoin(artists, and(eq(requestForms.artistId, artists.id), eq(requestForms.organizationId, artists.organizationId)))
       .where(and(eq(requestForms.organizationId, organization.id), eq(requestForms.active, true))).orderBy(asc(requestForms.requestType), asc(artists.displayName), asc(requestForms.createdAt)),
-    db.select({ name: studioLocations.name, addressLine1: studioLocations.addressLine1, addressLine2: studioLocations.addressLine2, city: studioLocations.city, region: studioLocations.region, postalCode: studioLocations.postalCode, country: studioLocations.country, phone: studioLocations.phone, email: studioLocations.email })
+    db.select({ name: studioLocations.name, addressLine1: studioLocations.addressLine1, addressLine2: studioLocations.addressLine2, city: studioLocations.city, region: studioLocations.region, postalCode: studioLocations.postalCode, country: studioLocations.country })
       .from(studioLocations).where(and(eq(studioLocations.organizationId, organization.id), eq(studioLocations.active, true))).orderBy(desc(studioLocations.isPrimary), asc(studioLocations.name)),
     db.select({ id: studioFaqs.id, question: studioFaqs.question, answer: studioFaqs.answer, location: studioLocations.name })
       .from(studioFaqs).leftJoin(studioLocations, and(eq(studioFaqs.locationId, studioLocations.id), eq(studioFaqs.organizationId, studioLocations.organizationId)))

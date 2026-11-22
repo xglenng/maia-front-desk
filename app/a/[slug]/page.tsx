@@ -50,8 +50,6 @@ export default async function PublicBusinessPage({ params, searchParams }: { sea
         </div>}
         <div className={styles.locations}>{site.locations.map((location, index) => <article key={index} className={styles.location}>
           <h3>{location.name}</h3><address>{[location.addressLine1, location.addressLine2, [location.city, location.region, location.postalCode].filter(Boolean).join(' '), location.country].filter(Boolean).map((line, i) => <div key={i}>{line}</div>)}</address>
-          {location.phone && location.phone !== site.phone && <p><a href={phoneLink(location.phone)}>{location.phone}</a></p>}
-          {location.email && location.email !== site.email && <p><a href={`mailto:${location.email}`}>{location.email}</a></p>}
         </article>)}</div>
       </section>
       {site.faqs.length > 0 && <section id="faq" className={styles.section}>

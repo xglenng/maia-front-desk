@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from './session-gate';
+import styles from './industry-settings.module.css';
 import { industryOptions, suggestedStaffTerm, type Industry } from '@/packages/onboarding/industry';
 
 type Settings = { industries: Industry[]; staffTerm: string; consentFormsEnabled: boolean; requestFormsEnabled: boolean };
@@ -41,12 +42,12 @@ export default function IndustrySettings() {
   }
   if (!settings) return <p role={error ? 'alert' : 'status'}>{error || 'Loading business settings…'}</p>;
   const editable = user?.role === 'OWNER';
-  return <form onSubmit={save} style={{ border: '1px solid #e4dfda', borderRadius: 10, padding: 18, margin: '18px 0' }}>
-    <h3>What services does your business offer?</h3>
-    <p>Select all that apply. These choices suggest starting options; they do not replace saved services, policies, forms, or integrations.</p>
-    <fieldset disabled={!editable || saving} style={{ border: 0, padding: 0 }}>
+  return <form onSubmit={save} className={styles.card}>
+    <header><span className={styles.eyebrow}>Business setup</span><h2>Specialties &amp; forms</h2>
+    <p>Choose your industries to tailor your website and form templates.</p></header>
+    <fieldset disabled={!editable || saving} className={styles.fields}>
       <legend>Business specialties</legend>
-      {industryOptions.map(option => <label key={option.value} style={{ display: 'inline-flex', gap: 6, margin: '8px 18px 8px 0' }}>
+      <div className={styles.specialties}>{industryOptions.map(option => <label key={option.value} className={styles.specialty} data-selected={settings.industries.includes(option.value)}>
         <input type="checkbox" checked={settings.industries.includes(option.value)} onChange={event => {
           const industries = event.target.checked ? [...settings.industries, option.value] : settings.industries.filter(item => item !== option.value);
           const suggest = autoTerm || (!settings.industries.length && settings.staffTerm === 'artist');
@@ -54,18 +55,20 @@ export default function IndustrySettings() {
           setAutoTerm(suggest);
           setSettings({ ...settings, industries, staffTerm });
         }}/>{option.label}
-      </label>)}
-      <label style={{ display: 'block', marginTop: 16 }}>Staff terminology (editable suggestion)
-        <input value={settings.staffTerm} maxLength={60} onChange={event => { setAutoTerm(false); setSettings({ ...settings, staffTerm: event.target.value }); }} style={{ display: 'block', padding: 8, marginTop: 6 }}/>
+      </label>)}</div>
+      <div className={styles.terminology}><label>Staff terminology (editable suggestion)
+        <input value={settings.staffTerm} maxLength={60} onChange={event => { setAutoTerm(false); setSettings({ ...settings, staffTerm: event.target.value }); }} className={styles.input}/>
       </label>
-      <button type="button" onClick={() => { setAutoTerm(false); setSettings({ ...settings, staffTerm: suggestedStaffTerm(settings.industries) }); }}>Use suggested term</button>
-      <h3>Optional forms</h3>
-      <label style={{ display: 'block', margin: '10px 0' }}><input type="checkbox" checked={settings.consentFormsEnabled} onChange={event => setSettings({ ...settings, consentFormsEnabled: event.target.checked })}/> Enable consent forms</label>
-      <label style={{ display: 'block', margin: '10px 0' }}><input type="checkbox" checked={settings.requestFormsEnabled} onChange={event => setSettings({ ...settings, requestFormsEnabled: event.target.checked })}/> Enable request forms</label>
-      <p>Disabling a capability prevents creating new forms and hides its starter options. Existing forms, submissions, and public links remain available until individually deactivated. Disabling consent forms also stops automated consent sending; manual access remains available.</p>
-      <button disabled={saving}>{saving ? 'Saving…' : 'Save business settings'}</button>
+      <button className={styles.secondary} type="button" onClick={() => { setAutoTerm(false); setSettings({ ...settings, staffTerm: suggestedStaffTerm(settings.industries) }); }}>Use suggested term</button></div>
+      <div className={styles.formOptions}><h3>Optional forms</h3><p>Choose the tools your business uses.</p>
+      <div className={styles.optionGrid}>
+        <label className={styles.option}><span><strong>Consent forms</strong><small>Collect agreements and signatures before appointments.</small></span><input aria-label="Enable consent forms" type="checkbox" checked={settings.consentFormsEnabled} onChange={event => setSettings({ ...settings, consentFormsEnabled: event.target.checked })}/></label>
+        <label className={styles.option}><span><strong>Request forms</strong><small>Receive client inquiries from your public website.</small></span><input aria-label="Enable request forms" type="checkbox" checked={settings.requestFormsEnabled} onChange={event => setSettings({ ...settings, requestFormsEnabled: event.target.checked })}/></label>
+      </div>
+      <details className={styles.help}><summary>What happens when a form type is turned off?</summary><p>New forms and starter templates are disabled. Existing forms, submissions, and public links stay available until you deactivate each form. Turning off consent forms also stops automated consent sending.</p></details></div>
+      <div className={styles.footer}><span>Save these choices separately from your studio details.</span><button className={styles.primary} disabled={saving}>{saving ? 'Saving…' : 'Save business settings'}</button></div>
     </fieldset>
     {!editable && <p>Only the business owner can change these settings.</p>}
-    {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+    {error && <p className={styles.error} role="alert">{error}</p>}{notice && <p className={styles.success} role="status">{notice}</p>}
   </form>;
 }

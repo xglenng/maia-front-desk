@@ -51,6 +51,17 @@ test('public studio site only publishes valid active tenant forms and public con
     assert.equal(site.requests.find(f => f.name === 'Tattoo request')?.token, token);
     assert.deepEqual(new Set(site.faqs.map(f => f.question)), new Set(['Public question', 'Location question']));
     assert.deepEqual(site.locations.map(l => l.name), ['Open location']);
+    await local.query("UPDATE studio_locations SET phone='3035550999',email='location@example.test' WHERE id=$1", [activeLocation]);
+    await local.query('UPDATE organizations SET public_phone=null,public_email=null WHERE id=$1', [org]);
+    const blankContact = await publicStudioSite('public-site-test');
+    assert.equal(blankContact?.phone, null);
+    assert.equal(blankContact?.email, null);
+    assert.equal(JSON.stringify(blankContact).includes('location@example.test'), false);
+    assert.equal(JSON.stringify(blankContact).includes('3035550999'), false);
+    await local.query("UPDATE organizations SET public_phone='3035550111',public_email='public@example.test' WHERE id=$1", [org]);
+    const changedContact = await publicStudioSite('public-site-test');
+    assert.equal(changedContact?.phone, '3035550111');
+    assert.equal(changedContact?.email, 'public@example.test');
     assert.equal(JSON.stringify(site).includes('Foreign'), false);
     assert.equal(JSON.stringify(site).includes('encrypted'), false);
     // Capability preferences must not revoke existing active public links.

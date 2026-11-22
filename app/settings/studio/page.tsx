@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSession } from '@/components/session-gate';
 import StudioLogoSetting from './studio-logo-setting';
 import IndustrySettings from '@/components/industry-settings';
+import styles from './studio-settings.module.css';
 
 type Visibility = 'CLIENT_VISIBLE' | 'AI_INTERNAL';
 type ResponseLength = 'SHORT' | 'STANDARD' | 'DETAILED';
@@ -35,12 +36,12 @@ type Config = { profile: { publicName: string | null; publicPhone: string | null
 
 type LocationDraft = Omit<Location, 'id' | 'hours'> & { id?: string; hours: Hours[] };
 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const field = { width: '100%', boxSizing: 'border-box' as const, padding: 10, border: '1px solid #d9d3cc', borderRadius: 7, font: 'inherit' };
+const field = { width: '100%', boxSizing: 'border-box' as const, padding: '12px 14px', border: '1px solid #ded9e5', borderRadius: 11, font: 'inherit' };
 const label = { display: 'grid', gap: 6, fontSize: 13, fontWeight: 600 };
-const panel = { border: '1px solid #e4dfda', borderRadius: 8, padding: 18, background: '#fff', marginTop: 16 };
-const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 };
-const button = { border: 0, borderRadius: 6, padding: '10px 15px', background: '#181716', color: '#fff', fontWeight: 700, cursor: 'pointer' };
-const secondary = { border: '1px solid #ccc', borderRadius: 6, padding: '9px 12px', background: '#fff', color: '#181716', fontWeight: 600, cursor: 'pointer' };
+const panel = { border: '1px solid #e6e3ec', borderRadius: 20, padding: 26, background: '#fff', marginTop: 16 };
+const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14 };
+const button = { border: 0, borderRadius: 11, padding: '12px 18px', background: '#181716', color: '#fff', fontWeight: 700, cursor: 'pointer' };
+const secondary = { border: '1px solid #ded9e5', borderRadius: 11, padding: '11px 16px', background: '#fff', color: '#181716', fontWeight: 600, cursor: 'pointer' };
 const emptyLocation: LocationDraft = { name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', country: '', phone: '', email: '', timezone: 'America/Denver', businessHoursConfigured: false, isPrimary: true, active: true, hours: [] };
 
 function minuteTime(value: number) { return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`; }
@@ -201,10 +202,10 @@ export default function StudioSettingsPage() {
   const patchConfig = (update: Partial<Config>) => setConfig(current => current ? { ...current, ...update } : current);
   const updateArtist = (update: Partial<ArtistSettings>) => patchConfig({ artists: config.artists.map(artist => artist.artistId === selectedArtist ? { ...artist, ...update } : artist) });
 
-  return <main style={{ maxWidth: 1040, margin: '0 auto', padding: '32px 20px 72px', color: '#181716' }}>
+  return <main className={styles.page}>
     <a href="/settings">← Settings</a>
-    <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', margin: '14px 0 20px' }}>
-      <div><h1 style={{ margin: 0 }}>Studio settings</h1><p style={{ color: '#706b66', marginBottom: 0 }}>Set the basics once. Teach Maia through a few notes and the replies you already write.</p></div>
+    <header className={styles.header}>
+      <div><span className={styles.eyebrow}>Your business, your way</span><h1>Studio settings</h1><p>Manage your public details, business specialties, and the knowledge Maia uses.</p></div>
       <button type="button" onClick={event => { const form = document.getElementById('studio-config-form') as HTMLFormElement | null; form?.requestSubmit(); }} disabled={saving} style={button}>{saving ? 'Saving…' : 'Save configuration'}</button>
     </header>
     {error && <p role="alert" style={{ background: '#fff0f0', color: '#8b1e1e', padding: 12, borderRadius: 6 }}>{error}</p>}
@@ -213,19 +214,19 @@ export default function StudioSettingsPage() {
     <IndustrySettings />
     <StudioLogoSetting />
     <form id="studio-config-form" noValidate onSubmit={saveConfiguration}>
-      <section style={panel}>
-        <h2 style={{ marginTop: 0 }}>Business profile</h2>
+      <section id="business-profile" style={panel}>
+        <div className={styles.sectionTitle}><div><span className={styles.eyebrow}>Public website</span><h2>Business profile</h2><p>These details appear on your studio website. Leave phone or email blank to hide it.</p></div>{user.organization_slug && <a className={styles.previewLink} href={`/a/${encodeURIComponent(user.organization_slug)}`} target="_blank" rel="noreferrer">Preview website</a>}</div>
         <div style={grid}>
           <label style={label}>Public business name<input maxLength={120} value={config.profile.publicName || ''} onChange={event => patchConfig({ profile: { ...config.profile, publicName: event.target.value } })} style={field} /></label>
-          <label style={label}>Public phone<input maxLength={32} value={config.profile.publicPhone || ''} onChange={event => patchConfig({ profile: { ...config.profile, publicPhone: event.target.value } })} style={field} /></label>
-          <label style={label}>Public email<input type="email" maxLength={254} value={config.profile.publicEmail || ''} onChange={event => patchConfig({ profile: { ...config.profile, publicEmail: event.target.value } })} style={field} /></label>
-          <label style={label}>Website<input type="url" maxLength={240} value={config.profile.website || ''} onChange={event => patchConfig({ profile: { ...config.profile, website: event.target.value } })} style={field} /></label>
+          <label style={label}>Public phone<input type="tel" autoComplete="tel" maxLength={32} value={config.profile.publicPhone || ''} onChange={event => patchConfig({ profile: { ...config.profile, publicPhone: event.target.value } })} style={field} /></label>
+          <label style={label}>Public email<input autoComplete="email" type="email" maxLength={254} value={config.profile.publicEmail || ''} onChange={event => patchConfig({ profile: { ...config.profile, publicEmail: event.target.value } })} style={field} /></label>
+          <label style={label}>External website (optional)<input type="url" maxLength={240} value={config.profile.website || ''} onChange={event => patchConfig({ profile: { ...config.profile, website: event.target.value } })} style={field} /></label>
           <label style={label}>Organization timezone<input maxLength={80} value={config.profile.timezone} onChange={event => patchConfig({ profile: { ...config.profile, timezone: event.target.value } })} style={field} /></label>
         </div>
       </section>
 
-      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>Locations &amp; hours</summary>
-        <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Locations &amp; business hours</h2><p style={{ color: '#706b66' }}>These are public operating hours, separate from each artist&apos;s bookable availability.</p></div><button type="button" onClick={() => editLocation('')} style={secondary}>Add location</button></div>
+      <details id="locations" style={panel}><summary>Locations &amp; hours<span className={styles.summaryNote}>Addresses and operating hours</span></summary>
+        <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Locations &amp; business hours</h2><p style={{ color: '#706b66' }}>Locations provide the address on your website. Website phone and email come only from the Business profile above. Operating hours are separate from bookable availability.</p></div><button type="button" onClick={() => editLocation('')} style={secondary}>Add location</button></div>
         {locations.map(location => <button key={location.id} type="button" onClick={() => editLocation(location.id)} style={{ ...secondary, margin: '0 8px 12px 0', borderColor: selectedLocation === location.id ? '#8f2f22' : '#ccc' }}>{location.name}{location.isPrimary ? ' · Primary' : ''}{!location.active ? ' · Inactive' : ''}</button>)}
         <div style={{ borderTop: '1px solid #eee', paddingTop: 14 }}>
           <div style={grid}>
@@ -237,8 +238,8 @@ export default function StudioSettingsPage() {
             <label style={label}>State / region<input maxLength={100} value={locationDraft.region || ''} onChange={event => setLocationDraft({ ...locationDraft, region: event.target.value })} style={field} /></label>
             <label style={label}>Postal code<input maxLength={24} value={locationDraft.postalCode || ''} onChange={event => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} style={field} /></label>
             <label style={label}>Country<input maxLength={80} value={locationDraft.country || ''} onChange={event => setLocationDraft({ ...locationDraft, country: event.target.value })} style={field} /></label>
-            <label style={label}>Location phone<input maxLength={32} value={locationDraft.phone || ''} onChange={event => setLocationDraft({ ...locationDraft, phone: event.target.value })} style={field} /></label>
-            <label style={label}>Location email<input type="email" maxLength={254} value={locationDraft.email || ''} onChange={event => setLocationDraft({ ...locationDraft, email: event.target.value })} style={field} /></label>
+            <label style={label}>Location phone (for Maia)<input type="tel" maxLength={32} value={locationDraft.phone || ''} onChange={event => setLocationDraft({ ...locationDraft, phone: event.target.value })} style={field} /></label>
+            <label style={label}>Location email (for Maia)<input type="email" maxLength={254} value={locationDraft.email || ''} onChange={event => setLocationDraft({ ...locationDraft, email: event.target.value })} style={field} /></label>
           </div>
           <div style={toggleRow}>
             <label><input type="checkbox" checked={locationDraft.isPrimary} onChange={event => setLocationDraft({ ...locationDraft, isPrimary: event.target.checked })} /> Primary location</label>
@@ -249,7 +250,7 @@ export default function StudioSettingsPage() {
           <div style={{ display: 'grid', gap: 8 }}>
             {dayNames.map((name, dayOfWeek) => {
               const hours = locationDraft.hours.find(item => item.dayOfWeek === dayOfWeek);
-              return <div key={name} style={hoursRow}>
+              return <div key={name} className={styles.hoursRow}>
                 <label><input type="checkbox" checked={Boolean(hours)} onChange={event => setDay(dayOfWeek, event.target.checked)} /> {name}</label>
                 {hours ? <><input aria-label={`${name} opens`} type="time" value={minuteTime(hours.startMinute)} onChange={event => setHour(dayOfWeek, 'startMinute', event.target.value)} style={field} /><span>to</span><input aria-label={`${name} closes`} type="time" value={minuteTime(hours.endMinute)} onChange={event => setHour(dayOfWeek, 'endMinute', event.target.value)} style={field} /></> : <span style={{ color: '#706b66' }}>Closed</span>}
               </div>;
@@ -278,8 +279,8 @@ export default function StudioSettingsPage() {
         </div>)}
       </details>
 
-      <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>FAQs · optional</summary>
-        <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>FAQs</h2><p style={{ color: '#706b66' }}>Active answers are considered studio-provided facts.</p></div><button type="button" onClick={() => patchConfig({ faqs: [...config.faqs, { locationId: null, category: null, question: '', answer: '', active: true, sortOrder: config.faqs.length }] })} style={secondary}>Add FAQ</button></div>
+      <details id="studio-faqs" style={panel}><summary>FAQs<span className={styles.summaryNote}>Answers for your website &amp; Maia</span></summary>
+        <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>FAQs</h2><p style={{ color: '#706b66' }}>Active questions appear on your public website and help Maia answer clients. Save configuration to publish changes.</p></div><button type="button" onClick={() => patchConfig({ faqs: [...config.faqs, { locationId: null, category: null, question: '', answer: '', active: true, sortOrder: config.faqs.length }] })} style={secondary}>Add FAQ</button></div>
         {config.faqs.map((faq, index) => <div key={faq.id || `faq-${index}`} style={recordRow}>
           <input aria-label="FAQ question" placeholder="Question" maxLength={240} value={faq.question} onChange={event => patchConfig({ faqs: config.faqs.map((item, i) => i === index ? { ...item, question: event.target.value } : item) })} style={field} />
           <input aria-label="FAQ category" placeholder="Category" maxLength={80} value={faq.category || ''} onChange={event => patchConfig({ faqs: config.faqs.map((item, i) => i === index ? { ...item, category: event.target.value } : item) })} style={field} />
@@ -331,4 +332,3 @@ export default function StudioSettingsPage() {
 const sectionHeader = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' as const };
 const toggleRow = { display: 'flex', gap: 18, flexWrap: 'wrap' as const, marginTop: 14, fontSize: 13 };
 const recordRow = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, borderTop: '1px solid #eee', padding: '14px 0' };
-const hoursRow = { display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) minmax(100px, 140px) auto minmax(100px, 140px)', gap: 10, alignItems: 'center' };

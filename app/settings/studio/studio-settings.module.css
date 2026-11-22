@@ -1,0 +1,24 @@
+.page { max-width:1040px; margin:0 auto; padding:36px 22px 80px; color:#211d29; }
+.page * { box-sizing:border-box; }
+.page > a { color:#746a80; font-size:13px; text-underline-offset:4px; }
+.header { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:28px 0; flex-wrap:wrap; }
+.header > div { flex:1 1 450px; }
+.header h1 { margin:0; font-size:clamp(28px,4vw,38px); letter-spacing:-.045em; }
+.header p { color:#77717f; font-size:14px; line-height:1.7; margin:12px 0 0; max-width:580px; }
+.eyebrow { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.12em; font-weight:700; color:#76648f; margin-bottom:10px; }
+.page h2 { font-size:22px; letter-spacing:-.03em; }
+.page h3 { font-size:16px; }
+.page p { line-height:1.65; font-size:14px; }
+.page input:not([type=checkbox]):not([type=radio]),.page select,.page textarea { min-width:0; max-width:100%; font-size:16px; color:#211d29; background:#fff; }
+.page input[type=checkbox] { accent-color:#70529a; width:16px; height:16px; vertical-align:middle; margin-right:7px; }
+.page button { min-height:44px; font-size:13px; }
+.page :is(button,input,select,textarea,summary,a):focus-visible { outline:3px solid #ab96ce; outline-offset:3px; }
+.page form > details > summary { font-size:15px; font-weight:650; cursor:pointer; }
+.page form > details[open] > summary { padding-bottom:20px; border-bottom:1px solid #eeeaf1; margin-bottom:20px; }
+.summaryNote { display:inline-block; margin-left:16px; color:#82798b; font-size:12px; font-weight:400; }
+.sectionTitle { display:flex; gap:18px; align-items:flex-start; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; }
+.sectionTitle h2 { margin:0 0 8px; }
+.sectionTitle p { margin:0; color:#77717f; max-width:570px; }
+.previewLink { display:inline-flex; padding:11px 16px; min-height:44px; align-items:center; color:#65507d; text-decoration:none; border:1px solid #e0d8ea; border-radius:11px; font-size:13px; font-weight:650; }
+.hoursRow { display:grid; grid-template-columns:minmax(120px,1fr) minmax(100px,140px) auto minmax(100px,140px); gap:10px; align-items:center; }
+@media(max-width:600px) { .page { padding:24px 16px 72px; } .header { gap:18px; } .header > button { width:100%; } .summaryNote { display:block; margin:8px 0 0 18px; } .hoursRow { grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:8px; } .hoursRow > label { grid-column:1 / -1; } }
