@@ -17,8 +17,6 @@ test('artist form library and hosted signatures enforce scope, immutable evidenc
  try{
   assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,`${socket}/data`);
   await local.query(readFileSync('packages/db/staging/schema.sql','utf8'));
-  await local.query(readFileSync('packages/db/drizzle/0030_walk_in_appointments.sql','utf8'));
-  await local.query(readFileSync('packages/db/drizzle/0033_appointment_location.sql','utf8'));
   t.mock.method(pool,'query',local.query.bind(local));t.mock.method(pool,'connect',local.connect.bind(local));
   t.mock.method(globalThis,'fetch',async()=>{throw Error('Provider calls are forbidden in this test.');});
   const org=randomUUID(),otherOrg=randomUUID(),user=randomUUID(),artist=randomUUID(),peer=randomUUID(),foreign=randomUUID(),client=randomUUID(),appointment=randomUUID();

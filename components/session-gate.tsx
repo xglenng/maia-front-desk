@@ -1,5 +1,5 @@
 'use client';
-import { createContext, Fragment, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import UiIcon from './ui-icon';
 import SetupReturn from './setup-return';
@@ -10,6 +10,7 @@ import {ownerSettingsPage} from '@/packages/auth/settings-policy';
 import {avatarSmsStatus, type AvatarSmsStatus, type SmsNumberRecord} from '@/packages/onboarding/sms-number';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
+type RequestNotification={id:string;submissionId:string;requestType:string;clientName:string;createdAt:string;readAt:string|null};
 const SessionContext = createContext<SessionUser | null>(null);
 export function useSession() { return useContext(SessionContext); }
 
@@ -23,6 +24,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   path === '/join' ||
   path === '/install' ||
   path === '/waiver' ||
+  path === '/request' ||
   path.startsWith('/legal/') ||
   path.startsWith('/a/') ||
   path.startsWith('/book/');
@@ -37,8 +39,46 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const notificationsRef=useRef<HTMLDetailsElement>(null);
   const [smsState,setSmsState]=useState<AvatarSmsStatus | {kind:'loading'} | {kind:'error';message:string}>({kind:'loading'});
   const [smsNumberMessage,setSmsNumberMessage]=useState('');
+  const [notifications,setNotifications]=useState<RequestNotification[]>([]);
+  const [unread,setUnread]=useState(0);
+  const [notificationError,setNotificationError]=useState('');
+  const [notificationPage,setNotificationPage]=useState(1);
+  const [notificationHasMore,setNotificationHasMore]=useState(false);
+  const notificationPageRef=useRef(1);
+  const notificationLoadId=useRef(0);
   const pageRefresh = usePageRefreshController(path);
   const [themePreference, chooseTheme] = useThemePreference();
+  const loadNotifications=useCallback(async(page=1)=>{
+    const loadId=++notificationLoadId.current;
+    try {
+      const response=await fetch(`/api/request-notifications?page=${page}`,{cache:'no-store'});
+      const data=await response.json();
+      if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Unable to load notifications.');
+      if(loadId!==notificationLoadId.current)return;
+      notificationPageRef.current=page;setNotificationPage(page);setNotificationHasMore(data.hasMore);
+      setNotifications(data.notifications);setUnread(data.unread);setNotificationError('');
+    } catch (error) {
+      if(loadId===notificationLoadId.current)setNotificationError(error instanceof Error?error.message:'Unable to load notifications.');
+    }
+  },[]);
+  useEffect(()=>{
+    if(publicPage||!user)return;
+    void loadNotifications();
+    const timer=window.setInterval(()=>void loadNotifications(notificationPageRef.current),30000);
+    return ()=>window.clearInterval(timer);
+  },[publicPage,user?.id,user?.organization_id,path,pageRefresh.generation,loadNotifications]);
+  async function markNotification(id:string) {
+    try {
+      const response=await fetch('/api/request-notifications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+      const data=await response.json();
+      if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Unable to mark notification read.');
+      await loadNotifications(notificationPageRef.current);
+      return true;
+    } catch(error) {
+      setNotificationError(error instanceof Error?error.message:'Unable to mark notification read.');
+      return false;
+    }
+  }
   const [systemDark,setSystemDark]=useState(false);
   useEffect(()=>{
     const query=window.matchMedia('(prefers-color-scheme: dark)');
@@ -95,9 +135,18 @@ export default function SessionGate({ children }: { children: ReactNode }) {
       <a href="/" className="session-brand" aria-label="Maia home"><span aria-hidden="true">✦</span> Maia</a>
       <nav className="session-nav" aria-label="Quick navigation">
         <a href="/" className="session-icon" aria-label="Dashboard" title="Dashboard"><UiIcon name="dashboard" /></a>
-        <details ref={notificationsRef} className="session-notifications" onKeyDown={closeOnEscape} onToggle={event=>{if(event.currentTarget.open&&accountRef.current)accountRef.current.open=false;}}>
-          <summary className="session-icon" aria-label="Notifications" title="Notifications"><UiIcon name="bell" /></summary>
-          <section className="session-notifications-panel" aria-label="Notifications"><h2>Notifications</h2><p>Notifications aren’t available yet.</p></section>
+        <details ref={notificationsRef} className="session-notifications" onKeyDown={closeOnEscape} onToggle={event=>{if(event.currentTarget.open){if(accountRef.current)accountRef.current.open=false;void loadNotifications();}}}>
+          <summary className="session-icon" aria-label={`Notifications${unread?`, ${unread} unread`:''}`} title="Notifications"><UiIcon name="bell" />{unread>0&&<span className="session-notification-badge">{unread>99?'99+':unread}</span>}</summary>
+          <section className="session-notifications-panel" aria-label="Notifications"><h2>Notifications</h2>
+            {notificationError&&<p role="alert">{notificationError} <button type="button" onClick={()=>void loadNotifications()}>Retry</button></p>}
+            {!notificationError&&!notifications.length&&<p>No notifications yet.</p>}
+            {notifications.map(item=><div className={`session-notification-item${item.readAt?'':' unread'}`} key={item.id}>
+              <a href={`/requests/${item.submissionId}`} onClick={event=>{if(!item.readAt){event.preventDefault();void markNotification(item.id).then(ok=>{if(ok)window.location.assign(`/requests/${item.submissionId}`);});}}}>
+                <strong>{item.requestType==='TATTOO_REQUEST'?'Tattoo request':'Piercing request'} · {item.clientName}</strong><small>{new Date(item.createdAt).toLocaleString()}</small>
+              </a>{!item.readAt&&<button type="button" onClick={()=>void markNotification(item.id)}>Mark read</button>}
+            </div>)}
+            {(notificationPage>1||notificationHasMore)&&<div className="session-notification-pages"><button type="button" disabled={notificationPage===1} onClick={()=>void loadNotifications(notificationPage-1)}>Newer</button><span>Page {notificationPage}</span><button type="button" disabled={!notificationHasMore} onClick={()=>void loadNotifications(notificationPage+1)}>Older</button></div>}
+          </section>
         </details>
         <details ref={accountRef} className="session-account" onToggle={event=>{setAccountOpen(event.currentTarget.open);if(event.currentTarget.open&&notificationsRef.current)notificationsRef.current.open=false;}} onKeyDown={closeOnEscape}>
           <summary aria-label="Account and sign out" title={user.name}>{user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'M'}</summary>
@@ -107,7 +156,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
             <div className="session-menu-actions">
               <a href="/settings"><UiIcon name="settings" />Settings</a>
               <a href="/help"><UiIcon name="help" />Help Desk</a>
-              <button type="button" aria-busy={pageRefresh.refreshing} disabled={pageRefresh.refreshing} onClick={()=>void pageRefresh.refresh()}><UiIcon name="refresh" className={pageRefresh.refreshing?'session-spin':undefined}/>{pageRefresh.refreshing?'Refreshing…':'Refresh page'}</button>
+              <button type="button" aria-busy={pageRefresh.refreshing} disabled={pageRefresh.refreshing} onClick={()=>void pageRefresh.refresh().then(()=>loadNotifications(notificationPageRef.current))}><UiIcon name="refresh" className={pageRefresh.refreshing?'session-spin':undefined}/>{pageRefresh.refreshing?'Refreshing…':'Refresh page'}</button>
               <button type="button" onClick={()=>chooseTheme(dark?'light':'dark')}><UiIcon name={dark?'sun':'moon'}/>{dark?'Switch to light mode':'Switch to dark mode'}</button>
             </div>
             <button className="session-signout" disabled={signingOut} onClick={async () => {

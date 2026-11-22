@@ -794,6 +794,79 @@ export const waiverIdentityDocuments = pgTable('waiver_identity_documents', {
   imageHashCheck: check('waiver_identity_documents_hash_check',sql`${table.sha256} ~ '^[a-f0-9]{64}$'`),
 }));
 
+export const requestForms = pgTable('request_forms', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  artistId: uuid('artist_id').notNull(),
+  name: text('name').notNull(),
+  requestType: text('request_type').notNull(),
+  definition: jsonb('definition').notNull(),
+  version: integer('version').notNull().default(1),
+  tokenHash: text('token_hash').notNull().unique(),
+  tokenEncrypted: text('token_encrypted').notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', {withTimezone:true}).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', {withTimezone:true}).notNull().defaultNow(),
+}, table => ({
+  tenantIdentityUnique: uniqueIndex('request_forms_id_organization_uidx').on(table.id, table.organizationId),
+  tenantArtist: foreignKey({name:'request_forms_artist_tenant_fk',columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+  typeCheck: check('request_forms_type_check',sql`${table.requestType} IN ('PIERCING_REQUEST','TATTOO_REQUEST')`),
+  versionCheck: check('request_forms_version_check',sql`${table.version} > 0`),
+}));
+
+export const requestSubmissions = pgTable('request_submissions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  formId: uuid('form_id').notNull(),
+  artistId: uuid('artist_id').notNull(),
+  requestType: text('request_type').notNull(),
+  clientName: text('client_name').notNull(),
+  definition: jsonb('definition').notNull(),
+  answers: jsonb('answers').notNull(),
+  idempotencyKey: uuid('idempotency_key').notNull(),
+  payloadHash: text('payload_hash').notNull(),
+  createdAt: timestamp('created_at', {withTimezone:true}).notNull().defaultNow(),
+}, table => ({
+  tenantIdentityUnique: uniqueIndex('request_submissions_id_organization_uidx').on(table.id, table.organizationId),
+  replayUnique: uniqueIndex('request_submissions_form_replay_uidx').on(table.formId, table.idempotencyKey),
+  tenantForm: foreignKey({name:'request_submissions_form_tenant_fk',columns:[table.formId,table.organizationId],foreignColumns:[requestForms.id,requestForms.organizationId]}),
+  tenantArtist: foreignKey({name:'request_submissions_artist_tenant_fk',columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+  typeCheck: check('request_submissions_type_check',sql`${table.requestType} IN ('PIERCING_REQUEST','TATTOO_REQUEST')`),
+  hashCheck: check('request_submissions_hash_check',sql`${table.payloadHash} ~ '^[a-f0-9]{64}$'`),
+}));
+
+export const requestAttachments = pgTable('request_attachments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  submissionId: uuid('submission_id').notNull(),
+  fieldId: text('field_id').notNull(),
+  contentType: text('content_type').notNull(),
+  byteLength: integer('byte_length').notNull(),
+  sha256: text('sha256').notNull(),
+  encryptedImage: text('encrypted_image').notNull(),
+  createdAt: timestamp('created_at', {withTimezone:true}).notNull().defaultNow(),
+}, table => ({
+  submissionFieldUnique: uniqueIndex('request_attachments_submission_field_uidx').on(table.submissionId,table.fieldId),
+  tenantSubmission: foreignKey({name:'request_attachments_submission_tenant_fk',columns:[table.submissionId,table.organizationId],foreignColumns:[requestSubmissions.id,requestSubmissions.organizationId]}),
+  sizeCheck: check('request_attachments_size_check',sql`${table.byteLength} BETWEEN 1 AND 2097152`),
+  typeCheck: check('request_attachments_type_check',sql`${table.contentType} = 'image/jpeg'`),
+  hashCheck: check('request_attachments_hash_check',sql`${table.sha256} ~ '^[a-f0-9]{64}$'`),
+}));
+
+export const requestNotifications = pgTable('request_notifications', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  submissionId: uuid('submission_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  readAt: timestamp('read_at', {withTimezone:true}),
+  createdAt: timestamp('created_at', {withTimezone:true}).notNull().defaultNow(),
+}, table => ({
+  recipientUnique: uniqueIndex('request_notifications_recipient_uidx').on(table.submissionId,table.userId),
+  recipientIndex: index('request_notifications_user_created_idx').on(table.organizationId,table.userId,table.createdAt),
+  tenantSubmission: foreignKey({name:'request_notifications_submission_tenant_fk',columns:[table.submissionId,table.organizationId],foreignColumns:[requestSubmissions.id,requestSubmissions.organizationId]}),
+  tenantUser: foreignKey({name:'request_notifications_user_tenant_fk',columns:[table.userId,table.organizationId],foreignColumns:[users.id,users.organizationId]}),
+}));
+
 export const externalWaiverEvents = pgTable("external_waiver_events", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),

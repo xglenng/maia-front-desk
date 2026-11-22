@@ -2,7 +2,7 @@ import {z} from 'zod';
 export const publicFormUrl=z.string().url().max(2000).refine(value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}},'Use a public HTTPS form link without embedded credentials.');
 const fieldBase={id:z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),label:z.string().trim().min(1).max(300),required:z.boolean()};
 const choices=z.array(z.string().trim().min(1).max(200)).min(2).max(20).refine(items=>new Set(items).size===items.length,'Choices must be unique.');
-const question=z.discriminatedUnion('type',[
+export const nativeQuestion=z.discriminatedUnion('type',[
  z.object({...fieldBase,type:z.literal('PHOTO_ID')}),
  z.object({...fieldBase,type:z.literal('TEXT')}),
  z.object({...fieldBase,type:z.literal('LONG_TEXT')}),
@@ -22,13 +22,13 @@ const question=z.discriminatedUnion('type',[
 ]);
 export const nativeDefinition=z.object({
  body:z.string().trim().min(1).max(30000),
- fields:z.array(question).max(40).optional(),
+ fields:z.array(nativeQuestion).max(40).optional(),
  logoAssetId:z.string().uuid().optional(),
  signerLabel:z.string().trim().min(1).max(80).optional(),
  signerNameLabel:z.string().trim().min(1).max(120).optional(),
  signerAgreement:z.string().trim().min(1).max(300).optional(),
 }).refine(value=>new Set(value.fields?.map(field=>field.id)).size===(value.fields?.length||0),'Question IDs must be unique.').refine(value=>(value.fields||[]).filter(field=>field.type==='PHOTO_ID').length<=1,'Use at most one photo ID upload per form.');
-export type NativeField=z.infer<typeof question>;
+export type NativeField=z.infer<typeof nativeQuestion>;
 export const nativeAnswers=z.record(z.union([z.string().max(5000),z.boolean(),z.array(z.string().max(200)).max(20)])).refine(value=>Object.keys(value).length<=40);
 export type NativeAnswers=z.infer<typeof nativeAnswers>;
 export function validateNativeAnswers(definition:NativeDefinition,input:unknown):{success:true;data:NativeAnswers}|{success:false;error:string}{

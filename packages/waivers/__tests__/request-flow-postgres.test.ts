@@ -1,0 +1,205 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { NextRequest } from 'next/server';
+import { pool } from '@/packages/db/src';
+import { buildRequestStarter } from '../request-starters';
+import { buildConsentStarter } from '../consent-starters';
+
+const container=process.env.MAIA_REQUEST_TEST_CONTAINER;
+test('request migration and routes support isolated forms, uploads, retries and per-user notifications',{skip:!container},async t=>{
+  assert.match(container!,/^[a-f0-9]{64}$/);
+  const label=execFileSync('docker',['inspect','--format','{{index .Config.Labels "maia-purpose"}}',container!],{encoding:'utf8'}).trim();
+  assert.equal(label,'request-integration');
+  const mapping=execFileSync('docker',['port',container!,'5432/tcp'],{encoding:'utf8'}).trim();
+  assert.match(mapping,/^127\.0\.0\.1:\d+$/);
+  const port=Number(mapping.split(':')[1]);
+  const schema=`request_fixture_${randomUUID().replaceAll('-','')}`;
+  const journalSchema=`${schema}_journal`;
+  const local=new Pool({host:'127.0.0.1',port,user:'postgres',password:'synthetic-local-only',database:'maia_request_test',options:`-c search_path=${schema}`,max:8});
+  const previousKey=process.env.COMPLIANCE_ENCRYPTION_KEY;
+  const testKey=randomBytes(32).toString('base64');
+  const previousFallback=process.env.TWILIO_ENCRYPTION_KEY;
+  process.env.COMPLIANCE_ENCRYPTION_KEY=testKey;
+  delete process.env.TWILIO_ENCRYPTION_KEY;
+  let createdSchema=false,createdJournal=false;
+  try {
+    assert.equal((await local.query('SELECT current_database() AS name')).rows[0].name,'maia_request_test');
+    assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,'/var/lib/postgresql/data');
+    await local.query(`CREATE SCHEMA ${schema}`);createdSchema=true;
+    await local.query(readFileSync('packages/db/staging/schema.sql','utf8').replaceAll('"public".',`"${schema}".`));
+    const snapshotColumns=(await local.query("SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name IN ('request_forms','request_submissions','request_attachments','request_notifications') ORDER BY table_name,ordinal_position",[schema])).rows;
+    await local.query('DROP TABLE request_notifications, request_attachments, request_submissions, request_forms');
+    await local.query(`CREATE SCHEMA ${journalSchema}`);createdJournal=true;
+    await local.query(`CREATE TABLE ${journalSchema}.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint)`);
+    const previousHash=createHash('sha256').update(readFileSync('packages/db/drizzle/0033_appointment_location.sql')).digest('hex');
+    await local.query(`INSERT INTO ${journalSchema}.__drizzle_migrations(hash,created_at) VALUES($1,$2)`,[previousHash,1795460400000]);
+    await migrate(drizzle(local),{migrationsFolder:'packages/db/drizzle',migrationsSchema:journalSchema});
+    await migrate(drizzle(local),{migrationsFolder:'packages/db/drizzle',migrationsSchema:journalSchema});
+    assert.equal((await local.query(`SELECT count(*)::int AS n FROM ${journalSchema}.__drizzle_migrations`)).rows[0].n,2);
+    assert.deepEqual((await local.query("SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name IN ('request_forms','request_submissions','request_attachments','request_notifications') ORDER BY table_name,ordinal_position",[schema])).rows,snapshotColumns);
+    t.mock.method(pool,'query',local.query.bind(local));
+    t.mock.method(pool,'connect',local.connect.bind(local));
+    t.mock.method(globalThis,'fetch',async()=>{throw Error('External requests are forbidden in this test.');});
+    const {GET:listForms,POST:saveForm}=await import('@/app/api/request-forms/route');
+    const {GET:publicForm,POST:submit}=await import('@/app/api/public/request-forms/route');
+    const {GET:notifications,POST:readNotification}=await import('@/app/api/request-notifications/route');
+    const {GET:details}=await import('@/app/api/requests/[id]/route');
+    const {GET:image}=await import('@/app/api/requests/[id]/images/[imageId]/route');
+    const {GET:consentList,POST:createConsent}=await import('@/app/api/waiver-integrations/route');
+    const {GET:readConsent,POST:signConsent}=await import('@/app/api/public/waivers/native/route');
+    const sharp=(await import('sharp')).default;
+    const org=randomUUID(),other=randomUUID(),owner=randomUUID(),artistUser=randomUUID(),peerUser=randomUUID(),foreignUser=randomUUID(),artist=randomUUID(),peer=randomUUID(),foreignArtist=randomUUID();
+    const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
+    await local.query("INSERT INTO organizations(id,name,slug) VALUES($1,'Synthetic studio','request-test'),($2,'Other studio','request-other')",[org,other]);
+    for (const [id,orgId,role,cookie] of [[owner,org,'OWNER','a'],[artistUser,org,'ARTIST','b'],[peerUser,org,'ARTIST','c'],[foreignUser,other,'OWNER','d']]) {
+      await local.query('INSERT INTO users(id,organization_id,email,name,role) VALUES($1,$2,$3,$4,$5)',[id,orgId,`${cookie}@example.test`,'Synthetic',role]);
+      await local.query("INSERT INTO auth_credentials(user_id,password_hash) VALUES($1,'synthetic')",[id]);
+      await local.query("INSERT INTO auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",[hash(cookie.repeat(64)),id]);
+    }
+    await local.query("INSERT INTO artists(id,organization_id,user_id,display_name) VALUES($1,$2,$3,'Artist'),($4,$2,$5,'Peer'),($6,$7,$8,'Other')",[artist,org,artistUser,peer,peerUser,foreignArtist,other,foreignUser]);
+    function authenticated(path:string,cookie:string,body?:object) {
+      return new NextRequest(`http://localhost${path}`,{method:body?'POST':'GET',headers:{origin:'http://localhost',cookie:`inkflow_session=${cookie.repeat(64)}`,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+    }
+    const tattoo=buildRequestStarter('TATTOO_REQUEST');
+    const piercing=buildRequestStarter('PIERCING_REQUEST');
+    const definition={body:`${tattoo.body}\nSynthetic line`,fields:tattoo.fields};
+    assert.equal((await saveForm(authenticated('/api/request-forms','b',{action:'CREATE',artistId:foreignArtist,name:tattoo.name,requestType:'TATTOO_REQUEST',definition}),undefined)).status,404);
+    assert.equal((await saveForm(authenticated('/api/request-forms','b',{action:'CREATE',artistId:peer,name:tattoo.name,requestType:'TATTOO_REQUEST',definition}),undefined)).status,404);
+    const created=await saveForm(authenticated('/api/request-forms','b',{action:'CREATE',artistId:artist,name:tattoo.name,requestType:'TATTOO_REQUEST',definition}),undefined);
+    assert.equal(created.status,201,await created.clone().text());
+    const tattooId=(await created.json()).id as string;
+    const second=await saveForm(authenticated('/api/request-forms','b',{action:'CREATE',artistId:artist,name:piercing.name,requestType:'PIERCING_REQUEST',definition:{body:piercing.body,fields:piercing.fields}}),undefined);
+    assert.equal(second.status,201,await second.clone().text());
+    assert.equal((await (await consentList(authenticated('/api/waiver-integrations','a'),undefined)).json()).forms.length,0);
+    assert.equal((await (await listForms(authenticated('/api/request-forms','c'),undefined)).json()).forms.length,0);
+    assert.equal((await (await listForms(authenticated('/api/request-forms','d'),undefined)).json()).forms.length,0);
+    const forms=(await (await listForms(authenticated('/api/request-forms','b'),undefined)).json()).forms as Array<{id:string;requestType:string;url:string;definition:{body:string}}>;
+    const tattooForm=forms.find(item=>item.id===tattooId);
+    const piercingForm=forms.find(item=>item.requestType==='PIERCING_REQUEST');
+    assert.ok(tattooForm && piercingForm);
+    const tattooToken=new URL(tattooForm.url).searchParams.get('token')!;
+    const piercingToken=new URL(piercingForm.url).searchParams.get('token')!;
+    assert.equal(tattooForm.definition.body,definition.body);
+    assert.equal((await publicForm(new NextRequest(`http://localhost/api/public/request-forms?token=${tattooToken}`))).status,200);
+    const png=await sharp({create:{width:20,height:30,channels:3,background:'#999999'}}).png().toBuffer();
+    const file=new File([new Uint8Array(png)],'inspiration.png',{type:'image/png'});
+    const malicious=new File(['not an image'],'fake.png',{type:'image/png'});
+    const oversized=new File([new Uint8Array(5*1024*1024+1)],'large.png',{type:'image/png'});
+    const answers={first_name:'Alex',last_name:'Example',phone:'3035550123',description:'A line\nAnother line',previous:'Other'};
+    function post(token:string,idempotencyKey:string,answer:object,uploads:Record<string,File>={}) {
+      const body=new FormData();
+      body.set('payload',JSON.stringify({token,idempotencyKey,version:1,answers:answer}));
+      for (const [id,value] of Object.entries(uploads)) body.set(`image:${id}`,value);
+      return submit(new NextRequest('http://localhost/api/public/request-forms',{method:'POST',headers:{origin:'http://localhost'},body}));
+    }
+    const key=randomUUID();
+    const forgedBody=new FormData();
+    forgedBody.set('payload',JSON.stringify({token:tattooToken,idempotencyKey:key,version:1,answers}));
+    assert.equal((await submit(new NextRequest('http://localhost/api/public/request-forms',{method:'POST',headers:{origin:'https://attacker.example'},body:forgedBody}))).status,403);
+    assert.equal((await publicForm(new NextRequest(`http://localhost/api/public/request-forms?token=${'f'.repeat(48)}`))).status,404);
+    process.env.COMPLIANCE_ENCRYPTION_KEY='invalid';
+    assert.equal((await post(tattooToken,key,answers,{inspiration_1:file})).status,503);
+    process.env.COMPLIANCE_ENCRYPTION_KEY=testKey;
+    assert.equal((await post(tattooToken,key,answers,{inspiration_1:malicious})).status,400);
+    assert.equal((await post(tattooToken,key,answers,{inspiration_1:oversized})).status,400);
+    assert.equal((await post(tattooToken,key,answers,{unknown:file})).status,400);
+    assert.equal((await post(tattooToken,key,{...answers,phone:'1234567'})).status,400);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM request_submissions')).rows[0].n,0);
+    const uploads={inspiration_1:file,inspiration_2:file,inspiration_3:file};
+    const concurrent=await Promise.all([post(tattooToken,key,answers,uploads),post(tattooToken,key,answers,uploads)]);
+    assert.deepEqual(concurrent.map(response=>response.status).sort(),[200,201]);
+    assert.equal((await post(tattooToken,key,answers,uploads)).status,200);
+    assert.equal((await post(tattooToken,key,{...answers,last_name:'Different'},uploads)).status,409);
+    const saved=(await local.query('SELECT * FROM request_submissions')).rows;
+    assert.equal(saved.length,1);assert.equal(saved[0].answers.phone,'+13035550123');
+    assert.equal(saved[0].answers.description,'A line\nAnother line');
+    const images=(await local.query('SELECT * FROM request_attachments')).rows;
+    assert.equal(images.length,3);assert.ok(!images[0].encrypted_image.includes(png.toString('base64')));
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM request_notifications')).rows[0].n,2);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM appointments')).rows[0].n,0);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM payments')).rows[0].n,0);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM sms_consent_evidence')).rows[0].n,0);
+    const notificationList=async(cookie:string)=>(await (await notifications(authenticated('/api/request-notifications',cookie),undefined)).json());
+    const ownerList=await notificationList('a'),artistList=await notificationList('b');
+    assert.equal(ownerList.unread,1);assert.equal(artistList.unread,1);
+    assert.equal(ownerList.notifications[0].clientName,'Alex Example');
+    assert.equal((await notificationList('c')).unread,0);assert.equal((await notificationList('d')).unread,0);
+    const notificationId=ownerList.notifications[0].id;
+    assert.equal((await readNotification(authenticated('/api/request-notifications','c',{id:notificationId}),undefined)).status,404);
+    assert.equal((await readNotification(authenticated('/api/request-notifications','d',{id:notificationId}),undefined)).status,404);
+    assert.equal((await readNotification(authenticated('/api/request-notifications','a',{id:notificationId}),undefined)).status,200);
+    assert.equal((await notificationList('a')).unread,0);assert.equal((await notificationList('b')).unread,1);
+    const getDetails=(cookie:string)=>details(authenticated(`/api/requests/${saved[0].id}`,cookie),{params:Promise.resolve({id:saved[0].id})});
+    assert.equal((await getDetails('c')).status,404);assert.equal((await getDetails('d')).status,404);
+    const detail=await getDetails('b');assert.equal(detail.status,200);assert.equal((await detail.json()).attachments.length,3);
+    const getImage=(cookie:string)=>image(authenticated(`/api/requests/${saved[0].id}/images/${images[0].id}`,cookie),{params:Promise.resolve({id:saved[0].id,imageId:images[0].id})});
+    assert.equal((await getImage('c')).status,404);assert.equal((await getImage('d')).status,404);
+    const imageResponse=await getImage('a');assert.equal(imageResponse.status,200);assert.equal(imageResponse.headers.get('content-type'),'image/jpeg');
+    await assert.rejects(local.query("INSERT INTO request_notifications(organization_id,submission_id,user_id) VALUES($1,$2,$3)",[other,saved[0].id,foreignUser]),{code:'23503'});
+    await local.query("CREATE FUNCTION reject_request_notification() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$; CREATE TRIGGER reject_request_notification BEFORE INSERT ON request_notifications FOR EACH ROW EXECUTE FUNCTION reject_request_notification()");
+    const retryKey=randomUUID();
+    const piercingAnswers={first_name:'Casey',last_name:'Example',phone:'3035550111',previous:'Yes'};
+    assert.equal((await post(tattooToken,retryKey,answers,uploads)).status,503);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM request_submissions')).rows[0].n,1);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM request_attachments')).rows[0].n,3);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM request_notifications')).rows[0].n,2);
+    await local.query('DROP TRIGGER reject_request_notification ON request_notifications; DROP FUNCTION reject_request_notification()');
+    assert.equal((await post(tattooToken,retryKey,answers,uploads)).status,201);
+    assert.equal((await post(tattooToken,retryKey,answers,uploads)).status,200);
+    assert.equal((await post(piercingToken,retryKey,answers)).status,400); // Tattoo-only field is not accepted.
+    assert.equal((await post(piercingToken,retryKey,piercingAnswers)).status,201);
+    assert.equal((await post(piercingToken,retryKey,piercingAnswers)).status,200);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM request_notifications')).rows[0].n,6);
+    const updated={action:'UPDATE',formId:tattooId,name:'Updated tattoo request',definition,version:1,active:true};
+    assert.equal((await saveForm(authenticated('/api/request-forms','c',updated),undefined)).status,404);
+    assert.equal((await saveForm(authenticated('/api/request-forms','b',updated),undefined)).status,200);
+    assert.equal((await saveForm(authenticated('/api/request-forms','b',updated),undefined)).status,409);
+    assert.equal((await post(tattooToken,randomUUID(),answers,uploads)).status,409);
+    assert.equal((await post(tattooToken,key,answers,uploads)).status,200);
+    assert.equal((await saveForm(authenticated('/api/request-forms','b',{...updated,version:2,active:false}),undefined)).status,200);
+    assert.equal((await publicForm(new NextRequest(`http://localhost/api/public/request-forms?token=${tattooToken}`))).status,404);
+    assert.equal((await post(tattooToken,key,answers,uploads)).status,200);
+    assert.equal((await post(tattooToken,randomUUID(),answers,uploads)).status,404);
+    const client=randomUUID(),appointment=randomUUID();
+    await local.query("INSERT INTO clients(id,organization_id,first_name) VALUES($1,$2,'Synthetic')",[client,org]);
+    await local.query("INSERT INTO appointments(id,organization_id,artist_id,client_id,starts_at,ends_at,status,price_cents,deposit_cents,deposit_status,scheduling_provider) VALUES($1,$2,$3,$4,'2035-01-08 16:00:00','2035-01-08 17:00:00','CONFIRMED',100,0,'NOT_REQUIRED','INTERNAL')",[appointment,org,artist,client]);
+    for (const [kind,token] of [['TATTOO','1'.repeat(48)],['PIERCING','2'.repeat(48)]] as const) {
+      const starter=buildConsentStarter(kind,'Synthetic Studio','Synthetic Artist');
+      const response=await createConsent(authenticated('/api/waiver-integrations','b',{action:'ADD_NATIVE_FORM',name:starter.name,definition:starter.definition,artistId:artist,audience:starter.audience}),undefined);
+      assert.equal(response.status,201,await response.clone().text());
+      const consentForm=(await response.json()).form;
+      await local.query("INSERT INTO external_waiver_assignments(organization_id,waiver_form_id,appointment_id,client_id,tracking_token_hash) VALUES($1,$2,$3,$4,$5)",[org,consentForm.id,appointment,client,hash(token)]);
+      assert.equal((await readConsent(new NextRequest(`http://localhost/api/public/waivers/native?token=${token}`))).status,200);
+      const consentAnswers={client_name:'Synthetic Client',date_of_birth:'1990-01-01',phone:'3035550123',address:'Synthetic address',procedure_description:'Synthetic',body_location:'Arm',appointment_date:'2035-01-08',adult:true,voluntary:true,questions:true,risks:true,aftercare:true,accuracy:true};
+      const signed=await signConsent(new NextRequest('http://localhost/api/public/waivers/native',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({token,signedName:'Synthetic Client',agreed:true,answers:consentAnswers,signature:{strokes:[[{x:0.1,y:0.5},{x:0.8,y:0.6}]]}})}));
+      assert.equal(signed.status,200,await signed.clone().text());
+    }
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM waiver_submissions')).rows[0].n,2);
+    assert.equal((await local.query('SELECT count(*)::int AS n FROM request_notifications')).rows[0].n,6);
+    await local.query(`WITH inserted AS (
+      INSERT INTO request_submissions(organization_id,form_id,artist_id,request_type,client_name,definition,answers,idempotency_key,payload_hash)
+      SELECT $1,$2,$3,'TATTOO_REQUEST','Synthetic pagination',$4::jsonb,'{}'::jsonb,gen_random_uuid(),repeat('0',64)
+      FROM generate_series(1,51) RETURNING id
+    ) INSERT INTO request_notifications(organization_id,submission_id,user_id) SELECT $1,id,$5 FROM inserted`,
+    [org,tattooId,artist,JSON.stringify(definition),owner]);
+    const firstPage=await notificationList('a');
+    const secondPage=await (await notifications(authenticated('/api/request-notifications?page=2','a'),undefined)).json();
+    assert.equal(firstPage.notifications.length,50);assert.equal(firstPage.hasMore,true);
+    assert.equal(secondPage.notifications.length,4);assert.equal(secondPage.hasMore,false);
+    assert.equal(firstPage.unread,secondPage.unread);
+    assert.equal(new Set([...firstPage.notifications,...secondPage.notifications].map((item:{id:string})=>item.id)).size,54);
+    assert.equal((await notifications(authenticated('/api/request-notifications?page=0','a'),undefined)).status,400);
+  } finally {
+    if(createdSchema)await local.query(`DROP SCHEMA ${schema} CASCADE`);
+    if(createdJournal)await local.query(`DROP SCHEMA ${journalSchema} CASCADE`);
+    await local.end();
+    if(previousKey===undefined)delete process.env.COMPLIANCE_ENCRYPTION_KEY;else process.env.COMPLIANCE_ENCRYPTION_KEY=previousKey;
+    if(previousFallback===undefined)delete process.env.TWILIO_ENCRYPTION_KEY;else process.env.TWILIO_ENCRYPTION_KEY=previousFallback;
+  }
+});

@@ -19,11 +19,9 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const snapshotChecks=(await local.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='studio_invoices'::regclass ORDER BY definition")).rows;
   await local.query('DROP TABLE studio_invoices');
   await local.query(readFileSync('packages/db/drizzle/0024_studio_invoices.sql','utf8'));
+  await local.query(readFileSync('packages/db/drizzle/0029_studio_invoice_email.sql','utf8'));
   assert.deepEqual((await local.query("SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name='studio_invoices' ORDER BY column_name",[schema])).rows,snapshotColumns);
   assert.deepEqual((await local.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='studio_invoices'::regclass ORDER BY definition")).rows,snapshotChecks);
-  await local.query(readFileSync('packages/db/drizzle/0029_studio_invoice_email.sql','utf8'));
-  await local.query(readFileSync('packages/db/drizzle/0030_walk_in_appointments.sql','utf8'));
-  await local.query(readFileSync('packages/db/drizzle/0033_appointment_location.sql','utf8'));
   t.mock.method(pool,'query',local.query.bind(local));t.mock.method(pool,'connect',local.connect.bind(local));
   const org=randomUUID(),other=randomUUID(),owner=randomUUID(),user=randomUUID(),peerUser=randomUUID(),foreignUser=randomUUID(),artist=randomUUID(),peer=randomUUID(),foreign=randomUUID();
   await local.query("INSERT INTO organizations(id,name,slug) VALUES($1::uuid,'Invoice studio',$1::text),($2::uuid,'Other',$2::text)",[org,other]);

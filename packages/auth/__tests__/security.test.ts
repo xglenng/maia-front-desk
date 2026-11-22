@@ -15,7 +15,7 @@ const configuredOrigin=()=>new URL(process.env.NEXT_PUBLIC_APP_URL||'http://loca
 test('every browser API export is guarded',()=>{
   function walk(p:string):string[]{return readdirSync(p,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(p,e.name)):[join(p,e.name)]);}
   // Hosted waiver access is scoped by a random appointment token, tested against PostgreSQL.
-  const exempt=['app/api/public/waivers/native/route.ts','app/api/checkout/card/webhook/route.ts','app/api/auth/password-reset/route.ts','app/api/payments/connect/webhook/route.ts','app/api/auth/invitations/route.ts','app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
+  const exempt=['app/api/public/waivers/native/route.ts','app/api/public/request-forms/route.ts','app/api/checkout/card/webhook/route.ts','app/api/auth/password-reset/route.ts','app/api/payments/connect/webhook/route.ts','app/api/auth/invitations/route.ts','app/api/auth/login/route.ts','app/api/auth/session/route.ts','app/api/auth/signup/route.ts','app/api/twilio/inbound/route.ts','app/api/twilio/message-status/route.ts','app/api/twilio/voice/route.ts','app/api/payments/webhook/route.ts','app/api/payments/square/webhook/route.ts','app/api/automations/run/route.ts','app/api/waivers/webhooks/jotform/[connectionId]/route.ts','app/api/meta/webhook/route.ts','app/api/public/booking-inquiries/route.ts','app/api/public/consent/external/[formId]/route.ts'];
   for(const p of walk('app/api').filter(p=>p.endsWith('/route.ts')&&!exempt.includes(p))){const s=readFileSync(p,'utf8');if(p==='app/api/usage/route.ts'){assert.ok(s.includes('await identity(request)'));assert.ok(s.includes('platform && !isAdmin'));assert.ok(s.includes('platformAdmin(user.id)'));continue;}assert.ok(s.includes('protectedRoute('),p);assert.equal(/export async function (GET|POST|PUT|DELETE|PATCH)/.test(s),false,p);}
   const counterWebhook=readFileSync('app/api/checkout/card/webhook/route.ts','utf8');
   for(const guard of ['constructEvent','event.account','event.livemode','reconcileCardAttempt'])assert.ok(counterWebhook.includes(guard));
@@ -137,6 +137,8 @@ test('public consent endpoints retain their scoped security checks',()=>{
   assert.ok(external.includes('organizationId: form.organizationId'));
   assert.ok(external.includes('artistId: form.artistId'));
   assert.ok(external.includes('consentFormId: form.id'));
+  const requests=readFileSync('app/api/public/request-forms/route.ts','utf8');
+  for(const guard of ['sameOrigin(request)','boundedBody(request','publicIntakeLimit(','tokenSchema','payloadHash'])assert.ok(requests.includes(guard));
 });
 const user={id:org,organization_id:org,role:'ARTIST',name:'Test',email:'test@example.com'};
 test('password hashes are salted; wrong passwords rejected',()=>{const hash=hashPassword('correct-password');assert.notEqual(hash,hashPassword('correct-password'));assert.equal(verifyPassword('correct-password',hash),true);assert.equal(verifyPassword('wrong-password',hash),false);});

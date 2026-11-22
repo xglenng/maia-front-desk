@@ -18,7 +18,6 @@ test('signup queues exactly one welcome, delivery retries safely, and failures n
     assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory, `${socket}/data`);
     await local.query(`CREATE SCHEMA ${schema}`);
     await local.query(readFileSync('packages/db/staging/schema.sql', 'utf8').replaceAll('"public".', `"${schema}".`));
-    await local.query(readFileSync('packages/db/drizzle/0027_owner_welcome_emails.sql', 'utf8'));
     t.mock.method(pool, 'query', local.query.bind(local));
     t.mock.method(pool, 'connect', local.connect.bind(local));
     const calls: Array<{ key: string; body: string }> = [];

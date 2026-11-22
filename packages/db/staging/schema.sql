@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 3e14d6635ad33ad94d0dff572d39fe789af53f7065c05e7e099ace8c3c517ba7
+-- schema-source-sha256: f37269fb5ae270cc7fd714c668ddfa286a72b5100a6287ccfec9e8c790e38be8
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -44,6 +44,7 @@ CREATE TABLE "appointments" (
 	"organization_id" uuid NOT NULL,
 	"artist_id" uuid NOT NULL,
 	"client_id" uuid NOT NULL,
+	"location_id" uuid,
 	"conversation_id" uuid,
 	"service_id" uuid,
 	"starts_at" timestamp NOT NULL,
@@ -60,6 +61,7 @@ CREATE TABLE "appointments" (
 	"scheduling_provider" text,
 	"provider_booking_id" text,
 	"notes" text,
+	"is_walk_in" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "appointments_schedule_revision_check" CHECK ("appointments"."schedule_revision" >= 0)
@@ -461,7 +463,7 @@ CREATE TABLE "external_waiver_assignments" (
 	"organization_id" uuid NOT NULL,
 	"waiver_form_id" uuid NOT NULL,
 	"appointment_id" uuid NOT NULL,
-	"client_id" uuid NOT NULL,
+	"client_id" uuid,
 	"tracking_token_hash" text NOT NULL,
 	"provider_submission_id" text,
 	"status" text DEFAULT 'PENDING' NOT NULL,
@@ -584,6 +586,24 @@ CREATE TABLE "organizations" (
 	CONSTRAINT "organizations_slug_unique" UNIQUE("slug")
 );
 --> statement-breakpoint
+CREATE TABLE "owner_welcome_emails" (
+	"organization_id" uuid PRIMARY KEY NOT NULL,
+	"owner_id" uuid NOT NULL,
+	"status" text DEFAULT 'PENDING' NOT NULL,
+	"run_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"attempt_count" integer DEFAULT 0 NOT NULL,
+	"lock_token" uuid,
+	"lock_expires_at" timestamp with time zone,
+	"first_send_at" timestamp with time zone,
+	"email_payload" jsonb,
+	"last_error_code" text,
+	"sent_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "owner_welcome_emails_status_check" CHECK ("owner_welcome_emails"."status" IN ('PENDING','PROCESSING','RETRY','SENT','FAILED','DELIVERY_UNKNOWN')),
+	CONSTRAINT "owner_welcome_emails_attempt_check" CHECK ("owner_welcome_emails"."attempt_count" >= 0)
+);
+--> statement-breakpoint
 CREATE TABLE "payments" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -674,6 +694,64 @@ CREATE TABLE "phone_numbers" (
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "phone_numbers_phone_number_unique" UNIQUE("phone_number"),
 	CONSTRAINT "phone_numbers_twilio_phone_number_sid_unique" UNIQUE("twilio_phone_number_sid")
+);
+--> statement-breakpoint
+CREATE TABLE "request_attachments" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"submission_id" uuid NOT NULL,
+	"field_id" text NOT NULL,
+	"content_type" text NOT NULL,
+	"byte_length" integer NOT NULL,
+	"sha256" text NOT NULL,
+	"encrypted_image" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "request_attachments_size_check" CHECK ("request_attachments"."byte_length" BETWEEN 1 AND 2097152),
+	CONSTRAINT "request_attachments_type_check" CHECK ("request_attachments"."content_type" = 'image/jpeg'),
+	CONSTRAINT "request_attachments_hash_check" CHECK ("request_attachments"."sha256" ~ '^[a-f0-9]{64}$')
+);
+--> statement-breakpoint
+CREATE TABLE "request_forms" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"name" text NOT NULL,
+	"request_type" text NOT NULL,
+	"definition" jsonb NOT NULL,
+	"version" integer DEFAULT 1 NOT NULL,
+	"token_hash" text NOT NULL,
+	"token_encrypted" text NOT NULL,
+	"active" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "request_forms_token_hash_unique" UNIQUE("token_hash"),
+	CONSTRAINT "request_forms_type_check" CHECK ("request_forms"."request_type" IN ('PIERCING_REQUEST','TATTOO_REQUEST')),
+	CONSTRAINT "request_forms_version_check" CHECK ("request_forms"."version" > 0)
+);
+--> statement-breakpoint
+CREATE TABLE "request_notifications" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"submission_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"read_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "request_submissions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"form_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"request_type" text NOT NULL,
+	"client_name" text NOT NULL,
+	"definition" jsonb NOT NULL,
+	"answers" jsonb NOT NULL,
+	"idempotency_key" uuid NOT NULL,
+	"payload_hash" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "request_submissions_type_check" CHECK ("request_submissions"."request_type" IN ('PIERCING_REQUEST','TATTOO_REQUEST')),
+	CONSTRAINT "request_submissions_hash_check" CHECK ("request_submissions"."payload_hash" ~ '^[a-f0-9]{64}$')
 );
 --> statement-breakpoint
 CREATE TABLE "retail_items" (
@@ -884,6 +962,8 @@ CREATE TABLE "studio_invoices" (
 	"client_id" uuid,
 	"sms_status" text DEFAULT 'NOT_SENT' NOT NULL,
 	"sms_provider_id" text,
+	"email_status" text DEFAULT 'NOT_SENT' NOT NULL,
+	"email_provider_id" text,
 	"client_name" text NOT NULL,
 	"client_email" text NOT NULL,
 	"lines" jsonb NOT NULL,
@@ -898,6 +978,7 @@ CREATE TABLE "studio_invoices" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "studio_invoice_sms_status_check" CHECK ("studio_invoices"."sms_status" IN ('NOT_SENT','SENDING','SENT','UNKNOWN')),
+	CONSTRAINT "studio_invoice_email_status_check" CHECK ("studio_invoices"."email_status" IN ('NOT_SENT','SENDING','SENT','UNKNOWN')),
 	CONSTRAINT "studio_invoice_due_days_check" CHECK ("studio_invoices"."due_days" BETWEEN 1 AND 90),
 	CONSTRAINT "studio_invoice_total_check" CHECK ("studio_invoices"."total_cents" BETWEEN 1 AND 100000000),
 	CONSTRAINT "studio_invoice_status_check" CHECK ("studio_invoices"."status" IN ('DRAFT','ISSUING','OPEN','PAID','VOID','UNCOLLECTIBLE'))
@@ -1048,7 +1129,7 @@ CREATE TABLE "waiver_submissions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
 	"appointment_id" uuid NOT NULL,
-	"client_id" uuid NOT NULL,
+	"client_id" uuid,
 	"waiver_template_id" uuid NOT NULL,
 	"signed_name" text NOT NULL,
 	"signature_data" text,
@@ -1108,7 +1189,21 @@ CREATE UNIQUE INDEX "external_waiver_forms_id_organization_uidx" ON "external_wa
 --> statement-breakpoint
 CREATE UNIQUE INDEX "legal_customers_id_organization_uidx" ON "legal_customers" USING btree ("id","organization_id");
 --> statement-breakpoint
+CREATE INDEX "owner_welcome_emails_due_idx" ON "owner_welcome_emails" USING btree ("status","run_at");
+--> statement-breakpoint
 CREATE UNIQUE INDEX "phone_numbers_id_organization_uidx" ON "phone_numbers" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "request_attachments_submission_field_uidx" ON "request_attachments" USING btree ("submission_id","field_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "request_forms_id_organization_uidx" ON "request_forms" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "request_notifications_recipient_uidx" ON "request_notifications" USING btree ("submission_id","user_id");
+--> statement-breakpoint
+CREATE INDEX "request_notifications_user_created_idx" ON "request_notifications" USING btree ("organization_id","user_id","created_at");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "request_submissions_id_organization_uidx" ON "request_submissions" USING btree ("id","organization_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "request_submissions_form_replay_uidx" ON "request_submissions" USING btree ("form_id","idempotency_key");
 --> statement-breakpoint
 CREATE INDEX "retail_items_org_idx" ON "retail_items" USING btree ("organization_id","artist_id");
 --> statement-breakpoint
@@ -1197,6 +1292,8 @@ ALTER TABLE "appointments" ADD CONSTRAINT "appointments_artist_id_tenant_fk" FOR
 ALTER TABLE "appointments" ADD CONSTRAINT "appointments_client_id_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "appointments" ADD CONSTRAINT "appointments_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "appointments" ADD CONSTRAINT "appointments_location_id_tenant_fk" FOREIGN KEY ("location_id","organization_id") REFERENCES "public"."studio_locations"("id","organization_id") ON DELETE set null ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "artist_consent_forms" ADD CONSTRAINT "artist_consent_forms_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
@@ -1414,6 +1511,10 @@ ALTER TABLE "meta_connection_candidates" ADD CONSTRAINT "meta_connection_candida
 --> statement-breakpoint
 ALTER TABLE "meta_connection_candidates" ADD CONSTRAINT "meta_connection_candidates_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
+ALTER TABLE "owner_welcome_emails" ADD CONSTRAINT "owner_welcome_emails_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "owner_welcome_emails" ADD CONSTRAINT "owner_welcome_emails_owner_tenant_fk" FOREIGN KEY ("owner_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_appointment_id_appointments_id_fk" FOREIGN KEY ("appointment_id") REFERENCES "public"."appointments"("id") ON DELETE no action ON UPDATE no action;
@@ -1455,6 +1556,26 @@ ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_twilio_account_id_twil
 ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "phone_numbers" ADD CONSTRAINT "phone_numbers_twilio_account_id_tenant_fk" FOREIGN KEY ("twilio_account_id","organization_id") REFERENCES "public"."twilio_accounts"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_attachments" ADD CONSTRAINT "request_attachments_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_attachments" ADD CONSTRAINT "request_attachments_submission_tenant_fk" FOREIGN KEY ("submission_id","organization_id") REFERENCES "public"."request_submissions"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_forms" ADD CONSTRAINT "request_forms_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_forms" ADD CONSTRAINT "request_forms_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_notifications" ADD CONSTRAINT "request_notifications_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_notifications" ADD CONSTRAINT "request_notifications_submission_tenant_fk" FOREIGN KEY ("submission_id","organization_id") REFERENCES "public"."request_submissions"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_notifications" ADD CONSTRAINT "request_notifications_user_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_submissions" ADD CONSTRAINT "request_submissions_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_submissions" ADD CONSTRAINT "request_submissions_form_tenant_fk" FOREIGN KEY ("form_id","organization_id") REFERENCES "public"."request_forms"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "request_submissions" ADD CONSTRAINT "request_submissions_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "retail_items" ADD CONSTRAINT "retail_items_artist_id_artists_id_fk" FOREIGN KEY ("artist_id") REFERENCES "public"."artists"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

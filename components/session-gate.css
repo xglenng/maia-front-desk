@@ -19,6 +19,17 @@
 .session-notifications-panel{position:absolute;right:0;top:46px;width:min(300px,calc(100vw - 24px));padding:16px;border:1px solid #e5dfda;border-radius:14px;background:#fff;box-shadow:0 12px 35px #2925221c;color:#292522}
 .session-notifications-panel h2{margin:0;font-size:16px}
 .session-notifications-panel p{margin:12px 0 0;color:#625b55;font-size:14px;line-height:1.5}
+.session-notifications summary{position:relative}
+.session-notification-badge{position:absolute;right:0;top:0;background:#b33d36;color:#fff;border-radius:999px;min-width:16px;padding:2px;font:700 10px Arial,sans-serif;text-align:center}
+.session-notifications-panel{max-height:min(65vh,480px);overflow-y:auto}
+.session-notification-item{padding:10px 0;border-bottom:1px solid #eee8e2;font-size:13px}
+.session-notification-item a{display:block;color:#292522;text-decoration:none}
+.session-notification-item small{display:block;margin-top:4px;color:#625b55}
+.session-notification-item.unread strong{color:#604697}
+.session-notification-item button{margin-top:6px;border:0;background:transparent;color:#604697;padding:4px 0;cursor:pointer}
+.session-notification-pages{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:12px}
+.session-notification-pages button{border:0;background:transparent;color:#604697;padding:8px;cursor:pointer}
+.session-notification-pages button:disabled{color:#aaa;cursor:default}
 .session-account-panel{box-sizing:border-box;width:min(300px,calc(100vw - 24px));max-height:calc(100dvh - 72px);overflow-y:auto;overscroll-behavior:contain}
 .session-identity{padding:0 8px 12px;border-bottom:1px solid #eee8e2}
 .session-identity span{display:block;margin-top:3px;font-size:13px;overflow-wrap:anywhere}

@@ -4,28 +4,40 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 const socket = process.env.MAIA_BASELINE_TEST_SOCKET;
+const container = process.env.MAIA_REQUEST_TEST_CONTAINER;
 const baseline = readFileSync('packages/db/baseline/pre-journal.sql', 'utf8');
 const journal = JSON.parse(readFileSync('packages/db/drizzle/meta/_journal.json', 'utf8'));
 test('versioned baseline matches its preserved historical schema source', () => {
   const hash = createHash('sha256').update(readFileSync('packages/db/baseline/pre-journal-schema.ts')).digest('hex');
   assert.ok(baseline.includes(`schema-source-sha256: ${hash}`));
-  assert.equal(journal.entries.length, 34);
+  assert.equal(journal.entries.length, 35);
 });
-test('empty baseline and populated supported upgrade use the real Drizzle journal', { skip: !socket }, async () => {
-  assert.match(socket!, /^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
+test('empty baseline and populated supported upgrade use the real Drizzle journal', { skip: !socket && !container }, async () => {
+  let connection:{host:string;port:number;database:string;user:string;password?:string};
+  if (container) {
+    assert.match(container,/^[a-f0-9]{64}$/);
+    assert.equal(execFileSync('docker',['inspect','--format','{{index .Config.Labels "maia-purpose"}}',container],{encoding:'utf8'}).trim(),'request-integration');
+    const mapping=execFileSync('docker',['port',container,'5432/tcp'],{encoding:'utf8'}).trim();
+    assert.match(mapping,/^127\.0\.0\.1:\d+$/);
+    connection={host:'127.0.0.1',port:Number(mapping.split(':')[1]),database:'maia_request_test',user:'postgres',password:'synthetic-local-only'};
+  } else {
+    assert.match(socket!, /^\/private\/tmp\/maia-signup-[A-Za-z0-9]+$/);
+    connection={host:socket!,port:55439,database:'maia_tenant_test',user:process.env.USER!};
+  }
   const prefix = 'baseline_' + randomUUID().replaceAll('-', '');
   const root = mkdtempSync(join(tmpdir(), 'maia-migration-parity-'));
   const schemas = [prefix + '_fresh', prefix + '_upgrade', prefix + '_snapshot'];
   const pools: Pool[] = [];
   try {
     for (const schema of schemas) {
-      const pool = new Pool({ host: socket, port: 55439, database: 'maia_tenant_test', user: process.env.USER, max: 1, options: `-c search_path=${schema}` });
+      const pool = new Pool({ ...connection, max: 1, options: `-c search_path=${schema}` });
       pools.push(pool);
-      assert.equal((await pool.query('SHOW data_directory')).rows[0].data_directory, `${socket}/data`);
+      assert.equal((await pool.query('SHOW data_directory')).rows[0].data_directory, container?'/var/lib/postgresql/data':`${socket}/data`);
       await pool.query(`CREATE SCHEMA ${schema}`);
     }
     async function forward(index: number, count: number) {

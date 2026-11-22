@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import UiIcon from "@/components/ui-icon";
+import type {SavedRequestForm} from "./native-editor";
 import "./waivers.css";
 
 type FormRow = { id: string; provider: string; name: string; formUrl: string; category: string; audience: "ANY" | "ADULT" | "MINOR"; artistId: string | null; serviceId: string | null; priority: number; active: boolean; collectsMedicalData: boolean; completionMode: string;canDelete:boolean };
@@ -19,6 +20,9 @@ export default function WaiversPage() {
   const [setup, setSetup] = useState<Setup>({ connections: [], forms: [], artists: [], services: [] });
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupLoading, setSetupLoading] = useState(true);
+  const [requestForms,setRequestForms]=useState<SavedRequestForm[]>([]);
+  const [requestError,setRequestError]=useState("");
+  const [requestLoading,setRequestLoading]=useState(true);
   
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [appointmentsError, setAppointmentsError] = useState<string | null>(null);
@@ -70,16 +74,31 @@ export default function WaiversPage() {
     }
   }, []);
 
+  const refreshRequests = useCallback(async () => {
+    setRequestLoading(true);setRequestError("");
+    try {
+      const data=await readJson<{forms:SavedRequestForm[]}>(await fetch('/api/request-forms',{cache:'no-store'}));
+      setRequestForms(data.forms);
+      return true;
+    } catch (error) {
+      setRequestError(error instanceof Error?error.message:'Unable to load request forms.');
+      return false;
+    } finally {setRequestLoading(false);}
+  }, []);
+
   const refresh = useCallback(async () => {
     const setupResult = await refreshSetup();
     const appointmentsResult = await refreshAppointments();
-    return setupResult && appointmentsResult;
-  }, [refreshSetup, refreshAppointments]);
+    const requestResult = await refreshRequests();
+    return setupResult && appointmentsResult && requestResult;
+  }, [refreshSetup, refreshAppointments, refreshRequests]);
 
   useEffect(() => {
     void refresh();
     if (new URLSearchParams(window.location.search).get("created") === "1") {
       setMessage({text:"Consent form created. It is now available in Current forms.",created:true});
+    } else if (new URLSearchParams(window.location.search).get("created") === "request") {
+      setMessage({text:"Request form saved. Share its reusable link with clients.",created:true});
     }
   }, [refresh]);
 
@@ -149,10 +168,14 @@ export default function WaiversPage() {
   }
 
   return <main className="waiver-admin">
-    <header><a href="/settings">← Settings</a><h1>Consent forms & waivers</h1><p>Manage the consent forms available to your artists and send them to clients.</p><div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new" aria-label="Create form"><span className="create-form-plus" aria-hidden="true">+</span><span className="create-form-text">Create form</span></a><button type="button" className="consent-add-link" disabled={busy||customSaving} onClick={()=>{setCustomError(null);setJotFeedback("");setProvider("LINK");customDialog.current?.showModal();}}>Connect to existing form</button><a href="/waivers/archive">View signed forms →</a></div></header>
+    <header><a href="/settings">← Settings</a><h1>Waivers & forms</h1><p>Manage consent forms and client request forms.</p><div className="consent-page-actions"><a className="consent-create-link" href="/waivers/new" aria-label="Create form"><span className="create-form-plus" aria-hidden="true">+</span><span className="create-form-text">Create form</span></a><button type="button" className="consent-add-link" disabled={busy||customSaving} onClick={()=>{setCustomError(null);setJotFeedback("");setProvider("LINK");customDialog.current?.showModal();}}>Connect to existing form</button><a href="/waivers/archive">View signed forms →</a></div></header>
     {message && <div className={`waiver-notice${message.created ? " success" : ""}`} role="status">{message.text}</div>}
 
     <section className="waiver-section"><div className="section-heading"><div><h2>Current forms</h2><p>Your available consent forms. Edit a form to choose when it is used and whether it is active.</p></div><strong>{!setupLoading && setup.forms.length > 0 ? setup.forms.length : (setupLoading ? "-" : "0")} forms</strong></div>{setupLoading ? <div className="loading">Loading…</div> : setupError ? <div className="error-state"><p role="alert">Couldn't load forms. {setupError}</p><button type="button" onClick={() => refreshSetup()}>Retry</button></div> : setup.forms.length === 0 ? <div className="empty">No forms yet. Create a Maia form or add an existing form link.</div> : <div className="form-list">{setup.forms.map(form => <FormEditor key={form.id} form={form} setup={setup} busy={busy} onSaved={refresh} onDeleted={text=>setMessage({text})} />)}</div>}</section>
+
+    <section className="waiver-section"><div className="section-heading"><div><h2>Request forms</h2><p>Share reusable inquiry links. Requests do not book appointments or collect deposits.</p></div><strong>{requestLoading?'–':requestForms.length} forms</strong></div>
+      {requestLoading?<div className="loading">Loading…</div>:requestError?<div className="error-state"><p role="alert">{requestError}</p><button type="button" onClick={()=>void refreshRequests()}>Retry</button></div>:!requestForms.length?<div className="empty">No request forms yet.</div>:<div className="form-list">{requestForms.map(form=><article key={form.id} className="routing-rule"><div className="routing-summary"><strong>{form.name}</strong><span>{form.requestType==='TATTOO_REQUEST'?'Tattoo request':'Piercing request'}</span></div><span className={`form-state ${form.active?'active':'inactive'}`}>{form.active?'Active':'Inactive'}</span><a className="routing-edit" href={`/waivers/requests/${form.id}`}>Edit</a>{form.active&&<FormLink url={form.url} reusable/>}</article>)}</div>}
+    </section>
 
     <section className="waiver-section"><div className="section-heading"><div><h2>Upcoming appointments</h2><p>Auto-select applies the routing rules above. Choose a form manually when needed.</p></div><strong>{!appointmentsLoading && appointments.length > 0 ? appointments.length : (appointmentsLoading ? "-" : "0")} appointments</strong></div><div className="appointment-list">{appointmentsLoading ? <div className="loading">Loading…</div> : appointmentsError ? <div className="error-state"><p role="alert">Couldn't load appointments. {appointmentsError}</p><button type="button" onClick={() => refreshAppointments()}>Retry</button></div> : appointments.length === 0 ? <div className="empty">No upcoming appointments.</div> : appointments.map(row => <AppointmentWaivers key={row.appointment.id} row={row} formLink={formLinks[row.appointment.id]} notice={appointmentMessages[row.appointment.id]} forms={setup.forms.filter(f=>!f.artistId||f.artistId===row.appointment.artistId)} busy={busy} onSend={sendWaiver} onCreateLink={createLink} onAction={assignmentAction} />)}</div></section>
 
@@ -244,7 +267,7 @@ function AppointmentWaivers({ row, formLink, notice, forms, busy, onSend, onCrea
   return <article className="appointment-row-waiver"><div><strong>{row.clientName}</strong><span>{new Date(row.appointment.startsAt).toLocaleString()} · {row.artistName} · {row.serviceName ?? "Appointment"}</span><small>{row.clientPhone ?? "No phone"} · {row.clientSmsOptIn ? "SMS opted in" : "Not opted in"} · {row.clientDateOfBirth ? "Birth date available" : "Birth date missing"}</small></div><div className="send-controls"><select aria-label={`Form for ${row.clientName}`} value={formId} onChange={event => setFormId(event.target.value)}><option value="">Auto-select form</option>{forms.filter(form => form.active).map(form => <option key={form.id} value={form.id}>{form.name}</option>)}</select><button disabled={busy} onClick={()=>onCreateLink(row.appointment.id,formId||undefined)}>Create form link</button><button disabled={Boolean(sendReason)} onClick={() => onSend(row.appointment.id, formId || undefined)}>Send waiver</button>{sendReason&&<small className="send-disabled-reason">{sendReason}</small>}</div>{notice&&<p className="appointment-feedback" role="status">{notice}</p>}{formLink&&<FormLink key={formLink} url={formLink} />}{row.assignments.length > 0 && <div className="assignment-list">{row.assignments.map(item => <div key={item.assignment.id}><span className={`status ${item.assignment.status.toLowerCase()}`}>{item.assignment.status}</span><strong>{item.formName}</strong><small>{item.provider}</small>{item.hasPhotoId&&<a href={`/api/waiver-assignments/${item.assignment.id}/photo-id`} target="_blank" rel="noreferrer">Download photo ID</a>}{!["COMPLETED", "REVIEWED", "VOID"].includes(item.assignment.status) && <>{item.provider!=="MAIA"&&<button onClick={() => onAction(item.assignment.id, "MARK_COMPLETE")}>Mark complete</button>}<button onClick={() => onAction(item.assignment.id, "VOID")}>Void</button></>}{item.assignment.status === "COMPLETED" && <button onClick={() => onAction(item.assignment.id, "MARK_REVIEWED")}>Mark reviewed</button>}</div>)}</div>}</article>;
 }
 
-function FormLink({url}:{url:string}) {
+function FormLink({url,reusable=false}:{url:string;reusable?:boolean}) {
   const inputId=useId();
   const [feedback,setFeedback]=useState("");
   const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -258,5 +281,5 @@ function FormLink({url}:{url:string}) {
       timer.current=setTimeout(()=>setFeedback(""),3000);
     } catch {setFeedback("Could not copy. Select the link and copy it manually.");}
   }
-  return <div className="appointment-form-link"><label htmlFor={inputId}>Client form link</label><div className="form-link-controls"><input id={inputId} readOnly value={url} onFocus={event=>event.currentTarget.select()}/><button type="button" className="copy-form-link" aria-label="Copy form link" onClick={()=>void copy()}><UiIcon name="copy"/></button></div><span className="form-link-feedback" role="status">{feedback}</span><a className="open-form-link" href={url} target="_blank" rel="noopener noreferrer">Open form ↗</a><p>Share only with this client. This appointment-specific link is shown for this session.</p></div>;
+  return <div className="appointment-form-link"><label htmlFor={inputId}>Client form link</label><div className="form-link-controls"><input id={inputId} readOnly value={url} onFocus={event=>event.currentTarget.select()}/><button type="button" className="copy-form-link" aria-label="Copy form link" onClick={()=>void copy()}><UiIcon name="copy"/></button></div><span className="form-link-feedback" role="status">{feedback}</span><a className="open-form-link" href={url} target="_blank" rel="noopener noreferrer">Open form ↗</a><p>{reusable?'This reusable link can be shared with clients.':'Share only with this client. This appointment-specific link is shown for this session.'}</p></div>;
 }

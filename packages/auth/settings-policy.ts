@@ -2,7 +2,7 @@
 // invitations deliberately retain their separate owner-only authorization.
 export function canManageStudioSettings(role:string){return role==='OWNER'||role==='ARTIST';}
 const sharedSettingsPaths=new Set([
- '/api/services','/api/services/import','/api/services/square','/api/services/square/connect','/api/items','/api/waiver-integrations','/api/channels','/api/channels/meta-candidates','/api/integrations/meta/connect','/api/integrations/meta/callback','/api/integrations/square/callback',
+ '/api/services','/api/services/import','/api/services/square','/api/services/square/connect','/api/items','/api/waiver-integrations','/api/request-forms','/api/channels','/api/channels/meta-candidates','/api/integrations/meta/connect','/api/integrations/meta/callback','/api/integrations/square/callback',
  '/api/studio/config','/api/studio/locations','/api/studio/knowledge','/api/studio/artists',
  '/api/ai/settings','/api/automations/settings','/api/consent-forms','/api/scheduling',
  '/api/scheduling/square/connect','/api/scheduling/square/catalog','/api/scheduling/square/import',

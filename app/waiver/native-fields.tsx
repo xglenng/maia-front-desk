@@ -1,20 +1,23 @@
 'use client';
-import type { NativeAnswers, NativeField } from '@/packages/waivers/forms';
+import type { NativeAnswers } from '@/packages/waivers/forms';
+import type { RequestField } from '@/packages/waivers/request-forms';
 export default function NativeFields({
   fields,
   answers,
   onChange,
   disabled = false,
   onPhotoIdChange,
+  onImageChange,
   maxDobToday = '',
   fieldError = '',
   onFieldErrorClear,
 }: {
-  fields: NativeField[];
+  fields: RequestField[];
   answers: NativeAnswers;
   onChange: (answers: NativeAnswers) => void;
   disabled?: boolean;
   onPhotoIdChange?: (file: File | null) => void;
+  onImageChange?: (fieldId: string, file: File | null) => void;
   maxDobToday?: string;
   fieldError?: string;
   onFieldErrorClear?: () => void;
@@ -47,6 +50,15 @@ export default function NativeFields({
                 margin: '28px 0',
               }}
             />
+          );
+        if (field.type === 'IMAGE')
+          return (
+            <label key={field.id} style={{display:'block',margin:'24px 0'}}>
+              {field.label}{field.required ? ' *' : ''}
+              <input type="file" accept="image/jpeg,image/png" required={field.required} disabled={disabled}
+                onChange={event => onImageChange?.(field.id,event.target.files?.[0] || null)} style={control}/>
+              <small>JPEG or PNG, up to 5 MB. Images are stored privately.</small>
+            </label>
           );
         if (field.type === 'PHOTO_ID')
           return (

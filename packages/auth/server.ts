@@ -76,7 +76,7 @@ export function protectedRoute<C>(handler: (req: NextRequest, context: C) => Pro
       if (user.role === 'ARTIST' && !settingsAccess && !['GET','HEAD'].includes(req.method)) {
         const supervised = await pool.query('SELECT requires_supervisor_approval FROM artists WHERE organization_id=$1 AND user_id=$2 AND requires_supervisor_approval=true LIMIT 1', [user.organization_id, user.id]);
         const draftOrControl = /^\/api\/inbox\/[a-f0-9-]{36}(?:\/draft)?$/.test(url.pathname);
-        if (supervised.rows[0]?.requires_supervisor_approval === true && !draftOrControl && url.pathname !== '/api/ai/chat') return NextResponse.json({ error: 'Owner approval is required for this action. Submit a draft for review.' }, { status: 403 });
+        if (supervised.rows[0]?.requires_supervisor_approval === true && !draftOrControl && url.pathname !== '/api/ai/chat' && url.pathname !== '/api/request-notifications') return NextResponse.json({ error: 'Owner approval is required for this action. Submit a draft for review.' }, { status: 403 });
       }
 
       const body = ['GET','HEAD','DELETE'].includes(req.method) ? {} : await req.clone().json();
