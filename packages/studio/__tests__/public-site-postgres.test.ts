@@ -56,6 +56,14 @@ test('public studio site only publishes valid active tenant forms and public con
     // Capability preferences must not revoke existing active public links.
     await local.query('UPDATE organizations SET request_forms_enabled=false WHERE id=$1', [org]);
     assert.equal((await publicStudioSite('public-site-test'))?.requests.length, 2);
+    const nailToken = 'f'.repeat(48);
+    await form('Nail request', org, artist, true, encryptComplianceSecret(nailToken), createHash('sha256').update(nailToken).digest('hex'), 'NAILS_REQUEST');
+    await local.query('UPDATE organizations SET industries=$2 WHERE id=$1', [org, JSON.stringify(['NAILS'])]);
+    const nailSite = await publicStudioSite('public-site-test');
+    assert.deepEqual(nailSite?.requests.map(f => f.name), ['Nail request']);
+    assert.equal(nailSite?.industryContent.headline[0], 'Your next set.');
+    await local.query('UPDATE organizations SET industries=$2 WHERE id=$1', [org, JSON.stringify(['NAILS', 'TATTOO'])]);
+    assert.deepEqual(new Set((await publicStudioSite('public-site-test'))?.requests.map(f => f.name)), new Set(['Nail request', 'Tattoo request']));
     await local.query('UPDATE request_forms SET active=false WHERE organization_id=$1', [org]);
     assert.equal((await publicStudioSite('public-site-test'))?.requests.length, 0);
     assert.equal(await publicStudioSite('missing-studio'), null);

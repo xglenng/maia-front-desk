@@ -6,11 +6,13 @@ import { artistConsentForms, artists, complianceProfiles, organizations, request
 import { decryptComplianceSecret } from '@/packages/compliance/secrets';
 import { requestDefinition } from '@/packages/waivers/request-forms';
 import { appBaseUrl, formOptInUrl, isConsentFormReady } from '@/packages/consent';
+import { publicSiteIndustry } from './public-site-policy';
 
 export async function publicStudioSite(slug: string) {
-  const [organization] = await db.select({ id: organizations.id, name: organizations.name, publicName: organizations.publicName, phone: organizations.publicPhone, email: organizations.publicEmail })
+  const [organization] = await db.select({ id: organizations.id, name: organizations.name, publicName: organizations.publicName, phone: organizations.publicPhone, email: organizations.publicEmail, industries: organizations.industries })
     .from(organizations).where(eq(organizations.slug, slug)).limit(1);
   if (!organization) return null;
+  const industryContent = publicSiteIndustry(organization.industries);
   const [forms, locations, faqs, [legal], consentForms] = await Promise.all([
     db.select({ id: requestForms.id, name: requestForms.name, type: requestForms.requestType, definition: requestForms.definition, encrypted: requestForms.tokenEncrypted, hash: requestForms.tokenHash, artist: artists.displayName })
       .from(requestForms).innerJoin(artists, and(eq(requestForms.artistId, artists.id), eq(requestForms.organizationId, artists.organizationId)))
@@ -26,6 +28,7 @@ export async function publicStudioSite(slug: string) {
       .where(and(eq(artistConsentForms.organizationId, organization.id), eq(artistConsentForms.active, true))),
   ]);
   const requests = forms.flatMap(form => {
+    if (!industryContent.requestTypes.some(type => type === form.type)) return [];
     if (!requestDefinition.safeParse(form.definition).success) return [];
     try {
       const token = decryptComplianceSecret(form.encrypted);
@@ -34,5 +37,5 @@ export async function publicStudioSite(slug: string) {
     } catch { return []; }
   });
   const smsLinks = legal?.smsEnabled ? consentForms.flatMap(({ form, artist }) => isConsentFormReady(form) ? [{ artist, url: formOptInUrl(form, appBaseUrl(), slug) }] : []) : [];
-  return { name: organization.publicName || organization.name, phone: organization.phone, email: organization.email, locations, faqs, requests, legal, smsLinks };
+  return { name: organization.publicName || organization.name, phone: organization.phone, email: organization.email, locations, faqs, requests, legal, smsLinks, industryContent };
 }

@@ -28,8 +28,8 @@ export default async function PublicBusinessPage({ params, searchParams }: { sea
         <div>{site.requests.length > 0 && <a href="#requests">Request an appointment</a>}<a href="#contact">Contact</a>{site.faqs.length > 0 && <a href="#faq">FAQ</a>}</div>
       </nav>
       <header id="home" className={styles.hero}>
-        <span className={styles.eyebrow}>Welcome to {site.name}</span>
-        <h1>A little inspiration.<br/>Your next appointment.</h1>
+        <span className={styles.eyebrow}>{site.industryContent.specialties || `Welcome to ${site.name}`}</span>
+        <h1>{site.industryContent.headline[0]}<br/>{site.industryContent.headline[1]}</h1>
         <p>{site.requests.length ? 'Tell us what you have in mind. Choose a request form below and our team will review your details.' : 'Get in touch with our team to ask about services and appointments.'}</p>
         <div className={styles.heroLinks}>
           <a className={styles.action} href={site.requests.length ? '#requests' : '#contact'}>{site.requests.length ? 'Start your request' : 'Get in touch'}</a>
