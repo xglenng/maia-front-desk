@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import '../waivers/waivers.css';
+import UiIcon from '@/components/ui-icon';
+import './requests.css';
 
 type Submission = {
   id: string;
@@ -19,7 +20,7 @@ export default function RequestsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [refresh, setRefresh] = useState(0);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -42,41 +43,49 @@ export default function RequestsPage() {
     }
     void load();
     return () => controller.abort();
-  }, [type, page, refresh]);
+  }, [type, page, retryKey]);
 
-  return <main className="waiver-admin">
-    <header>
-      <a href="/waivers">← Waivers & forms</a>
-      <h1>Submitted requests</h1>
-      <p>Tattoo and piercing inquiries received from your request forms.</p>
-    </header>
-    <section className="waiver-section">
-      <div className="section-heading">
-        <label>Request type <select value={type} onChange={event => { setType(event.target.value); setPage(1); }}>
-          <option value="">All requests</option>
-          <option value="TATTOO_REQUEST">Tattoo requests</option>
-          <option value="PIERCING_REQUEST">Piercing requests</option>
-        </select></label>
-        <button type="button" disabled={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
-      </div>
-      {loading ? <p role="status">Loading submitted requests…</p>
-        : error ? <div className="error-state"><p role="alert">{error}</p><button type="button" onClick={() => setRefresh(value => value + 1)}>Retry</button></div>
-          : <>
-            {!requests.length && <p>No submitted requests found.</p>}
-            {requests.map(request => <article className="archive-row" key={request.id}>
-              <div>
-                <strong>{request.clientName}</strong>
-                <p>{request.requestType === 'TATTOO_REQUEST' ? 'Tattoo request' : 'Piercing request'} · {request.artistName}</p>
-                <small>Submitted {new Date(request.createdAt).toLocaleString('en-US', { timeZone: request.timezone || 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</small>
-              </div>
-              <a href={`/requests/${request.id}`}>View request</a>
-            </article>)}
-          </>}
-      <div className="archive-actions">
-        <button type="button" disabled={loading || page === 1} onClick={() => setPage(value => value - 1)}>Previous</button>
-        <span>Page {page}</span>
-        <button type="button" disabled={loading || Boolean(error) || !hasMore} onClick={() => setPage(value => value + 1)}>Next</button>
-      </div>
-    </section>
+  return <main className="requests-page">
+    <div className="requests-container">
+      <header className="requests-header">
+        <a className="requests-back" href="/waivers"><span aria-hidden="true">←</span> Waivers & forms</a>
+        <h1>Submitted requests</h1>
+        <p>Review tattoo and piercing inquiries from your clients.</p>
+      </header>
+      <section className="requests-surface" aria-label="Submitted requests">
+        <div className="requests-toolbar">
+          <div className="requests-filters" role="group" aria-label="Request type">
+            {[
+              { value: '', label: 'All requests' },
+              { value: 'TATTOO_REQUEST', label: 'Tattoo' },
+              { value: 'PIERCING_REQUEST', label: 'Piercing' },
+            ].map(filter => <button key={filter.value} type="button" aria-pressed={type === filter.value}
+              onClick={() => { setType(filter.value); setPage(1); }}>{filter.label}</button>)}
+          </div>
+        </div>
+        {loading ? <div className="requests-feedback" role="status"><UiIcon name="document"/><p>Loading submitted requests…</p></div>
+          : error ? <div className="requests-feedback requests-error"><p role="alert">{error}</p><button className="requests-button" type="button" onClick={() => setRetryKey(value => value + 1)}>Try again</button></div>
+            : requests.length ? <div className="requests-list">
+              {requests.map(request => {
+                const tattoo = request.requestType === 'TATTOO_REQUEST';
+                const initials = request.clientName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+                return <a className="request-card" key={request.id} href={`/requests/${request.id}`}>
+                  <div className="request-client">
+                    <span className="request-avatar" aria-hidden="true">{initials}</span>
+                    <div><h2>{request.clientName}</h2><p>Artist · {request.artistName}</p></div>
+                  </div>
+                  <span className={`request-type ${tattoo ? 'request-type-tattoo' : 'request-type-piercing'}`}>{tattoo ? 'Tattoo request' : 'Piercing request'}</span>
+                  <div className="request-date"><UiIcon name="clock"/><div><span>Submitted</span><time dateTime={request.createdAt}>{new Date(request.createdAt).toLocaleString('en-US', { timeZone: request.timezone || 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</time></div></div>
+                  <span className="request-view">View request <span aria-hidden="true">↗</span></span>
+                </a>;
+              })}
+            </div> : <div className="requests-feedback"><UiIcon name="inbox"/><h2>No requests yet</h2><p>{type ? 'No submissions match this request type.' : 'Submitted request forms will appear here.'}</p></div>}
+        {(page > 1 || hasMore) && <nav className="requests-pagination" aria-label="Request pages">
+          <button className="requests-button" type="button" disabled={loading || page === 1} onClick={() => setPage(value => value - 1)}>← Previous</button>
+          <span>Page {page}</span>
+          <button className="requests-button" type="button" disabled={loading || Boolean(error) || !hasMore} onClick={() => setPage(value => value + 1)}>Next →</button>
+        </nav>}
+      </section>
+    </div>
   </main>;
 }
