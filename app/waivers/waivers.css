@@ -390,7 +390,20 @@
 .waiver-admin .consent-page-actions{gap:12px}
 .waiver-admin .consent-archive-link{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:44px;padding:12px 16px;border:1px solid #e2ddea;border-radius:10px;color:#57436f;background:#fff;text-decoration:none;font-size:14px;font-weight:600;line-height:1.4;box-sizing:border-box}
 .waiver-admin .consent-archive-link>svg{width:17px;height:17px;flex-shrink:0}
-.waiver-admin .consent-archive-link>span{margin-left:3px}
 .waiver-admin .consent-archive-link:hover{background:#f6f3fa;border-color:#cfc3e2}
-@media(max-width:600px){.waiver-admin .form-library-filters{display:flex;width:100%}.waiver-admin .form-library-filters button{flex:1;padding:10px 8px;font-size:12px}.waiver-admin .consent-archive-link{flex:1 1 100%;justify-content:flex-start}.waiver-admin .consent-archive-link>span{margin-left:auto}}
+@media(max-width:600px){.waiver-admin .form-library-filters{display:flex;width:100%}.waiver-admin .form-library-filters button{flex:1;padding:10px 8px;font-size:12px}.waiver-admin .consent-archive-link{flex:1 1 100%;justify-content:flex-start}}
 @media(prefers-reduced-motion:reduce){.waiver-admin .form-library-filters button{transition:none}}
+
+.waiver-admin .request-form-row{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:16px;padding:18px 0;align-items:center}
+.waiver-admin .request-form-row:last-child{border-bottom:0}
+.waiver-admin .request-form-row>.form-state{font-size:12px;font-weight:600;padding:5px 9px;border-radius:7px}
+.waiver-admin .request-form-actions,.waiver-admin .request-link-actions{display:flex;align-items:center;gap:8px}
+.waiver-admin .request-link-actions{flex-wrap:wrap;max-width:300px}
+.waiver-admin .request-row-action{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:8px 12px;border:1px solid #dedbe5;border-radius:9px;background:#fff;color:#51465f;text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap;line-height:1.4}
+.waiver-admin .request-row-action:hover{background:#f6f3fa;border-color:#cfc3e2}
+.waiver-admin .request-row-action svg{width:16px;height:16px}
+.waiver-admin .request-link-feedback:empty{display:none}
+.waiver-admin .request-link-feedback:not(:empty){flex-basis:100%;font-size:12px;line-height:1.4;color:#5b4b9a}
+.waiver-admin .request-link-fallback{display:grid;gap:6px;flex-basis:100%;font-size:12px}
+.waiver-admin .request-link-fallback input{width:100%;padding:8px;border:1px solid #dedbe5;border-radius:8px;font-size:13px}
+@media(max-width:700px){.waiver-admin .request-form-row{grid-template-columns:minmax(0,1fr) auto;gap:12px}.waiver-admin .request-form-row .routing-summary{min-width:0}.waiver-admin .request-form-actions{grid-column:1/-1;flex-wrap:wrap}.waiver-admin .request-row-action{min-height:44px}.waiver-admin .request-link-actions{max-width:100%}}
