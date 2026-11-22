@@ -380,3 +380,17 @@
   border-color: #d3e8d9;
 }
 
+
+/* Form library navigation matches the submitted request filters. */
+.waiver-admin .form-library-filters{display:inline-flex;gap:4px;padding:4px;background:#f3f2f6;border:1px solid #eae8f0;border-radius:12px;max-width:100%;margin:4px 0 24px}
+.waiver-admin .form-library-filters button{border:0;border-radius:8px;min-height:40px;padding:9px 18px;font-size:14px;font-weight:600;background:transparent;color:#686373;white-space:nowrap;transition:background .15s,color .15s}
+.waiver-admin .form-library-filters button[aria-pressed=true]{background:#fff;color:#554291;box-shadow:0 1px 4px #35285316}
+.waiver-admin .form-library-filters button:hover{color:#554291}
+.waiver-admin .waiver-section[hidden]{display:none}
+.waiver-admin .consent-page-actions{gap:12px}
+.waiver-admin .consent-archive-link{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:44px;padding:12px 16px;border:1px solid #e2ddea;border-radius:10px;color:#57436f;background:#fff;text-decoration:none;font-size:14px;font-weight:600;line-height:1.4;box-sizing:border-box}
+.waiver-admin .consent-archive-link>svg{width:17px;height:17px;flex-shrink:0}
+.waiver-admin .consent-archive-link>span{margin-left:3px}
+.waiver-admin .consent-archive-link:hover{background:#f6f3fa;border-color:#cfc3e2}
+@media(max-width:600px){.waiver-admin .form-library-filters{display:flex;width:100%}.waiver-admin .form-library-filters button{flex:1;padding:10px 8px;font-size:12px}.waiver-admin .consent-archive-link{flex:1 1 100%;justify-content:flex-start}.waiver-admin .consent-archive-link>span{margin-left:auto}}
+@media(prefers-reduced-motion:reduce){.waiver-admin .form-library-filters button{transition:none}}
