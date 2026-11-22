@@ -15,7 +15,7 @@ const journal = JSON.parse(readFileSync('packages/db/drizzle/meta/_journal.json'
 test('versioned baseline matches its preserved historical schema source', () => {
   const hash = createHash('sha256').update(readFileSync('packages/db/baseline/pre-journal-schema.ts')).digest('hex');
   assert.ok(baseline.includes(`schema-source-sha256: ${hash}`));
-  assert.equal(journal.entries.length, 35);
+  assert.equal(journal.entries.length, 37);
 });
 test('empty baseline and populated supported upgrade use the real Drizzle journal', { skip: !socket && !container }, async () => {
   let connection:{host:string;port:number;database:string;user:string;password?:string};

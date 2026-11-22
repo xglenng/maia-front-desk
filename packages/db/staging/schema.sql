@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: f37269fb5ae270cc7fd714c668ddfa286a72b5100a6287ccfec9e8c790e38be8
+-- schema-source-sha256: 152d3e9eb3959afc2f42a2ff7bf16f9c0dec70ecd8abc6969bdf7dd9cbfa9eb3
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -510,6 +510,15 @@ CREATE TABLE "external_waiver_forms" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "invoice_notifications" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"invoice_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"read_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "legal_customer_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -581,6 +590,10 @@ CREATE TABLE "organizations" (
 	"public_phone" text,
 	"public_email" text,
 	"website" text,
+	"industries" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"staff_term" text DEFAULT 'artist' NOT NULL,
+	"consent_forms_enabled" boolean DEFAULT true NOT NULL,
+	"request_forms_enabled" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "organizations_slug_unique" UNIQUE("slug")
@@ -725,7 +738,7 @@ CREATE TABLE "request_forms" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "request_forms_token_hash_unique" UNIQUE("token_hash"),
-	CONSTRAINT "request_forms_type_check" CHECK ("request_forms"."request_type" IN ('PIERCING_REQUEST','TATTOO_REQUEST')),
+	CONSTRAINT "request_forms_type_check" CHECK ("request_forms"."request_type" IN ('PIERCING_REQUEST','TATTOO_REQUEST','HAIR_REQUEST','NAILS_REQUEST','ESTHETICS_REQUEST')),
 	CONSTRAINT "request_forms_version_check" CHECK ("request_forms"."version" > 0)
 );
 --> statement-breakpoint
@@ -750,7 +763,7 @@ CREATE TABLE "request_submissions" (
 	"idempotency_key" uuid NOT NULL,
 	"payload_hash" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "request_submissions_type_check" CHECK ("request_submissions"."request_type" IN ('PIERCING_REQUEST','TATTOO_REQUEST')),
+	CONSTRAINT "request_submissions_type_check" CHECK ("request_submissions"."request_type" IN ('PIERCING_REQUEST','TATTOO_REQUEST','HAIR_REQUEST','NAILS_REQUEST','ESTHETICS_REQUEST')),
 	CONSTRAINT "request_submissions_hash_check" CHECK ("request_submissions"."payload_hash" ~ '^[a-f0-9]{64}$')
 );
 --> statement-breakpoint
@@ -1187,6 +1200,10 @@ CREATE UNIQUE INDEX "external_waiver_assignments_id_organization_uidx" ON "exter
 --> statement-breakpoint
 CREATE UNIQUE INDEX "external_waiver_forms_id_organization_uidx" ON "external_waiver_forms" USING btree ("id","organization_id");
 --> statement-breakpoint
+CREATE UNIQUE INDEX "invoice_notifications_recipient_uidx" ON "invoice_notifications" USING btree ("invoice_id","user_id");
+--> statement-breakpoint
+CREATE INDEX "invoice_notifications_user_created_idx" ON "invoice_notifications" USING btree ("organization_id","user_id","created_at");
+--> statement-breakpoint
 CREATE UNIQUE INDEX "legal_customers_id_organization_uidx" ON "legal_customers" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE INDEX "owner_welcome_emails_due_idx" ON "owner_welcome_emails" USING btree ("status","run_at");
@@ -1228,6 +1245,8 @@ CREATE INDEX "studio_aftercare_organization_idx" ON "studio_aftercare" USING btr
 CREATE INDEX "studio_business_hours_location_day_idx" ON "studio_business_hours" USING btree ("organization_id","location_id","day_of_week");
 --> statement-breakpoint
 CREATE INDEX "studio_faqs_organization_idx" ON "studio_faqs" USING btree ("organization_id","active","sort_order");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "studio_invoices_id_organization_uidx" ON "studio_invoices" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "studio_invoices_request_idx" ON "studio_invoices" USING btree ("organization_id","request_id");
 --> statement-breakpoint
@@ -1486,6 +1505,12 @@ ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_connec
 ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "external_waiver_forms" ADD CONSTRAINT "external_waiver_forms_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "invoice_notifications" ADD CONSTRAINT "invoice_notifications_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "invoice_notifications" ADD CONSTRAINT "invoice_notifications_invoice_tenant_fk" FOREIGN KEY ("invoice_id","organization_id") REFERENCES "public"."studio_invoices"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "invoice_notifications" ADD CONSTRAINT "invoice_notifications_user_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "legal_customer_accounts" ADD CONSTRAINT "legal_customer_accounts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

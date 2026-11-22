@@ -246,6 +246,20 @@
       "when": 1795460500000,
       "tag": "0034_request_forms",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795460600000,
+      "tag": "0035_industry_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795460700000,
+      "tag": "0036_invoice_notifications",
+      "breakpoints": true
     }
   ]
 }

@@ -2,8 +2,10 @@
 import {useEffect,useRef,useState} from 'react';
 import QuestionBuilder from './question-builder';
 import {nativeDefinition} from '@/packages/waivers/forms';
-import {buildConsentStarter,consentStarterKindsForAudience,consentStarterReferences,type ConsentStarterKind} from '@/packages/waivers/consent-starters';
-import {buildRequestStarter,type RequestStarterKind} from '@/packages/waivers/request-starters';
+import {buildConsentStarter,consentStarterReferences,type ConsentStarterKind} from '@/packages/waivers/consent-starters';
+import {buildRequestStarter,requestStarterMetadata,type RequestStarterKind} from '@/packages/waivers/request-starters';
+import {suggestedStarters} from '@/packages/waivers/starter-catalog';
+import type {Industry} from '@/packages/onboarding/industry';
 import {requestDefinition,type RequestDefinition,type RequestField} from '@/packages/waivers/request-forms';
 import type {WaiverAudience} from '@/packages/waivers/selection';
 
@@ -17,6 +19,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
  const [saving,setSaving]=useState(false),[message,setMessage]=useState('');
  const [fields,setFields]=useState<RequestField[]>(initialRequest?.definition.fields||[]),[brand,setBrand]=useState('');
  const [requestKind,setRequestKind]=useState<RequestStarterKind|null>(initialRequest?.requestType||null);
+ const [specialties,setSpecialties]=useState<{industries:Industry[];consentFormsEnabled:boolean;requestFormsEnabled:boolean}|null>(null);
  const [requestActive,setRequestActive]=useState(initialRequest?.active??true);
  const [logoSelected,setLogoSelected]=useState(Boolean(initialRequest?.definition.logoAssetId)),[pickerOpen,setPickerOpen]=useState(false);
  const [currentLogoId,setCurrentLogoId]=useState(initialRequest?.definition.logoAssetId||studioLogoAssetId);
@@ -29,6 +32,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
  const [pendingAudience,setPendingAudience]=useState<WaiverAudience|null>(null);
  const [preparedFor,setPreparedFor]=useState<{artistId:string;artistName:string;brand:string}|null>(null);
  useEffect(()=>{setBrand(current=>current||studioBrand);},[studioBrand]);
+ useEffect(()=>{const controller=new AbortController();fetch('/api/studio/industry',{cache:'no-store',signal:controller.signal}).then(async response=>{const data=await response.json();if(!response.ok)throw Error(data.error||'Unable to load template preferences.');setSpecialties(data.settings);}).catch(error=>{if(!controller.signal.aborted)setMessage(error instanceof Error?error.message:'Unable to load template preferences.');});return()=>controller.abort();},[]);
  async function uploadLogo(){
   if(!logoFile||logoProgress!==null)return;
   setLogoError('');setLogoProgress(0);
@@ -53,14 +57,16 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   setMessage('');
   try {
    if(!currentArtist)throw Error('Ask the studio owner to create an artist profile and link it to your sign-in before creating a form.');
-   if(kind==='PIERCING_REQUEST'||kind==='TATTOO_REQUEST'){
-    const draft=buildRequestStarter(kind);
-    setRequestKind(kind);setAudience('ANY');setName(draft.name);setBody(draft.body);setFields(draft.fields);
+   const requestStarter=requestStarterMetadata.find(item=>item.kind===kind);
+   if(requestStarter){
+    const draft=buildRequestStarter(requestStarter.kind);
+    setRequestKind(requestStarter.kind);setAudience('ANY');setName(draft.name);setBody(draft.body);setFields(draft.fields);
     setLogoSelected(Boolean(currentLogoId));setPreparedFor(null);setNameError(false);setPickerOpen(false);
     setMessage('Editable request template loaded. Requests are sent to staff for review, not booked automatically.');
     return;
    }
-   const draft=buildConsentStarter(kind,starterBrand,currentArtist.name);
+   if(!['TATTOO','PIERCING','MINOR_TATTOO','MINOR_PIERCING'].includes(kind))throw Error('Unknown template.');
+   const draft=buildConsentStarter(kind as ConsentStarterKind,starterBrand,currentArtist.name);
    if(audience!=='ANY'&&draft.audience!==audience)throw Error('Choose a template that matches the selected audience.');
    if(audience==='ANY')setAudience(draft.audience);
    setRequestKind(null);setName(draft.name);setBody(draft.definition.body);setFields(draft.definition.fields||[]);
@@ -73,6 +79,8 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   event.preventDefault();setSaving(true);setMessage('');
   try {
    if(!currentArtist)throw Error('Ask the studio owner to create an artist profile and link it to your sign-in before saving a form.');
+   if(!specialties)throw Error('Business form preferences could not be loaded. Reload this page before saving.');
+   if(!initialRequest && (requestKind ? !specialties.requestFormsEnabled : !specialties.consentFormsEnabled))throw Error(`Enable ${requestKind?'request':'consent'} forms in business settings before creating a form.`);
    if(bindingChanged)throw Error('Reload the template for the signed-in artist and studio brand before saving.');
    const parsed=requestKind?requestDefinition.safeParse({body,fields,...(logoSelected&&currentLogoId?{logoAssetId:currentLogoId}:{})}):nativeDefinition.safeParse({body,fields,...(logoSelected&&currentLogoId?{logoAssetId:currentLogoId}:{})});
    if(!parsed.success)throw Error(parsed.error.issues[0]?.message||'Check your questions.');
@@ -125,6 +133,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
  return <form className="waiver-card" onSubmit={save}>
   <div className="card-title"><div><h2>{initialRequest?'Edit request form':'Create a Maia form'}</h2><p>{requestKind?'Customers submit requests for staff review. No appointment or payment is created.':'Start with a consent or request template, or write your own.'}</p></div><span className="provider-pill">Maia hosted</span></div>
   <p>Artist profile: <strong>{currentArtist.name}</strong></p>
+  {specialties&&(!specialties.consentFormsEnabled||!specialties.requestFormsEnabled)&&<p>Some form capabilities are disabled. Existing forms and links remain available. <a href="/settings/studio">Review business settings</a>.</p>}
   {preparedFor&&<p>Draft prepared for <strong>{preparedFor.artistName}</strong> at <strong>{preparedFor.brand}</strong>.</p>}
   {bindingChanged&&<p role="alert">Studio brand changed. Reload the template before saving so its wording uses the current brand.</p>}
   {!requestKind&&<label>Audience<select value={audience} onChange={event=>{const value=event.target.value;if(value==='ADULT'||value==='ANY'||value==='MINOR')changeAudience(value);}}><option value="ADULT">Adult</option><option value="ANY">All</option><option value="MINOR">Minor / guardian</option></select></label>}
@@ -141,32 +150,31 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
    {previewUrl&&<iframe title="Consent form draft PDF preview" src={previewUrl}/>}
    {previewUrl&&<p><a href={previewUrl} target="_blank" rel="noopener noreferrer">Open PDF in a new tab</a></p>}
   </dialog>
-  {pickerOpen&&<TemplatePicker audience={audience} brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected)} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
+  {pickerOpen&&specialties&&<TemplatePicker specialties={specialties} audience={audience} brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected)} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
   {initialRequest&&<label className="check"><input type="checkbox" checked={requestActive} onChange={event=>setRequestActive(event.target.checked)}/> Active public link</label>}
   <button disabled={busy||saving||logoProgress!==null}>{saving?'Saving…':initialRequest?'Save changes':'Create form'}</button>{message&&<p role="status">{message}</p>}
  </form>;
 }
 
-function TemplatePicker({audience,brand,artistName,hasEdits,onApply,onClose}:{audience:WaiverAudience;brand:string;artistName:string|undefined;hasEdits:boolean;onApply:(kind:ConsentStarterKind|RequestStarterKind,brand:string)=>string|undefined;onClose:()=>void}){
+function TemplatePicker({specialties,audience,brand,artistName,hasEdits,onApply,onClose}:{specialties:{industries:Industry[];consentFormsEnabled:boolean;requestFormsEnabled:boolean};audience:WaiverAudience;brand:string;artistName:string|undefined;hasEdits:boolean;onApply:(kind:ConsentStarterKind|RequestStarterKind,brand:string)=>string|undefined;onClose:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null);
  const [draftBrand,setDraftBrand]=useState(brand),[pending,setPending]=useState<ConsentStarterKind|RequestStarterKind|null>(null),[error,setError]=useState('');
  useEffect(()=>{dialog.current?.showModal();},[]);
  function dismiss(){dialog.current?.close();onClose();}
  function apply(kind:ConsentStarterKind|RequestStarterKind){const failure=onApply(kind,draftBrand);if(failure)setError(failure);else dialog.current?.close();}
  function choose(kind:ConsentStarterKind|RequestStarterKind){if(hasEdits)setPending(kind);else apply(kind);}
- const title=(kind:ConsentStarterKind|RequestStarterKind)=>kind==='TATTOO_REQUEST'?'Tattoo Request Form':kind==='PIERCING_REQUEST'?'Piercing Request Form':kind==='TATTOO'?'Tattoo consent · adult':kind==='PIERCING'?'Piercing consent · adult':kind==='MINOR_TATTOO'?'Minor Tattoo Consent':'Minor Piercing Consent';
- const available=consentStarterKindsForAudience(audience);
+ const title=(kind:ConsentStarterKind|RequestStarterKind)=>requestStarterMetadata.find(item=>item.kind===kind)?.name|| (kind==='TATTOO'?'Tattoo consent · adult':kind==='PIERCING'?'Piercing consent · adult':kind==='MINOR_TATTOO'?'Minor Tattoo Consent':'Minor Piercing Consent');
+ const {consent:available,requests}=suggestedStarters(specialties,audience);
  return <dialog ref={dialog} className="template-picker" aria-labelledby="template-picker-title" onCancel={event=>{event.preventDefault();dismiss();}} onKeyDown={event=>{if(event.key==='Escape'&&!event.nativeEvent.isComposing){event.preventDefault();dismiss();}}}>
   <div className="template-picker-header"><h3 id="template-picker-title">Use a template</h3><button type="button" aria-label="Close template picker" onClick={dismiss}>✕</button></div>
   {error&&<p role="alert">{error}</p>}
   {pending?<div className="template-picker-confirm"><p>Replace your current unsaved draft with “{title(pending)}”?</p><div><button type="button" className="template-picker-primary" onClick={()=>apply(pending)}>Replace draft</button><button type="button" autoFocus onClick={dismiss}>Keep editing</button></div></div>:<>
-   {available.length?<><p>{audience==='ADULT'?'Adult starters use your studio and artist’s names.':audience==='MINOR'?'Minor starters identify the parent or legal guardian as the signer.':'Choosing a template sets the audience to Adult or Minor / guardian to match its wording.'} Each is an editable starting point for studio review; review and edit all wording before saving.</p>
+   {available.length||requests.length?<><p>{audience==='ADULT'?'Adult starters use your studio and artist’s names.':audience==='MINOR'?'Minor starters identify the parent or legal guardian as the signer.':'Choosing a consent template sets its audience to match its wording.'} Each is an editable starting point for review before saving.</p>
    <label>Brand or studio name<input maxLength={160} value={draftBrand} onChange={event=>setDraftBrand(event.target.value)} placeholder="Your brand name"/></label>
    {!artistName&&<p role="status">Your artist profile must be linked before applying a template.</p>}
    {!draftBrand.trim()&&<p role="status">Enter a brand or studio name to apply a template.</p>}
    <div className="template-picker-options">
-    {audience==='ANY'&&<button type="button" disabled={!artistName} onClick={()=>choose('PIERCING_REQUEST')}><strong>Piercing Request Form</strong><span>Inquiry for staff review, without a signature or booking.</span></button>}
-    {audience==='ANY'&&<button type="button" disabled={!artistName} onClick={()=>choose('TATTOO_REQUEST')}><strong>Tattoo Request Form</strong><span>Inquiry with up to three inspiration images.</span></button>}
+    {requests.map(item=><button type="button" key={item.kind} disabled={!artistName} onClick={()=>choose(item.kind)}><strong>{item.name}</strong><span>Inquiry for staff review, without a signature or booking.</span></button>)}
     {available.includes('TATTOO')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('TATTOO')}><strong>Tattoo consent · adult</strong><span>Adult tattoo procedure details, risks, aftercare, and consent.</span></button>}
     {available.includes('PIERCING')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('PIERCING')}><strong>Piercing consent · adult</strong><span>Adult piercing procedure details, risks, aftercare, and consent.</span></button>}
     {available.includes('MINOR_TATTOO')&&<button type="button" disabled={!artistName||!draftBrand.trim()} onClick={()=>choose('MINOR_TATTOO')}><strong>Minor Tattoo Consent</strong><span>Editable starting point for studio review, including the minor’s details and parent or legal guardian consent and signature.</span></button>}

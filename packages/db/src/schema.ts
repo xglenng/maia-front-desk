@@ -12,6 +12,10 @@ export const organizations = pgTable("organizations", {
   publicPhone: text("public_phone"),
   publicEmail: text("public_email"),
   website: text("website"),
+  industries: jsonb("industries").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  staffTerm: text("staff_term").notNull().default("artist"),
+  consentFormsEnabled: boolean("consent_forms_enabled").notNull().default(true),
+  requestFormsEnabled: boolean("request_forms_enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
@@ -810,7 +814,7 @@ export const requestForms = pgTable('request_forms', {
 }, table => ({
   tenantIdentityUnique: uniqueIndex('request_forms_id_organization_uidx').on(table.id, table.organizationId),
   tenantArtist: foreignKey({name:'request_forms_artist_tenant_fk',columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
-  typeCheck: check('request_forms_type_check',sql`${table.requestType} IN ('PIERCING_REQUEST','TATTOO_REQUEST')`),
+  typeCheck: check('request_forms_type_check',sql`${table.requestType} IN ('PIERCING_REQUEST','TATTOO_REQUEST','HAIR_REQUEST','NAILS_REQUEST','ESTHETICS_REQUEST')`),
   versionCheck: check('request_forms_version_check',sql`${table.version} > 0`),
 }));
 
@@ -831,7 +835,7 @@ export const requestSubmissions = pgTable('request_submissions', {
   replayUnique: uniqueIndex('request_submissions_form_replay_uidx').on(table.formId, table.idempotencyKey),
   tenantForm: foreignKey({name:'request_submissions_form_tenant_fk',columns:[table.formId,table.organizationId],foreignColumns:[requestForms.id,requestForms.organizationId]}),
   tenantArtist: foreignKey({name:'request_submissions_artist_tenant_fk',columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
-  typeCheck: check('request_submissions_type_check',sql`${table.requestType} IN ('PIERCING_REQUEST','TATTOO_REQUEST')`),
+  typeCheck: check('request_submissions_type_check',sql`${table.requestType} IN ('PIERCING_REQUEST','TATTOO_REQUEST','HAIR_REQUEST','NAILS_REQUEST','ESTHETICS_REQUEST')`),
   hashCheck: check('request_submissions_hash_check',sql`${table.payloadHash} ~ '^[a-f0-9]{64}$'`),
 }));
 
@@ -1293,4 +1297,18 @@ export const checkoutCardAttempts = pgTable('checkout_card_attempts', {
 export const studioInvoices = pgTable('studio_invoices', {
  id:uuid('id').defaultRandom().primaryKey(),organizationId:uuid('organization_id').notNull().references(()=>organizations.id),artistId:uuid('artist_id').notNull().references(()=>artists.id),createdByUserId:uuid('created_by_user_id').notNull().references(()=>users.id),
  requestId:uuid('request_id').notNull(),clientId:uuid('client_id').references(()=>clients.id),smsStatus:text('sms_status').notNull().default('NOT_SENT'),smsProviderId:text('sms_provider_id'),emailStatus:text('email_status').notNull().default('NOT_SENT'),emailProviderId:text('email_provider_id'),clientName:text('client_name').notNull(),clientEmail:text('client_email').notNull(),lines:jsonb('lines').notNull(),totalCents:integer('total_cents').notNull(),dueDays:integer('due_days').notNull().default(30),note:text('note').notNull().default(''),status:text('status').notNull().default('DRAFT'),stripeAccountId:text('stripe_account_id'),stripeInvoiceId:text('stripe_invoice_id'),issuingAt:timestamp('issuing_at',{withTimezone:true}),hostedUrl:text('hosted_url'),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
-},table=>[foreignKey({columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),foreignKey({columns:[table.clientId,table.organizationId],foreignColumns:[clients.id,clients.organizationId]}),check('studio_invoice_sms_status_check',sql`${table.smsStatus} IN ('NOT_SENT','SENDING','SENT','UNKNOWN')`),check('studio_invoice_email_status_check',sql`${table.emailStatus} IN ('NOT_SENT','SENDING','SENT','UNKNOWN')`),uniqueIndex('studio_invoices_request_idx').on(table.organizationId,table.requestId),index('studio_invoices_artist_idx').on(table.organizationId,table.artistId,table.createdAt),check('studio_invoice_due_days_check',sql`${table.dueDays} BETWEEN 1 AND 90`),check('studio_invoice_total_check',sql`${table.totalCents} BETWEEN 1 AND 100000000`),check('studio_invoice_status_check',sql`${table.status} IN ('DRAFT','ISSUING','OPEN','PAID','VOID','UNCOLLECTIBLE')`)]);
+},table=>[foreignKey({columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),foreignKey({columns:[table.clientId,table.organizationId],foreignColumns:[clients.id,clients.organizationId]}),check('studio_invoice_sms_status_check',sql`${table.smsStatus} IN ('NOT_SENT','SENDING','SENT','UNKNOWN')`),check('studio_invoice_email_status_check',sql`${table.emailStatus} IN ('NOT_SENT','SENDING','SENT','UNKNOWN')`),uniqueIndex('studio_invoices_id_organization_uidx').on(table.id,table.organizationId),uniqueIndex('studio_invoices_request_idx').on(table.organizationId,table.requestId),index('studio_invoices_artist_idx').on(table.organizationId,table.artistId,table.createdAt),check('studio_invoice_due_days_check',sql`${table.dueDays} BETWEEN 1 AND 90`),check('studio_invoice_total_check',sql`${table.totalCents} BETWEEN 1 AND 100000000`),check('studio_invoice_status_check',sql`${table.status} IN ('DRAFT','ISSUING','OPEN','PAID','VOID','UNCOLLECTIBLE')`)]);
+
+export const invoiceNotifications = pgTable('invoice_notifications', {
+ id:uuid('id').defaultRandom().primaryKey(),
+ organizationId:uuid('organization_id').notNull().references(()=>organizations.id),
+ invoiceId:uuid('invoice_id').notNull(),
+ userId:uuid('user_id').notNull(),
+ readAt:timestamp('read_at',{withTimezone:true}),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},table=>[
+ uniqueIndex('invoice_notifications_recipient_uidx').on(table.invoiceId,table.userId),
+ index('invoice_notifications_user_created_idx').on(table.organizationId,table.userId,table.createdAt),
+ foreignKey({name:'invoice_notifications_invoice_tenant_fk',columns:[table.invoiceId,table.organizationId],foreignColumns:[studioInvoices.id,studioInvoices.organizationId]}),
+ foreignKey({name:'invoice_notifications_user_tenant_fk',columns:[table.userId,table.organizationId],foreignColumns:[users.id,users.organizationId]}),
+]);

@@ -462,6 +462,8 @@ export async function createDepositRequest(ctx: AgentContext, appointmentId: str
 }
 
 export async function getWaiverLink(ctx: AgentContext, appointmentId: string) {
+  const [organization] = await db.select({ enabled: organizations.consentFormsEnabled }).from(organizations).where(eq(organizations.id, ctx.organizationId));
+  if (!organization?.enabled) throw new Error('Consent form automation is disabled for this business.');
   const [appointment] = await db.select().from(appointments).where(and(eq(appointments.id,appointmentId),eq(appointments.organizationId,ctx.organizationId),eq(appointments.artistId,ctx.artistId),eq(appointments.clientId,ctx.clientId)));
   if(!appointment)throw new Error('Appointment not found');
   const [client] = await db.select().from(clients).where(and(eq(clients.id, ctx.clientId), eq(clients.organizationId, ctx.organizationId)));

@@ -202,6 +202,16 @@ export default function Invoices() {
       .finally(() => setLoading(false));
   }, [page]);
   useEffect(() => {
+    const invoiceId = new URLSearchParams(window.location.search).get("invoiceId");
+    if (!invoiceId) return;
+    const controller = new AbortController();
+    fetch(`/api/invoices?invoiceId=${encodeURIComponent(invoiceId)}`, { cache: "no-store", signal: controller.signal })
+      .then(read)
+      .then(data => { if (!controller.signal.aborted) setSelected(data.invoice); })
+      .catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load invoice."); });
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
     setClientId("");
     setName("");
     setEmail("");

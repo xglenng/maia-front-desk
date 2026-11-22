@@ -77,6 +77,10 @@ async function handlePOST(request: NextRequest) {
   const ownArtists=await db.select({id:artists.id}).from(artists).where(and(eq(artists.organizationId,organizationId),eq(artists.userId,user.id)));
   const ownIds=ownArtists.map(a=>a.id);
   const input=parsed.data;
+  if (['ADD_NATIVE_FORM','ADD_CUSTOM_FORM','CONNECT_JOTFORM','SYNC'].includes(input.action)) {
+    const [organization] = await db.select({ enabled: organizations.consentFormsEnabled }).from(organizations).where(eq(organizations.id, organizationId));
+    if (!organization?.enabled) return NextResponse.json({error:'Enable consent forms in business settings before creating or importing one.'},{status:409});
+  }
   if(['CONNECT_JOTFORM','SYNC','ROTATE_WEBHOOK'].includes(input.action)&&!canManageStudioSettings(user.role))return NextResponse.json({error:'Only the studio owner can manage shared provider credentials.'},{status:403});
   if(input.action==='ADD_NATIVE_FORM'||input.action==='ADD_CUSTOM_FORM'||input.action==='UPDATE_FORM'){
    if(!canManageStudioSettings(user.role))return NextResponse.json({error:'Choose one of your own artist profiles.'},{status:403});

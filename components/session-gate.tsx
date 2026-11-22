@@ -8,9 +8,13 @@ import { RefreshContext, usePageRefreshController } from './page-refresh';
 import { useThemePreference } from './theme';
 import {ownerSettingsPage} from '@/packages/auth/settings-policy';
 import {avatarSmsStatus, type AvatarSmsStatus, type SmsNumberRecord} from '@/packages/onboarding/sms-number';
+import {requestTypeLabel} from '@/packages/waivers/request-starters';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
-type RequestNotification={id:string;submissionId:string;requestType:string;clientName:string;createdAt:string;readAt:string|null};
+type Notification={id:string;clientName:string;createdAt:string;readAt:string|null} & (
+  {kind:'REQUEST';submissionId:string;requestType:string} |
+  {kind:'INVOICE';invoiceId:string;totalCents:number}
+);
 const SessionContext = createContext<SessionUser | null>(null);
 export function useSession() { return useContext(SessionContext); }
 
@@ -39,7 +43,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const notificationsRef=useRef<HTMLDetailsElement>(null);
   const [smsState,setSmsState]=useState<AvatarSmsStatus | {kind:'loading'} | {kind:'error';message:string}>({kind:'loading'});
   const [smsNumberMessage,setSmsNumberMessage]=useState('');
-  const [notifications,setNotifications]=useState<RequestNotification[]>([]);
+  const [notifications,setNotifications]=useState<Notification[]>([]);
   const [unread,setUnread]=useState(0);
   const [notificationError,setNotificationError]=useState('');
   const [notificationPage,setNotificationPage]=useState(1);
@@ -67,9 +71,9 @@ export default function SessionGate({ children }: { children: ReactNode }) {
     const timer=window.setInterval(()=>void loadNotifications(notificationPageRef.current),30000);
     return ()=>window.clearInterval(timer);
   },[publicPage,user?.id,user?.organization_id,path,pageRefresh.generation,loadNotifications]);
-  async function markNotification(id:string) {
+  async function markNotification(id:string,kind:Notification['kind']) {
     try {
-      const response=await fetch('/api/request-notifications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+      const response=await fetch('/api/request-notifications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,kind})});
       const data=await response.json();
       if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Unable to mark notification read.');
       await loadNotifications(notificationPageRef.current);
@@ -140,11 +144,14 @@ export default function SessionGate({ children }: { children: ReactNode }) {
           <section className="session-notifications-panel" aria-label="Notifications"><h2>Notifications</h2>
             {notificationError&&<p role="alert">{notificationError} <button type="button" onClick={()=>void loadNotifications()}>Retry</button></p>}
             {!notificationError&&!notifications.length&&<p>No notifications yet.</p>}
-            {notifications.map(item=><div className={`session-notification-item${item.readAt?'':' unread'}`} key={item.id}>
-              <a href={`/requests/${item.submissionId}`} onClick={event=>{if(!item.readAt){event.preventDefault();void markNotification(item.id).then(ok=>{if(ok)window.location.assign(`/requests/${item.submissionId}`);});}}}>
-                <strong>{item.requestType==='TATTOO_REQUEST'?'Tattoo request':'Piercing request'} · {item.clientName}</strong><small>{new Date(item.createdAt).toLocaleString()}</small>
-              </a>{!item.readAt&&<button type="button" onClick={()=>void markNotification(item.id)}>Mark read</button>}
-            </div>)}
+            {notifications.map(item=>{
+              const href=item.kind==='REQUEST'?`/requests/${item.submissionId}`:`/invoices?invoiceId=${encodeURIComponent(item.invoiceId)}`;
+              return <div className={`session-notification-item${item.readAt?'':' unread'}`} key={`${item.kind}:${item.id}`}>
+                <a href={href} onClick={event=>{if(!item.readAt){event.preventDefault();void markNotification(item.id,item.kind).then(ok=>{if(ok)window.location.assign(href);});}}}>
+                  <strong>{item.kind==='REQUEST'?requestTypeLabel(item.requestType):`Invoice paid · ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(item.totalCents/100)}`} · {item.clientName}</strong><small>{new Date(item.createdAt).toLocaleString()}</small>
+                </a>{!item.readAt&&<button type="button" onClick={()=>void markNotification(item.id,item.kind)}>Mark read</button>}
+              </div>;
+            })}
             {(notificationPage>1||notificationHasMore)&&<div className="session-notification-pages"><button type="button" disabled={notificationPage===1} onClick={()=>void loadNotifications(notificationPage-1)}>Newer</button><span>Page {notificationPage}</span><button type="button" disabled={!notificationHasMore} onClick={()=>void loadNotifications(notificationPage+1)}>Older</button></div>}
           </section>
         </details>

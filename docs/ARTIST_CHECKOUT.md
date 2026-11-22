@@ -35,7 +35,7 @@ Administrator configuration (keep secrets in the hosting environment):
 
 - `MAIA_COUNTER_CARD_ENABLED=true`
 - `STRIPE_SECRET_KEY` for the intended Stripe platform and mode.
-- `STRIPE_COUNTER_WEBHOOK_SECRET` for a connected-account webhook at `/api/checkout/card/webhook`, subscribed to `checkout.session.completed` and `checkout.session.expired`.
+- `STRIPE_COUNTER_WEBHOOK_SECRET` for a connected-account webhook at `/api/checkout/card/webhook`, subscribed to `checkout.session.completed`, `checkout.session.expired`, and `invoice.paid`.
 - `NEXT_PUBLIC_APP_URL` for the deployed app; HTTPS is required for live mode.
 - For real payments, additionally set `MAIA_COUNTER_CARD_LIVE=true` and use the live key/webhook. Never use real cards against a test-mode integration.
 
@@ -50,5 +50,9 @@ Refunds and chargebacks must currently be handled in Stripe; counter-sale refund
 Deployment requires the new migration. Safe rollback retains the additive card-attempt table, recipient mode column and CARD tender values. Do not drop payment audit records or remove CARD from its constraint after sales exist.
 
 Verified with mocked Stripe responses and disposable PostgreSQL: studio recipient selection, server pricing, stable retries, cancellation before cash, signature/mode rejection, tenant/artist scope and concurrent paid-session reconciliation. A real Stripe sandbox payment, account onboarding, webhook delivery and SCA return flow still require provider setup; no live payment has been run by the agent.
+
+Paid invoice alerts use `0036_invoice_notifications.sql`. After a verified `invoice.paid` event, Maia retrieves the connected-account invoice and checks its account, mode, amount, currency, and saved metadata. Payment status and per-user notifications for the studio owners and assigned artist commit together; retries do not duplicate them. The existing **Refresh payment status** action also reconciles a paid invoice and creates missing alerts. Alerts link to the invoice and have independent read status. Older paid invoices are not backfilled automatically.
+
+Before deploying, review all pending migrations, back up the target, subscribe the connected-account webhook to `invoice.paid`, and obtain production approval. Fresh journal replay has a known 0027/0028 conflict; verify the target's actual history rather than assuming it is safe to replay. Rollback should retain invoice notification records and the tenant index. Reverting the application removes the alerts; do not drop payment or notification records.
 
 References: https://docs.stripe.com/connect/direct-charges and https://docs.stripe.com/checkout/fulfillment.

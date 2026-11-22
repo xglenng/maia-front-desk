@@ -3,7 +3,7 @@ import { autoReplyStillAllowed } from '@/packages/inbox/drafts.server';
 import 'server-only';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, artists, channelConnections, clients, conversationEvents, conversations, externalWaiverAssignments, messages } from '@db/schema';
+import { appointments, artists, channelConnections, clients, conversationEvents, conversations, externalWaiverAssignments, messages, organizations } from '@db/schema';
 import { resolveVerifiedChannelMaiaAgentContext } from '@ai/context.server';
 import { runMaiaAgent } from '@ai/agent.server';
 import { decryptComplianceSecret } from '@/packages/compliance/secrets';
@@ -43,6 +43,11 @@ async function failJob(job: ClaimedAutomationJob, error: unknown, providerSendSt
 }
 
 async function processWaiverReminder(job: ClaimedAutomationJob, payload: Record<string, unknown>) {
+  const [organization] = await db.select({ enabled: organizations.consentFormsEnabled }).from(organizations).where(eq(organizations.id, job.organizationId));
+  if (!organization?.enabled) {
+    await completeJob(job, 'CANCELLED', 'CONSENT_FORMS_DISABLED');
+    return { id: job.id, status: 'CANCELLED' };
+  }
   if (typeof payload.waiverAssignmentId !== 'string') {
     await completeJob(job, 'CANCELLED', 'INVALID_JOB_REFERENCE');
     return { id: job.id, status: 'CANCELLED' };
@@ -87,6 +92,12 @@ async function processWaiverReminder(job: ClaimedAutomationJob, payload: Record<
   }
   job.status = 'SENDING';
   await db.update(messages).set({ metadata: { automationJobId: job.id, waiverAssignmentId: assignment.assignment.id, provider: 'twilio', status: 'provider_send_started' } }).where(eq(messages.id, reminderMessage.id));
+  const [currentOrganization] = await db.select({ enabled: organizations.consentFormsEnabled }).from(organizations).where(eq(organizations.id, job.organizationId));
+  if (!currentOrganization?.enabled) {
+    await db.delete(messages).where(eq(messages.id, reminderMessage.id));
+    await completeJob(job, 'CANCELLED', 'CONSENT_FORMS_DISABLED');
+    return { id: job.id, status: 'CANCELLED' };
+  }
   const sent = await sendStudioSms({ organizationId: job.organizationId, artistId: job.artistId, to: client.phone, body: sourceMessage.content });
   await db.update(messages).set({ externalMessageId: sent.sid, metadata: { automationJobId: job.id, waiverAssignmentId: assignment.assignment.id, provider: 'twilio', studioPhone: sent.studioPhone, status: sent.status } }).where(eq(messages.id, reminderMessage.id));
   await db.update(externalWaiverAssignments).set({ lastReminderAt: now, updatedAt: now }).where(eq(externalWaiverAssignments.id, assignment.assignment.id));

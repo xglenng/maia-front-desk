@@ -164,6 +164,7 @@ async function processAppointmentWaiver(job: ClaimedAutomationJob, payload: Reco
   if (row.appointment.startsAt.getTime() <= Date.now()) return cancel(job, 'APPOINTMENT_ALREADY_STARTED');
   if (row.appointment.depositCents && row.appointment.depositStatus !== 'PAID') return cancel(job, 'DEPOSIT_NOT_PAID');
   if (!row.artist.appointmentWaiverSendEnabled) return cancel(job, 'WAIVER_SEND_DISABLED');
+  if (!row.organization.consentFormsEnabled) return cancel(job, 'CONSENT_FORMS_DISABLED');
   if (await waiverHumanTakeover(job)) return cancel(job, 'HUMAN_TAKEOVER');
   const dueAt = new Date(row.appointment.startsAt.getTime() - row.artist.appointmentWaiverSendMinutes * 60_000);
   if (dueAt.getTime() > Date.now()) {
@@ -233,7 +234,7 @@ async function processAppointmentWaiver(job: ClaimedAutomationJob, payload: Reco
   await db.update(messages).set({ metadata: { automationJobId: job.id, appointmentWaiverSend: true, waiverAssignmentId: assignmentId, status: 'provider_send_started' } }).where(eq(messages.id, resultMessage.id));
   const stillEligible = async () => {
     const current = await loadAppointment(job);
-    if (!current || current.appointment.status !== 'CONFIRMED' || current.appointment.startsAt.getTime() <= Date.now() || current.appointment.scheduleRevision !== payload.scheduleRevision || !current.artist.appointmentWaiverSendEnabled || (current.appointment.depositCents && current.appointment.depositStatus !== 'PAID') || !current.client.phone || !current.client.smsOptIn || current.client.smsConsentStatus === 'OPTED_OUT') return false;
+    if (!current || !current.organization.consentFormsEnabled || current.appointment.status !== 'CONFIRMED' || current.appointment.startsAt.getTime() <= Date.now() || current.appointment.scheduleRevision !== payload.scheduleRevision || !current.artist.appointmentWaiverSendEnabled || (current.appointment.depositCents && current.appointment.depositStatus !== 'PAID') || !current.client.phone || !current.client.smsOptIn || current.client.smsConsentStatus === 'OPTED_OUT') return false;
     if (await waiverHumanTakeover(job)) return false;
     if (current.appointment.startsAt.getTime() - current.artist.appointmentWaiverSendMinutes * 60_000 > Date.now()) return false;
     if (assignmentId) {

@@ -1,12 +1,13 @@
 import {invoiceFields} from './fields';
 import {testPlatformFee} from '@/packages/integrations/stripe-platform-fee';
-import {and,eq} from 'drizzle-orm';
+import {and,eq,sql} from 'drizzle-orm';
 import type Stripe from 'stripe';
 import {db} from '@/packages/db/src';
 import {studioInvoices,studioPaymentAccounts} from '@/packages/db/src/schema';
 import {getStripe} from '@/packages/integrations/payments';
 import {counterCardConfiguration} from '@/packages/checkout/card-config.server';
 import {stripeAccountReady} from '@/packages/integrations/stripe-connect-policy';
+import {reconcilePaidInvoice} from './reconcile.server';
 
 export class InvoiceIssueError extends Error {
  constructor(message:string,readonly stage:string,readonly cause?:unknown){super(message);}
@@ -90,7 +91,9 @@ export async function issueInvoice(row:typeof studioInvoices.$inferSelect,stripe
   if(!['open','paid','void','uncollectible'].includes(invoice.status||'')||(invoice.status==='open'&&!invoice.hosted_invoice_url))throw new InvoiceIssueError('The payment link is not ready. Retry this same invoice.','link_unavailable');
   const status=invoice.status==='paid'?'PAID':invoice.status==='void'?'VOID':invoice.status==='uncollectible'?'UNCOLLECTIBLE':'OPEN';
   stage='save_result';
-  return (await db.update(studioInvoices).set({status,hostedUrl:invoice.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId))).returning(invoiceFields))[0];
+  if(status==='PAID')return await reconcilePaidInvoice(row.id,account.stripeAccountId,invoice,livemode);
+  return (await db.update(studioInvoices).set({status,hostedUrl:invoice.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId),sql`${studioInvoices.status} <> 'PAID'`)).returning(invoiceFields))[0]
+   || (await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId))))[0];
  }catch(error){
   if(error instanceof InvoiceIssueError)throw error;
   const message=stage==='configuration'?'Studio card payments are not configured. Check Settings → Studio payments or contact support, then retry this invoice.':stage==='account_retrieve'?'Maia could not check the studio’s Stripe connection. Check Settings → Studio payments, then retry this invoice.':'The payment link could not be created. Retry this same invoice; do not create a duplicate.';

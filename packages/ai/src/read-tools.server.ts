@@ -58,7 +58,7 @@ async function loadPublicArtistRecords(organizationId: string) {
 
 export async function getStudioPromptConfiguration(context: MaiaAgentContext, query?: string, locationName?: string) {
   const [[organization], [artist], rules, locations, faqs, aftercare, timezone] = await Promise.all([
-    db.select({ organizationId: organizations.id, publicName: organizations.publicName, publicPhone: organizations.publicPhone, publicEmail: organizations.publicEmail, website: organizations.website, timezone: organizations.timezone }).from(organizations)
+    db.select({ organizationId: organizations.id, publicName: organizations.publicName, publicPhone: organizations.publicPhone, publicEmail: organizations.publicEmail, website: organizations.website, timezone: organizations.timezone, industries: organizations.industries, staffTerm: organizations.staffTerm, consentFormsEnabled: organizations.consentFormsEnabled, requestFormsEnabled: organizations.requestFormsEnabled }).from(organizations)
       .where(eq(organizations.id, context.organizationId)).limit(1),
     db.select({ organizationId: artists.organizationId, displayName: artists.displayName, bio: artists.bio, responseLength: artists.responseLength, receptionistTone: artists.receptionistTone, receptionistGreeting: artists.receptionistGreeting, receptionistInstructions: artists.receptionistInstructions })
       .from(artists).where(and(eq(artists.id, context.artistId), eq(artists.organizationId, context.organizationId))).limit(1),
@@ -93,7 +93,7 @@ export async function getStudioPromptConfiguration(context: MaiaAgentContext, qu
     locationName,
   });
   if (!configuration) throw new Error('Studio context is not available.');
-  return configuration;
+  return { ...configuration, clientFacing: { ...configuration.clientFacing, industries: organization.industries, staffTerm: organization.staffTerm, consentFormsEnabled: organization.consentFormsEnabled, requestFormsEnabled: organization.requestFormsEnabled } };
 }
 
 export async function getStudioContext(context: MaiaAgentContext, options: { query?: string; locationName?: string } = {}) {

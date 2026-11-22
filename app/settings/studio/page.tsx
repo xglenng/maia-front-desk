@@ -4,6 +4,7 @@ import KnowledgeSuggestions from '@/components/studio-knowledge-suggestions';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSession } from '@/components/session-gate';
 import StudioLogoSetting from './studio-logo-setting';
+import IndustrySettings from '@/components/industry-settings';
 
 type Visibility = 'CLIENT_VISIBLE' | 'AI_INTERNAL';
 type ResponseLength = 'SHORT' | 'STANDARD' | 'DETAILED';
@@ -209,6 +210,7 @@ export default function StudioSettingsPage() {
     {error && <p role="alert" style={{ background: '#fff0f0', color: '#8b1e1e', padding: 12, borderRadius: 6 }}>{error}</p>}
     {notice && <p role="status" style={{ background: '#eef5ee', color: '#2f7651', padding: 12, borderRadius: 6 }}>{notice}</p>}
 
+    <IndustrySettings />
     <StudioLogoSetting />
     <form id="studio-config-form" noValidate onSubmit={saveConfiguration}>
       <section style={panel}>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import UiIcon from '@/components/ui-icon';
+import { requestStarterMetadata, requestTypeLabel } from '@/packages/waivers/request-starters';
 import './requests.css';
 
 type Submission = {
@@ -50,15 +51,14 @@ export default function RequestsPage() {
       <header className="requests-header">
         <a className="requests-back" href="/waivers"><span aria-hidden="true">←</span> Waivers & forms</a>
         <h1>Submitted requests</h1>
-        <p>Review tattoo and piercing inquiries from your clients.</p>
+        <p>Review service inquiries from your clients.</p>
       </header>
       <section className="requests-surface" aria-label="Submitted requests">
         <div className="requests-toolbar">
           <div className="requests-filters" role="group" aria-label="Request type">
             {[
               { value: '', label: 'All requests' },
-              { value: 'TATTOO_REQUEST', label: 'Tattoo' },
-              { value: 'PIERCING_REQUEST', label: 'Piercing' },
+              ...requestStarterMetadata.map(item => ({ value: item.kind, label: requestTypeLabel(item.kind).replace(' Request', '') })),
             ].map(filter => <button key={filter.value} type="button" aria-pressed={type === filter.value}
               onClick={() => { setType(filter.value); setPage(1); }}>{filter.label}</button>)}
           </div>
@@ -74,7 +74,7 @@ export default function RequestsPage() {
                     <span className="request-avatar" aria-hidden="true">{initials}</span>
                     <div><h2>{request.clientName}</h2><p>Artist · {request.artistName}</p></div>
                   </div>
-                  <span className={`request-type ${tattoo ? 'request-type-tattoo' : 'request-type-piercing'}`}>{tattoo ? 'Tattoo request' : 'Piercing request'}</span>
+                  <span className={`request-type ${tattoo ? 'request-type-tattoo' : 'request-type-piercing'}`}>{requestTypeLabel(request.requestType)}</span>
                   <div className="request-date"><UiIcon name="clock"/><div><span>Submitted</span><time dateTime={request.createdAt}>{new Date(request.createdAt).toLocaleString('en-US', { timeZone: request.timezone || 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</time></div></div>
                   <span className="request-view">View request <span aria-hidden="true">↗</span></span>
                 </a>;

@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@db/index';
-import { appointments, artists, automationJobs, clients, services } from '@db/schema';
+import { appointments, artists, automationJobs, clients, organizations, services } from '@db/schema';
 import { appointmentCompletionDedupeKey, appointmentLifecycleDedupeKey, appointmentReminderPlan } from './lifecycle-policy';
 import { assertStudioSmsReady, StudioSmsUnavailableError } from '@integrations/studio-sms';
 
@@ -40,9 +40,11 @@ export async function scheduleConfirmedAppointmentAutomations(appointmentId: str
     artist: artists,
     client: clients,
     service: services,
+    organization: organizations,
   }).from(appointments)
     .innerJoin(artists, and(eq(appointments.artistId, artists.id), eq(artists.organizationId, appointments.organizationId)))
     .innerJoin(clients, and(eq(appointments.clientId, clients.id), eq(clients.organizationId, appointments.organizationId)))
+    .innerJoin(organizations, eq(appointments.organizationId, organizations.id))
     .leftJoin(services, and(eq(appointments.serviceId, services.id), eq(services.organizationId, appointments.organizationId)))
     .where(eq(appointments.id, appointmentId)).limit(1);
   if (!row || row.appointment.status !== 'CONFIRMED' || !row.client.phone || !row.client.smsOptIn) return { scheduled: [] as string[] };
@@ -67,7 +69,7 @@ export async function scheduleConfirmedAppointmentAutomations(appointmentId: str
     }
   }
 
-  if (row.artist.appointmentWaiverSendEnabled) {
+  if (row.artist.appointmentWaiverSendEnabled && row.organization.consentFormsEnabled) {
     const plan = appointmentReminderPlan({
       now,
       startsAt: row.appointment.startsAt,

@@ -64,6 +64,7 @@ async function handlePOST(request: NextRequest) {
   const age = client ? ageOn(client.dateOfBirth, appointment.startsAt) : null;
   const selected = parsed.data.externalWaiverFormId ? forms.find(form => form.id === parsed.data.externalWaiverFormId) : selectWaiverForm(forms, { artistId: appointment.artistId, serviceId: appointment.serviceId, isMinor: age == null ? null : age < 18 });
   if (selected && selected.artistId && selected.artistId !== appointment.artistId) return NextResponse.json({error:"This form belongs to another artist."},{status:403});
+  if (selected?.serviceId && selected.serviceId !== appointment.serviceId) return NextResponse.json({error:"This form is assigned to a different service."},{status:409});
   if (!selected) return NextResponse.json({ error: age == null ? "No universal waiver matches this appointment. Add the client's birth date or choose a form manually." : "No active waiver form matches this appointment." }, { status: 409 });
   
   const rawToken = crypto.randomBytes(24).toString("hex");

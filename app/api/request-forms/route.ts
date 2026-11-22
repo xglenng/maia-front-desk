@@ -4,12 +4,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { identity, protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { db } from '@/packages/db/src';
-import { artists, requestForms, studioLogoAssets } from '@/packages/db/src/schema';
+import { artists, organizations, requestForms, studioLogoAssets } from '@/packages/db/src/schema';
 import { decryptComplianceSecret, encryptComplianceSecret } from '@/packages/compliance/secrets';
 import { requestDefinition } from '@/packages/waivers/request-forms';
 import { identityImageStorageReady } from '@/packages/waivers/identity-image.server';
 
-const kind = z.enum(['PIERCING_REQUEST', 'TATTOO_REQUEST']);
+const kind = z.enum(['PIERCING_REQUEST', 'TATTOO_REQUEST', 'HAIR_REQUEST', 'NAILS_REQUEST', 'ESTHETICS_REQUEST']);
 const input = z.discriminatedUnion('action', [
   z.object({ action: z.literal('CREATE'), artistId: z.string().uuid(), name: z.string().trim().min(1).max(160), requestType: kind, definition: requestDefinition }),
   z.object({ action: z.literal('UPDATE'), formId: z.string().uuid(), name: z.string().trim().min(1).max(160), definition: requestDefinition, version: z.number().int().positive(), active: z.boolean() }),
@@ -42,6 +42,10 @@ async function handlePOST(request: NextRequest) {
   const parsed = input.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || 'Check the form details.' }, { status: 400 });
   const values = parsed.data;
+  if (values.action === 'CREATE') {
+    const [organization] = await db.select({ enabled: organizations.requestFormsEnabled }).from(organizations).where(eq(organizations.id, user.organization_id));
+    if (!organization?.enabled) return NextResponse.json({error:'Enable request forms in business settings before creating one.'},{status:409});
+  }
   if (!identityImageStorageReady()) return NextResponse.json({ error: 'Private request storage is not configured.' }, { status: 503 });
   if (values.definition.logoAssetId) {
     const [logo] = await db.select({id: studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.id, values.definition.logoAssetId), eq(studioLogoAssets.organizationId, user.organization_id), values.action === 'CREATE' ? eq(studioLogoAssets.active, true) : undefined));

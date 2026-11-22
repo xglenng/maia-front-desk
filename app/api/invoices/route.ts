@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {db,pool} from '@/packages/db/src';
 import {artists,clients,studioInvoices} from '@/packages/db/src/schema';
 import {identity,protectedRoute} from '@/packages/auth/server';
-import {allowedInvoiceArtist} from '@/packages/invoices/access.server';
+import {allowedInvoiceArtist,authorizedInvoice} from '@/packages/invoices/access.server';
 import {invoiceClient,sendInvoiceSms} from '@/packages/invoices/sms.server';
 import {sendInvoiceEmail} from '@/packages/invoices/email.server';
 import {invoiceFields} from '@/packages/invoices/fields';
@@ -13,9 +13,16 @@ import {InvoiceIssueError,invoiceErrorDetails,issueInvoice} from '@/packages/inv
 import {counterCardConfiguration} from '@/packages/checkout/card-config.server';
 import {getStripe} from '@/packages/integrations/payments';
 import {invoiceDelivery} from '@/packages/invoices/delivery';
+import {reconcilePaidInvoice} from '@/packages/invoices/reconcile.server';
 const headers={'Cache-Control':'private, no-store'};
 async function get(request:NextRequest){
  const user=(await identity(request))!;
+ const invoiceId=request.nextUrl.searchParams.get('invoiceId');
+ if(invoiceId){
+  if(!z.string().uuid().safeParse(invoiceId).success)return NextResponse.json({error:'Invalid invoice.'},{status:400,headers});
+  const invoice=await authorizedInvoice(user,invoiceId);
+  return invoice?NextResponse.json({invoice},{headers}):NextResponse.json({error:'Invoice not found.'},{status:404,headers});
+ }
  const page=z.coerce.number().int().min(0).max(10000).safeParse(request.nextUrl.searchParams.get('page')||0);
  if(!page.success)return NextResponse.json({error:'Invalid page.'},{status:400,headers});
  const rows=await db.select({invoice:invoiceFields,artistName:artists.displayName}).from(studioInvoices).innerJoin(artists,and(eq(artists.id,studioInvoices.artistId),eq(artists.organizationId,studioInvoices.organizationId))).where(and(eq(studioInvoices.organizationId,user.organization_id),user.role==='OWNER'?undefined:eq(artists.userId,user.id))).orderBy(desc(studioInvoices.createdAt),desc(studioInvoices.id)).limit(51).offset(page.data*50);
@@ -100,9 +107,12 @@ async function post(request:NextRequest){
    }
   }
   const status=remote.status==='paid'?'PAID':remote.status==='void'?'VOID':remote.status==='uncollectible'?'UNCOLLECTIBLE':remote.status==='draft'?'ISSUING':'OPEN';
-  const [invoice]=await db.update(studioInvoices).set({status,hostedUrl:status==='VOID'?null:remote.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id))).returning(invoiceFields);
-  if(action.data.action==='VOID' && status!=='VOID'){
-   return NextResponse.json({error:status==='PAID'?'This invoice was paid and cannot be cancelled.':'Only open invoices can be cancelled.',invoice},{status:409,headers});
+  const invoice=status==='PAID'
+   ? await reconcilePaidInvoice(row.id,row.stripeAccountId,remote,counterCardConfiguration().livemode)
+   : (await db.update(studioInvoices).set({status,hostedUrl:status==='VOID'?null:remote.hosted_invoice_url,updatedAt:new Date()}).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id),sql`${studioInvoices.status} <> 'PAID'`)).returning(invoiceFields))[0]
+     || (await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id))))[0];
+  if(action.data.action==='VOID' && invoice.status!=='VOID'){
+   return NextResponse.json({error:invoice.status==='PAID'?'This invoice was paid and cannot be cancelled.':'Only open invoices can be cancelled.',invoice},{status:409,headers});
   }
   return NextResponse.json({invoice},{headers});
  }catch(error){

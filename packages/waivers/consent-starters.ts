@@ -3,6 +3,12 @@ import type {WaiverAudience} from './selection';
 
 export const consentStarterKinds = ['TATTOO','PIERCING','MINOR_TATTOO','MINOR_PIERCING'] as const;
 export type ConsentStarterKind = typeof consentStarterKinds[number];
+export const consentStarterMetadata = [
+ {kind:'TATTOO',industry:'TATTOO',purpose:'CONSENT'},
+ {kind:'PIERCING',industry:'PIERCING',purpose:'CONSENT'},
+ {kind:'MINOR_TATTOO',industry:'TATTOO',purpose:'CONSENT'},
+ {kind:'MINOR_PIERCING',industry:'PIERCING',purpose:'CONSENT'},
+] as const;
 export function consentStarterKindsForAudience(audience:WaiverAudience):ConsentStarterKind[]{
  return consentStarterKinds.filter(kind=>audience==='ANY'||(audience==='ADULT'?!kind.startsWith('MINOR_'):kind.startsWith('MINOR_')));
 }
