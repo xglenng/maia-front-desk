@@ -11,6 +11,9 @@ const socket=process.env.MAIA_INVOICE_TEST_SOCKET;
 const container=process.env.MAIA_INVOICE_TEST_CONTAINER;
 test('invoice migration and routes isolate tenants/artists, deduplicate drafts, and expose transaction history',{skip:!socket&&!container},async t=>{
  if(!container)assert.match(socket!,/^\/private\/tmp\/maia-forms-[A-Za-z0-9]+$/);
+ const shareEnvKeys=['COMPLIANCE_ENCRYPTION_KEY','NEXT_PUBLIC_APP_URL'];const priorShareEnv=shareEnvKeys.map(key=>process.env[key]);
+ t.after(()=>shareEnvKeys.forEach((key,i)=>{if(priorShareEnv[i]===undefined)delete process.env[key];else process.env[key]=priorShareEnv[i];}));
+ process.env.COMPLIANCE_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64');process.env.NEXT_PUBLIC_APP_URL='http://localhost';
  const schema='invoices_'+randomUUID().replaceAll('-','');
  let connection:{host:string;port:number;database:string;user?:string;password?:string};
  if(container){
@@ -295,9 +298,34 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const {sendInvoiceSms}=await import('../../invoices/sms.server');
   const {db}=await import('../../db/src');const {studioInvoices}=await import('../../db/src/schema');const {eq}=await import('drizzle-orm');
   const delivery={paymentUrl:'https://invoice.stripe.com/synthetic',pdfUrl:'https://invoice.stripe.com/synthetic/pdf',amountRemaining:1500,dueAt:1793721600,finalizedAt:null,invoiceNumber:'INV-123'};
+
+  const {GET:shareLink}=await import('../../../app/api/invoices/share/route');
+  const {GET:publicShare}=await import('../../../app/pay/invoice/[token]/route');
+  const {createInvoiceShareUrl}=await import('../../invoices/share-token.server');
+  assert.equal((await shareLink(request('/api/invoices/share?invoiceId='+own.id,'d'),undefined)).status,404);
+  assert.equal((await shareLink(request('/api/invoices/share?invoiceId='+own.id,'c'),undefined)).status,404);
+  assert.equal((await shareLink(request('/api/invoices/share?invoiceId=bad'),undefined)).status,400);
+  const shared=await shareLink(request('/api/invoices/share?invoiceId='+own.id),undefined);assert.equal(shared.status,200);
+  const publicUrl=(await shared.json()).shareUrl,token=new URL(publicUrl).pathname.split('/').at(-1)!;
+  const publicRequest=(value:string)=>publicShare(new Request('http://localhost/pay/invoice/'+value),{params:Promise.resolve({token:value})});
+  const landing=await publicRequest(token);assert.equal(landing.status,200);
+  const html=await landing.text();assert.match(html,/Invoice studio/);assert.match(html,/https:\/\/invoice.stripe.com\/synthetic/);assert.ok(!html.includes(input.clientName));assert.ok(!html.includes(input.clientEmail));
+  assert.equal(landing.headers.get('Referrer-Policy'),'no-referrer');assert.match(landing.headers.get('Cache-Control')!,/no-store/);assert.match(landing.headers.get('Content-Security-Policy')!,/frame-ancestors 'none'/);
+  assert.equal((await publicRequest('x'+token)).status,404);
+  const otherTenantUrl=createInvoiceShareUrl({id:own.id,organizationId:other,hostedUrl:delivery.paymentUrl});
+  assert.equal((await publicRequest(new URL(otherTenantUrl).pathname.split('/').at(-1)!)).status,404);
+  const logoId=randomUUID(),logoBytes=await (await import('sharp')).default({create:{width:12,height:12,channels:3,background:'#123456'}}).webp().toBuffer();
+  await local.query("INSERT INTO studio_logo_assets(id,organization_id,data,byte_length,sha256) VALUES($1,$2,$3,$4,$5)",[logoId,org,logoBytes.toString('base64'),logoBytes.length,createHash('sha256').update(logoBytes).digest('hex')]);
+  await local.query('UPDATE organizations SET public_name=$1 WHERE id=$2',['Bright <Studio> & Co',org]);
+  const brandedHtml=await (await publicRequest(token)).text();assert.match(brandedHtml,/Bright &lt;Studio&gt; &amp; Co/);assert.match(brandedHtml,new RegExp('/api/public/studio-logo/'+logoId));
+  await local.query('UPDATE organizations SET public_name=NULL WHERE id=$1',[org]);
+  await local.query("UPDATE studio_invoices SET status='VOID' WHERE id=$1",[own.id]);assert.equal((await publicRequest(token)).status,404);
+  await local.query("UPDATE studio_invoices SET status='DRAFT' WHERE id=$1",[own.id]);assert.equal((await publicRequest(token)).status,404);
+  await local.query("UPDATE studio_invoices SET status='OPEN',hosted_url='https://invoice.stripe.com/changed' WHERE id=$1",[own.id]);assert.equal((await publicRequest(token)).status,404);
+  await local.query("UPDATE studio_invoices SET hosted_url=$1 WHERE id=$2",[delivery.paymentUrl,own.id]);
   await local.query('UPDATE studio_invoices SET client_id=$1 WHERE id=$2',[clientId,own.id]);
   let [smsInvoice]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,own.id));let sends=0;
-  const sender:any=async(value:any)=>{sends++;assert.equal(value.artistId,artist);assert.equal(value.to,'+15555550101');assert.match(value.body,/\$15\.00/);assert.ok(value.body.includes(delivery.paymentUrl));assert.ok(value.body.includes(delivery.pdfUrl));assert.match(value.body,/2026-11-03T16:00:00\.000Z/);assert.match(value.body,/Reply STOP/);return {sid:'SM_synthetic',status:'queued',studioPhone:'+15555550100'};};
+  const sender:any=async(value:any)=>{sends++;assert.equal(value.artistId,artist);assert.equal(value.to,'+15555550101');assert.match(value.body,/\$15\.00/);assert.match(value.body,/^Invoice studio: Your invoice/);assert.match(value.body,/http:\/\/localhost\/pay\/invoice\//);assert.ok(!value.body.includes('stripe.com'));assert.equal((value.body.match(/https?:\/\//g)||[]).length,1);assert.match(value.body,/2026-11-03T16:00:00\.000Z/);assert.match(value.body,/Reply STOP/);return {sid:'SM_synthetic',status:'queued',studioPhone:'+15555550100'};};
   await assert.rejects(sendInvoiceSms(smsInvoice,sender,delivery),/consent/);assert.equal(sends,0);
   await local.query("UPDATE clients SET sms_opt_in=true,sms_consent_status='OPTED_IN' WHERE id=$1",[clientId]);
   await local.query("INSERT INTO artist_consent_forms(id,organization_id,artist_id,slug,disclosure_text) VALUES($1,$2,$3,'synthetic-invoice','Synthetic disclosure')",[formId,org,artist]);
@@ -311,8 +339,8 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   assert.equal((await local.query("SELECT count(*)::int AS n FROM messages WHERE external_message_id='SM_synthetic'")).rows[0].n,1);
   await assert.rejects(sendInvoiceSms({...sent.invoice,smsStatus:'UNKNOWN'},sender,delivery),/review/);
   await local.query("UPDATE studio_invoices SET sms_status='NOT_SENT',sms_provider_id=NULL WHERE id=$1",[own.id]);
-  const noPdf=await sendInvoiceSms({...sent.invoice,smsStatus:'NOT_SENT'},async value=>{assert.ok(value.body.includes(delivery.paymentUrl));assert.doesNotMatch(value.body,/ PDF:/);return {sid:'SM_no_pdf',status:'queued',studioPhone:'+15555550100',to:value.to,from:'+15555550100'};},{...delivery,pdfUrl:null});
-  assert.match(noPdf.message,/no PDF link was included/);
+  const noPdf=await sendInvoiceSms({...sent.invoice,smsStatus:'NOT_SENT'},async value=>{assert.match(value.body,/\/pay\/invoice\//);assert.doesNotMatch(value.body,/ PDF:/);return {sid:'SM_no_pdf',status:'queued',studioPhone:'+15555550100',to:value.to,from:'+15555550100'};},{...delivery,pdfUrl:null});
+  assert.match(noPdf.message,/submitted to the SMS provider/);
   await local.query("UPDATE studio_invoices SET sms_status='NOT_SENT',sms_provider_id=NULL WHERE id=$1",[own.id]);
   await assert.rejects(sendInvoiceSms({...sent.invoice,smsStatus:'NOT_SENT'},async()=>{throw Error('Synthetic provider failure');},delivery),/uncertain/);
   assert.equal((await local.query('SELECT sms_status FROM studio_invoices WHERE id=$1',[own.id])).rows[0].sms_status,'UNKNOWN');

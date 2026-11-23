@@ -62,3 +62,5 @@
  .invoice-customer-dialog form{height:100%;max-height:none}
  .invoice-customer-dialog form>label{margin:8px 0}
 }
+
+.invoice-review-heading{scroll-margin-top:76px}.invoice-review-heading:focus{outline:none}

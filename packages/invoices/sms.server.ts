@@ -2,10 +2,11 @@ import {invoiceFields} from './fields';
 import {invoiceDeadlineText} from './input';
 import {and,eq} from 'drizzle-orm';
 import {db,pool} from '@/packages/db/src';
-import {clients,conversations,messages,studioInvoices} from '@/packages/db/src/schema';
+import {clients,conversations,messages,studioInvoices,organizations} from '@/packages/db/src/schema';
 import {hasScopedSmsConsent} from '@/packages/consent/server';
 import {sendStudioSms} from '@/packages/integrations/studio-sms';
-import {pdfUnavailableWarning,type InvoiceDelivery} from './delivery';
+import {createInvoiceShareUrl} from './share-token.server';
+import {type InvoiceDelivery} from './delivery';
 export async function invoiceClient(organizationId:string,artistId:string,clientId:string,studioWide=false){
  // The caller authorizes the artist; clients remain isolated to this studio.
  const found=await pool.query(`SELECT c.id FROM clients c WHERE c.id=$1 AND c.organization_id=$2 AND ($4::boolean OR EXISTS(SELECT 1 FROM appointments a WHERE a.client_id=c.id AND a.organization_id=c.organization_id AND a.artist_id=$3) OR EXISTS(SELECT 1 FROM conversations v WHERE v.client_id=c.id AND v.organization_id=c.organization_id AND v.artist_id=$3 AND v.channel<>'WEB_TEST') OR EXISTS(SELECT 1 FROM studio_invoices i WHERE i.client_id=c.id AND i.organization_id=c.organization_id AND i.artist_id=$3))`,[clientId,organizationId,artistId,studioWide]);
@@ -18,7 +19,10 @@ export async function sendInvoiceSms(row:typeof studioInvoices.$inferSelect,send
  if(!await invoiceClient(row.organizationId,row.artistId,row.clientId,true))throw Error('Invoice client not found for this artist.');
  const [client]=await db.select().from(clients).where(and(eq(clients.id,row.clientId),eq(clients.organizationId,row.organizationId)));
  if(!client?.phone||!client.smsOptIn||client.smsConsentStatus!=='OPTED_IN'||!await hasScopedSmsConsent({organizationId:row.organizationId,artistId:row.artistId,clientId:client.id,phone:client.phone}))throw Error('Client has no current SMS consent for this artist.');
- const body=`Your invoice for $${(delivery.amountRemaining/100).toFixed(2)} is ready.${invoiceDeadlineText(delivery.dueAt)} Pay: ${delivery.paymentUrl}${delivery.pdfUrl?` PDF: ${delivery.pdfUrl}`:''} Reply STOP to opt out.`;
+ const [studio]=await db.select({name:organizations.name,publicName:organizations.publicName}).from(organizations).where(eq(organizations.id,row.organizationId)).limit(1);
+ const studioName=(studio?.publicName?.trim()||studio?.name||'Your studio').replace(/[\r\n\u0000-\u001f]/g,' ').slice(0,160);
+ const shareUrl=createInvoiceShareUrl({...row,hostedUrl:delivery.paymentUrl});
+ const body=`${studioName}: Your invoice for $${(delivery.amountRemaining/100).toFixed(2)} is ready.${invoiceDeadlineText(delivery.dueAt)} Pay: ${shareUrl} Reply STOP to opt out.`;
  const [claimed]=await db.update(studioInvoices).set({smsStatus:'SENDING',updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId),eq(studioInvoices.smsStatus,'NOT_SENT'))).returning(invoiceFields);
  if(!claimed)throw Error('SMS send already started. Check delivery before sending again.');
  let sid:string|undefined;
@@ -29,7 +33,7 @@ export async function sendInvoiceSms(row:typeof studioInvoices.$inferSelect,send
    const conversation=existing||(await tx.insert(conversations).values({organizationId:row.organizationId,artistId:row.artistId,clientId:client.id,channel:'SMS',status:'OPEN',aiEnabled:false,lastMessageAt:new Date()}).returning())[0];
    await tx.insert(messages).values({conversationId:conversation.id,senderType:'ARTIST',role:'assistant',content:body,externalMessageId:sid,metadata:{provider:'twilio',status:result.status,studioPhone:result.studioPhone,invoiceId:row.id}});
    return (await tx.update(studioInvoices).set({smsStatus:'SENT',smsProviderId:sid,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId))).returning(invoiceFields))[0];
-  });return {invoice,message:`Invoice submitted to the SMS provider. Delivery is not yet confirmed; check Inbox.${pdfUnavailableWarning(delivery)}`};
+  });return {invoice,message:`Invoice submitted to the SMS provider. Delivery is not yet confirmed; check Inbox.`};
  }catch(error){
   const safe=error instanceof Error&&["Client is not opted in to SMS for this artist.","The artist's primary SMS number is not active.","The artist's primary SMS number is not A2P-approved for this environment.","Twilio is not configured for this artist."].includes(error.message)&&!sid;
   await db.update(studioInvoices).set({smsStatus:safe?'NOT_SENT':'UNKNOWN',smsProviderId:sid,updatedAt:new Date()}).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,row.organizationId)));

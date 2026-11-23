@@ -75,6 +75,30 @@ export default function Invoices() {
     [requestId, setRequestId] = useState("");
   const [issueEmail, setIssueEmail] = useState("");
   const actionRunning = useRef(false);
+  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const [shareLink, setShareLink] = useState<{invoiceId:string;hostedUrl:string;url:string}|null>(null);
+  const shareUrl = shareLink && shareLink.invoiceId === selected?.id && shareLink.hostedUrl === selected?.hostedUrl ? shareLink.url : "";
+  const [shareError, setShareError] = useState("");
+  useEffect(() => {
+    if (!selected?.id) return;
+    const frame = requestAnimationFrame(() => {
+      reviewHeadingRef.current?.focus({ preventScroll: true });
+      reviewHeadingRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selected?.id]);
+  useEffect(() => {
+    setShareLink(null);
+    setShareError("");
+    if (!selected?.hostedUrl) return;
+    const controller = new AbortController();
+    fetch(`/api/invoices/share?invoiceId=${encodeURIComponent(selected.id)}`, { cache: "no-store", signal: controller.signal })
+      .then(read)
+      .then(data => { if (!controller.signal.aborted) setShareLink({invoiceId:selected.id,hostedUrl:selected.hostedUrl!,url:data.shareUrl}); })
+      .catch(() => { if (!controller.signal.aborted) setShareError("Unable to prepare the branded link. Reopen this invoice to retry."); });
+    return () => controller.abort();
+  }, [selected?.id, selected?.hostedUrl]);
+
   const [smsDetails, setSmsDetails] = useState<{
       phone: string | null;
       consent: boolean;
@@ -432,7 +456,7 @@ export default function Invoices() {
     );
   }
   async function shareInvoice() {
-    if (!selected || !selected.hostedUrl) return;
+    if (!selected || !shareUrl) return;
     setMenuActionResult(null);
     // Try to use native share if available
     if (navigator.share) {
@@ -440,7 +464,7 @@ export default function Invoices() {
         await navigator.share({
           title: `Invoice for ${selected.clientName}`,
           text: `Please review and pay this invoice`,
-          url: selected.hostedUrl,
+          url: shareUrl,
         });
         setMenuActionResult({
           type: "success",
@@ -458,7 +482,7 @@ export default function Invoices() {
     } else {
       // Fallback: copy to clipboard
       try {
-        await navigator.clipboard.writeText(selected.hostedUrl);
+        await navigator.clipboard.writeText(shareUrl);
         setMenuActionResult({
           type: "success",
           message: "Payment link copied.",
@@ -792,7 +816,7 @@ export default function Invoices() {
       {selected && (
         <section className="checkout-cart">
           <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-            <h2 style={{ flex: 1, margin: 0 }}>Invoice review</h2>
+            <h2 ref={reviewHeadingRef} tabIndex={-1} className="invoice-review-heading" style={{ flex: 1, margin: 0 }}>Invoice review</h2>
             <div className="invoice-menu-container">
               <button
                 className="invoice-menu-button"
@@ -820,7 +844,7 @@ export default function Invoices() {
                       setMenuOpen(false);
                       void shareInvoice();
                     }}
-                    disabled={!selected.hostedUrl || selected.status === "VOID"}
+                    disabled={!shareUrl || selected.status === "VOID"}
                   >
                     Share
                   </button>
@@ -912,7 +936,7 @@ export default function Invoices() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Preview PDF ↗
+              Preview PDF
             </a>
           </p>
           {(["DRAFT", "ISSUING"].includes(selected.status) ||
@@ -963,16 +987,17 @@ export default function Invoices() {
                     Client payment link
                     <input
                       readOnly
-                      value={selected.hostedUrl}
+                      value={shareUrl}
+                      placeholder="Preparing branded link…"
                       onFocus={(event) => event.currentTarget.select()}
                     />
                   </label>
                   <button
                     className="invoice-copy-button"
-                    disabled={busy}
+                    disabled={busy || !shareUrl}
                     onClick={() =>
                       void navigator.clipboard
-                        .writeText(selected.hostedUrl!)
+                        .writeText(shareUrl)
                         .then(() => {
                           setCopyFeedback({
                             invoiceId: selected.id,
@@ -993,6 +1018,7 @@ export default function Invoices() {
                     <UiIcon name="copy" />
                   </button>
                 </div>
+                {shareError && <p role="alert" className="checkout-error">{shareError}</p>}
                 {copyFeedback?.invoiceId === selected.id && (
                   <p
                     className={
@@ -1010,7 +1036,7 @@ export default function Invoices() {
                   </p>
                 )}
                 <a href={selected.hostedUrl} target="_blank" rel="noreferrer">
-                  Open invoice ↗
+                  Open invoice
                 </a>
               </>
             )}
