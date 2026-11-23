@@ -11,8 +11,8 @@ const file = (url: string) => path.join(process.cwd(), 'public', url);
 
 test('versioned icons are opaque, correctly sized, and referenced by the manifest', async () => {
   const master = await sharp(file(`${BRAND_ASSET_ROOT}/maia-emblem.png`)).metadata();
-  assert.equal(master.width, 440);
-  assert.equal(master.height, 440);
+  assert.equal(master.width, 1024);
+  assert.equal(master.height, 1024);
   assert.equal(master.hasAlpha, false);
   const icons = manifest().icons!;
   for (const size of [32, 48, 180, 192, 512]) {
@@ -35,7 +35,8 @@ test('versioned icons are opaque, correctly sized, and referenced by the manifes
     for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
       if (Math.hypot(x + 0.5 - centre, y + 0.5 - centre) <= size * 0.4) continue;
       const offset = (y * size + x) * 3;
-      assert.ok(Math.max(...data.subarray(offset, offset + 3)) <= 25, 'maskable artwork extends outside the safe circle');
+      const [red, green, blue] = data.subarray(offset, offset + 3);
+      assert.ok(red > green + 30 && red > blue + 40, 'silver maskable artwork extends outside the safe circle');
     }
   }
 });

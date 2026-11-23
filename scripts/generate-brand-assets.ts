@@ -12,10 +12,14 @@ async function main() {
     await sharp(master).resize(size, size).removeAlpha().png().toFile(path.join(root, `icon-${size}.png`));
   }
   for (const size of [192, 512]) {
-    const logoSize = Math.round(size * 0.72);
-    const logo = await sharp(master).resize(logoSize, logoSize).png().toBuffer();
-    await sharp({ create: { width: size, height: size, channels: 3, background: BRAND_BACKGROUND } })
-      .composite([{ input: logo, gravity: 'centre' }]).removeAlpha().png().toFile(path.join(root, `maskable-${size}.png`));
+    // Keep the silver mark inside Android's central 80% safe circle.
+    // Extend the gradient edge pixels instead of adding a black frame.
+    const logoSize = Math.round(size * 0.88);
+    const inset = Math.floor((size - logoSize) / 2);
+    await sharp(master).resize(logoSize, logoSize)
+      .extend({ top: inset, left: inset, bottom: size - logoSize - inset,
+        right: size - logoSize - inset, extendWith: 'copy' })
+      .removeAlpha().png().toFile(path.join(root, `maskable-${size}.png`));
   }
   for (const screen of IPHONE_SCREENS) {
     const logo = await sharp(master).resize(180 * screen.scale, 180 * screen.scale).png().toBuffer();

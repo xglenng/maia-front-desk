@@ -1,4 +1,4 @@
-export const BRAND_ASSET_ROOT = '/brand/v1';
+export const BRAND_ASSET_ROOT = '/brand/v2';
 export const BRAND_BACKGROUND = '#0a0a0a';
 
 // Logical portrait dimensions and pixel ratios shared by supported iPhones.

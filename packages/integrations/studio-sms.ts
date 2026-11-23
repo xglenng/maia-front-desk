@@ -26,7 +26,17 @@ async function studioSmsSender(input: { organizationId: string; artistId: string
   )) : [];
   if (input.useAssignedNumber && number.twilioAccountId && !account) throw new StudioSmsUnavailableError("The artist's Twilio account is not active.");
   const accountSid = account?.accountSid || process.env.TWILIO_ACCOUNT_SID;
-  const authToken = account ? decryptSecret(account.authTokenEncrypted) : process.env.TWILIO_AUTH_TOKEN;
+  let authToken: string | undefined;
+  if (account) {
+    try {
+      authToken = decryptSecret(account.authTokenEncrypted);
+    } catch {
+      console.error("Artist SMS credentials could not be decrypted.");
+      throw new StudioSmsUnavailableError("The artist's Twilio credentials are unavailable.");
+    }
+  } else {
+    authToken = process.env.TWILIO_AUTH_TOKEN;
+  }
   if (!accountSid || !authToken) throw new StudioSmsUnavailableError("Twilio is not configured for this artist.");
   return { number, accountSid, authToken };
 }

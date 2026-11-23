@@ -24,20 +24,16 @@
 @media(max-width:600px){.invoice-toolbar{gap:8px!important}.invoice-toolbar h2{font-size:18px}.invoice-toolbar button{font-size:13px;padding:12px}.invoice-info-row{flex-wrap:wrap}.invoice-builder{margin-top:0}.invoice-page .invoice-section{padding:24px 0}.invoice-menu{position:fixed;top:auto;right:0;left:0;bottom:0;border-radius:16px 16px 0 0;border:none;box-shadow:0 -4px 12px rgba(0,0,0,0.15);min-width:auto;max-height:70vh;overflow-y:auto}}
 
 .invoice-page .invoice-customer-trigger{display:block;width:100%;border-radius:12px;font-weight:600;background:#f3f2f0;margin:0;padding:12px 16px;text-align:left;border:1px solid transparent;cursor:pointer;font-size:inherit;font-family:inherit}.invoice-page .invoice-customer-trigger:hover:not(:disabled){background:#e8e5e0}.invoice-page .invoice-customer-trigger:focus{outline:2px solid #246d48;outline-offset:2px}.invoice-page .invoice-customer-trigger:active{background:#ddd8ce}.invoice-page .invoice-customer-action{display:block;width:100%;border-radius:12px;font-weight:600;background:#f3f2f0;margin:0;padding:12px 16px;text-align:left;border:1px solid transparent;cursor:pointer;font-size:inherit;font-family:inherit;margin-top:12px}.invoice-page .invoice-customer-action:hover:not(:disabled){background:#e8e5e0}.invoice-page .invoice-customer-action:focus{outline:2px solid #246d48;outline-offset:2px}.invoice-page .invoice-customer-action:active{background:#ddd8ce}
-.invoice-link-row{display:flex;gap:8px;align-items:flex-start}
-.invoice-link-row label{flex:1;display:block}
+.invoice-link-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:nowrap}
+.invoice-link-row label{flex:1;min-width:0;display:block}
 .invoice-link-row input{display:block;width:100%;box-sizing:border-box;margin-top:8px;border:1px solid #ddd;border-radius:12px;padding:12px;font:inherit}
-.invoice-copy-button{flex-shrink:0;padding:12px 16px;margin-top:28px;background:#f3f2f0;border:1px solid transparent;border-radius:12px;cursor:pointer;font-size:inherit;font-family:inherit;display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;color:inherit}
+.invoice-page .invoice-link-row .invoice-copy-button{flex:0 0 48px;width:48px;height:48px;min-width:44px;min-height:44px;padding:0;margin:0 0 14px;background:#f3f2f0;border:1px solid transparent;border-radius:12px;cursor:pointer;font-size:inherit;font-family:inherit;display:flex;align-items:center;justify-content:center;color:inherit}
 .invoice-copy-button:hover:not(:disabled){background:#e8e5e0}
 .invoice-copy-button:focus{outline:2px solid #246d48;outline-offset:2px}
 .invoice-copy-button:active{background:#ddd8ce}
 .invoice-copy-button:disabled{opacity:0.5;cursor:not-allowed}
 .invoice-copy-button svg{width:20px;height:20px}
-@media(max-width:600px){
- .invoice-link-row{flex-wrap:wrap}
- .invoice-link-row label{width:100%;flex:none}
- .invoice-copy-button{width:100%;margin-top:8px}
-}.invoice-customer-info{background:#f3f2f0;padding:12px 16px;border-radius:12px;margin-top:12px}.invoice-customer-info>div{flex:1;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.invoice-customer-info strong{display:block;font-size:16px}.invoice-customer-details{font-size:13px;color:#706b66;font-weight:400;margin-top:6px}
+.invoice-customer-info{background:#f3f2f0;padding:12px 16px;border-radius:12px;margin-top:12px}.invoice-customer-info>div{flex:1;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.invoice-customer-info strong{display:block;font-size:16px}.invoice-customer-details{font-size:13px;color:#706b66;font-weight:400;margin-top:6px}
 .invoice-customer-picker header{justify-content:space-between}.invoice-customer-picker label{display:block;margin:16px 0;font-size:14px}.invoice-customer-picker input{display:block;width:100%;box-sizing:border-box;margin-top:8px;border:1px solid #ddd;border-radius:12px;padding:12px;font:inherit}.invoice-customer-picker .invoice-customer-add-new{display:block;width:100%;padding:12px 16px;margin:0 0 16px;background:#181716;color:white;border:1px solid transparent;border-radius:12px;font-weight:600;font-size:inherit;font-family:inherit;cursor:pointer}.invoice-customer-picker .invoice-customer-add-new:hover{background:#333}.invoice-customer-picker .invoice-customer-add-new:focus{outline:2px solid #181716;outline-offset:2px}.invoice-customer-picker .invoice-customer-add-new:active{background:#000}.invoice-customer-results{max-height:240px;overflow:auto;margin:16px 0}.invoice-customer-results button{display:block;width:100%;text-align:left;border-radius:8px;margin-bottom:8px}.invoice-customer-results small{display:block;margin-top:6px;color:#706b66}.invoice-customer-results button[aria-pressed=true]{border-color:#246d48;background:#e9f4ed}
 .invoice-customer-notice{font-size:13px;color:#706b66;margin:8px 0 0;padding:0}
 

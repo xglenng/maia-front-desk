@@ -102,6 +102,8 @@ export default function Invoices() {
   const [smsDetails, setSmsDetails] = useState<{
       phone: string | null;
       consent: boolean;
+      eligible: boolean;
+      reason: string;
       delivery: string | null;
     } | null>(null),
     [smsLoading, setSmsLoading] = useState(false),
@@ -191,6 +193,8 @@ export default function Invoices() {
       setSmsDetails((current) => ({
         phone: data.phone,
         consent: data.consent,
+        eligible: data.eligible,
+        reason: data.reason,
         delivery: current?.delivery || null,
       }));
       setPhoneOpen(false);
@@ -201,6 +205,16 @@ export default function Invoices() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+  async function copyPaymentLink(invoiceId: string, url: string) {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(url);
+      setCopyFeedback({ invoiceId, message: "Link copied" });
+      setTimeout(() => setCopyFeedback(current => current?.invoiceId === invoiceId && current.message === "Link copied" ? null : current), 2000);
+    } catch {
+      setCopyFeedback({ invoiceId, message: "Unable to copy. Select and copy the link above." });
     }
   }
   async function load() {
@@ -415,6 +429,7 @@ export default function Invoices() {
         setError(msg);
       }
     } finally {
+      if (action === "SEND_SMS") setSmsVersion(current => current + 1);
       actionRunning.current = false;
       setBusy(false);
     }
@@ -995,24 +1010,8 @@ export default function Invoices() {
                   <button
                     className="invoice-copy-button"
                     disabled={busy || !shareUrl}
-                    onClick={() =>
-                      void navigator.clipboard
-                        .writeText(shareUrl)
-                        .then(() => {
-                          setCopyFeedback({
-                            invoiceId: selected.id,
-                            message: "Link copied",
-                          });
-                          setTimeout(() => setCopyFeedback(null), 2000);
-                        })
-                        .catch(() =>
-                          setCopyFeedback({
-                            invoiceId: selected.id,
-                            message:
-                              "Unable to copy. Select and copy the link above.",
-                          }),
-                        )
-                    }
+                    onClick={() => void copyPaymentLink(selected.id, shareUrl)}
+                    aria-label="Copy payment link"
                     title="Copy payment link"
                   >
                     <UiIcon name="copy" />
@@ -1065,15 +1064,16 @@ export default function Invoices() {
               {smsError && <p role="alert">{smsError}</p>}
               {selected.status === "OPEN" && (
                 <>
+                  {!selected.clientId && <p>Create an invoice for an existing client with SMS consent to send by SMS. You can still copy this payment link.</p>}
                   {selected.clientId && smsDetails && (
                     <>
                       <p>
-                        Client phone: {smsDetails.phone || "Not on file"}. SMS
-                        consent for this artist:{" "}
-                        {smsDetails.consent ? "On file" : "Not on file"}.
-                        {!smsDetails.consent &&
-                          " Obtain the client’s consent using this artist’s SMS consent form before sending."}
+                        Client phone: {smsDetails.phone || "Not on file"}.
+                        {smsDetails.reason && ` ${smsDetails.reason}`}
                       </p>
+                      {!smsDetails.phone && !phoneOpen && (
+                        <button type="button" onClick={() => setPhoneOpen(true)}>Add phone number</button>
+                      )}
                       {phoneOpen && (
                         <form onSubmit={savePhone}>
                           <label>
@@ -1101,11 +1101,10 @@ export default function Invoices() {
                       selected.smsStatus !== "NOT_SENT" ||
                       smsLoading ||
                       !smsDetails ||
-                      Boolean(smsDetails.phone && !smsDetails.consent)
+                      !smsDetails.eligible
                     }
                     onClick={() => {
-                      if (!smsDetails?.phone) setPhoneOpen(true);
-                      else void action("SEND_SMS");
+                      void action("SEND_SMS");
                     }}
                   >
                     Send invoice by SMS
