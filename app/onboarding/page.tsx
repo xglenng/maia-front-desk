@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import { ReadinessPanel } from './readiness-panel';
+import styles from './onboarding-page.module.css';
 
 type Status = "NOT_STARTED" | "IN_PROGRESS" | "PENDING_APPROVAL" | "APPROVED" | "ACTION_REQUIRED";
 type Step = { id: string; title: string; description: string; status: Status; href?: string };
@@ -85,16 +86,16 @@ export default function OnboardingPage() {
     setMessage(`Test message sent successfully (${payload.sid}).`); await load(artistId);
   }
 
-  return <main style={{ maxWidth: 980, margin: "0 auto", padding: "38px 20px 80px", color: "#181716", fontFamily: "Arial, sans-serif" }}>
+  return <main className={styles.page} style={{ maxWidth: 980, margin: "0 auto", padding: "38px 20px 80px", color: "#181716", fontFamily: "Arial, sans-serif" }}>
     <p><a href="/settings" style={{ color: "#8f2f22" }}>← Settings</a></p>
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+    <div className={styles.intro} style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div><p style={{ margin: 0, color: "#8f2f22", fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Studio setup</p><h1 style={{ margin: "7px 0" }}>Get Maia ready</h1><p style={{ maxWidth: 650, color: "#6f6b66", lineHeight: 1.55 }}>Follow the guided steps to set up your studio. Use Maia’s calendar, connect the channels you need, and test your receptionist. You can return to any step later.</p></div>
       {activation?.status === "LIVE" && <span style={{ padding: "9px 13px", borderRadius: 20, background: "#e6f2ea", color: "#2f7651", fontWeight: 800 }}>● SMS LIVE</span>}
     </div>
 
-    <ReadinessPanel onSmsSetup={() => setSmsOpen(true)} />
+    <ReadinessPanel onScreenChange={() => setSmsOpen(false)} onSmsSetup={() => setSmsOpen(true)} />
 
-    <details id="sms-setup" open={smsOpen} onToggle={event => setSmsOpen(event.currentTarget.open)} style={{ marginTop: 24 }}>
+    <details id="sms-setup" hidden={!smsOpen} open={smsOpen} onToggle={event => setSmsOpen(event.currentTarget.open)} style={{ marginTop: 24 }}>
       <summary style={{ cursor: "pointer", fontWeight: 700, padding: 18 }}>Optional SMS setup and activation</summary>
 
     <section style={{ ...card, marginTop: 22 }}>

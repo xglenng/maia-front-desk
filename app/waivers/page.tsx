@@ -43,6 +43,12 @@ export default function WaiversPage() {
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
   const [message, setMessage] = useState<{text:string;created?:boolean} | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('setup') === 'connect') {
+      setProvider('LINK');
+      customDialog.current?.showModal();
+    }
+  }, []);
 
   const refreshSetup = useCallback(async () => {
     setSetupLoading(true);

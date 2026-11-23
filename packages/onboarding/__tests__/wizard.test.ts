@@ -42,3 +42,24 @@ test('settings links preserve their wizard step and safely constrain return dest
   assert.equal(setupReturnHref('https://untrusted.example'), '/onboarding?step=studio');
   assert.throws(() => setupSettingsHref('https://untrusted.example', 'calendar'));
 });
+
+test('focused setup screens preserve group navigation and exclude disabled form capabilities', async () => {
+  const { availableSetupScreens, setupScreen } = await import('../wizard');
+  const screens = availableSetupScreens({ consent: true, request: true });
+  assert.equal(screens[0].id, 'specialties');
+  assert.equal(new Set(screens.map(screen => screen.id)).size, screens.length);
+  assert.equal(setupScreen('payments', 'waivers', { consent: true, request: true }).id, 'waivers');
+  assert.equal(setupScreen('studio', 'services', { consent: true, request: true }).id, 'services');
+  assert.equal(setupScreen('studio', 'waivers', { consent: true, request: true }).id, 'specialties');
+  assert.equal(setupScreen('payments', 'waivers', { consent: false, request: false }).id, 'payments');
+  assert.equal(availableSetupScreens({ consent: false, request: false }).some(screen => ['waivers', 'requests'].includes(screen.id)), false);
+});
+
+test('task links and returns keep only validated setup destinations', async () => {
+  const { setupTaskHref, setupReturnHref } = await import('../wizard');
+  assert.equal(setupTaskHref('/waivers/new?setup=consent', 'payments', 'waivers'), '/waivers/new?setup=consent&onboardingStep=payments&onboardingItem=waivers');
+  assert.equal(setupTaskHref('/waivers?setup=connect', 'payments', 'waivers'), '/waivers?setup=connect&onboardingStep=payments&onboardingItem=waivers');
+  assert.equal(setupReturnHref('payments', 'studio', 'waivers'), '/onboarding?step=payments&item=waivers');
+  assert.equal(setupReturnHref('studio', 'studio', 'waivers'), '/onboarding?step=studio');
+  assert.throws(() => setupTaskHref('https://untrusted.example', 'payments', 'waivers'));
+});

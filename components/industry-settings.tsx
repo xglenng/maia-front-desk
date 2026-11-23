@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from './session-gate';
 import styles from './industry-settings.module.css';
 import { industryOptions, suggestedStaffTerm, type IndustrySettingsValue } from '@/packages/onboarding/industry';
 
-type EmbeddedProps = { mode: 'embedded'; settings: IndustrySettingsValue; onChange: (settings: IndustrySettingsValue) => void; disabled: boolean; saveVersion: number };
+type EmbeddedProps = { mode: 'embedded'; settings: IndustrySettingsValue; onChange: (settings: IndustrySettingsValue) => void; disabled: boolean; saveVersion: number; compact?: boolean };
 
 export default function IndustrySettings(props: EmbeddedProps | { mode?: 'standalone' }) {
   return props.mode === 'embedded'
-    ? <IndustryFields settings={props.settings} onChange={props.onChange} disabled={props.disabled} saveVersion={props.saveVersion} />
+    ? <IndustryFields settings={props.settings} onChange={props.onChange} disabled={props.disabled} saveVersion={props.saveVersion} compact={props.compact} />
     : <StandaloneIndustrySettings />;
 }
 
@@ -52,29 +52,29 @@ function StandaloneIndustrySettings() {
   </form>;
 }
 
-function IndustryFields({ settings, onChange, disabled, saveVersion, standalone = false, saving = false, error = '', notice = '', ownerOnly = false }: {
-  settings: IndustrySettingsValue; onChange: (settings: IndustrySettingsValue) => void; disabled: boolean; saveVersion: number; standalone?: boolean; saving?: boolean; error?: string; notice?: string; ownerOnly?: boolean;
+function IndustryFields({ settings, onChange, disabled, saveVersion, standalone = false, saving = false, error = '', notice = '', ownerOnly = false, compact = false }: {
+  settings: IndustrySettingsValue; onChange: (settings: IndustrySettingsValue) => void; disabled: boolean; saveVersion: number; standalone?: boolean; saving?: boolean; error?: string; notice?: string; ownerOnly?: boolean; compact?: boolean;
 }) {
-  const [autoTerm, setAutoTerm] = useState(false);
-  useEffect(() => { setAutoTerm(false); }, [saveVersion]);
-  return <section className={styles.card}>
-    <header><span className={styles.eyebrow}>Business setup</span><h2>Specialties &amp; forms</h2>
-    <p>Choose your industries to tailor your website and form templates.</p></header>
+  const dropdown = useRef<HTMLDetailsElement>(null);
+  const selectedLabels = industryOptions.filter(option => settings.industries.includes(option.value)).map(option => option.label);
+  useEffect(() => {
+    const close = (event: PointerEvent) => { if (event.target instanceof Node && !dropdown.current?.contains(event.target) && dropdown.current) dropdown.current.open = false; };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, []);
+  return <section className={`${styles.card}${compact ? ` ${styles.compact}` : ''}`}>
+    {!compact && <header><span className={styles.eyebrow}>Business setup</span><h2>Specialties &amp; forms</h2>
+    <p>Choose your industries to tailor your website and form templates.</p></header>}
     <fieldset disabled={disabled} className={styles.fields}>
       <legend>Business specialties</legend>
-      <div className={styles.specialties}>{industryOptions.map(option => <label key={option.value} className={styles.specialty} data-selected={settings.industries.includes(option.value)}>
+      <details ref={dropdown} className={styles.dropdown} onKeyDown={event => { if(event.key === 'Escape' && dropdown.current) { dropdown.current.open = false; dropdown.current.querySelector('summary')?.focus(); } }}>
+        <summary aria-label="Choose business specialties"><span>{selectedLabels.join(', ') || 'Select your specialties'}</span><span aria-hidden="true">⌄</span></summary>
+        <div className={styles.dropdownOptions} role="group" aria-label="Business specialty options"><p>Select all that apply</p>{industryOptions.map(option => <label key={option.value} className={styles.specialty} data-selected={settings.industries.includes(option.value)}>
         <input type="checkbox" checked={settings.industries.includes(option.value)} onChange={event => {
           const industries = event.target.checked ? [...settings.industries, option.value] : settings.industries.filter(item => item !== option.value);
-          const suggest = autoTerm || (!settings.industries.length && settings.staffTerm === 'artist');
-          const staffTerm = suggest ? suggestedStaffTerm(industries) : settings.staffTerm;
-          setAutoTerm(suggest);
-          onChange({ ...settings, industries, staffTerm });
+          onChange({ ...settings, industries, staffTerm: suggestedStaffTerm(industries) });
         }}/>{option.label}
-      </label>)}</div>
-      <div className={styles.terminology}><label>Staff terminology (editable suggestion)
-        <input value={settings.staffTerm} maxLength={60} onChange={event => { setAutoTerm(false); onChange({ ...settings, staffTerm: event.target.value }); }} className={styles.input}/>
-      </label>
-      <button className={styles.secondary} type="button" onClick={() => { setAutoTerm(false); onChange({ ...settings, staffTerm: suggestedStaffTerm(settings.industries) }); }}>Use suggested term</button></div>
+      </label>)}</div></details>
       <div className={styles.formOptions}><h3>Optional forms</h3><p>Choose the tools your business uses.</p>
       <div className={styles.optionGrid}>
         <label className={styles.option}><span><strong>Consent forms</strong><small>Collect agreements and signatures before appointments.</small></span><input aria-label="Enable consent forms" type="checkbox" checked={settings.consentFormsEnabled} onChange={event => onChange({ ...settings, consentFormsEnabled: event.target.checked })}/></label>

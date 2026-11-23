@@ -11,7 +11,7 @@ export const industryOptions = [
 export const industry = z.enum(['TATTOO', 'PIERCING', 'HAIR', 'NAILS', 'ESTHETICS', 'OTHER']);
 export type Industry = z.infer<typeof industry>;
 export const industrySettings = z.object({
-  industries: z.array(industry).min(1).max(6).refine(values => new Set(values).size === values.length, 'Select each specialty only once.'),
+  industries: z.array(industry).min(1, 'Choose at least one business specialty.').max(6).refine(values => new Set(values).size === values.length, 'Select each specialty only once.'),
   staffTerm: z.string().trim().min(1).max(60),
   consentFormsEnabled: z.boolean(),
   requestFormsEnabled: z.boolean(),

@@ -1,30 +1,39 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { buildOnboardingReadiness } from '@/packages/onboarding/readiness';
-import { setupStages, visibleStageChecks, setupSettingsHref, stageComplete, wizardStage } from '@/packages/onboarding/wizard';
-import StudioLogoSetting from '@/app/settings/studio/studio-logo-setting';
+import { availableSetupScreens, setupScreen, setupStages, setupTaskHref, stageComplete, visibleStageChecks } from '@/packages/onboarding/wizard';
+import type { IndustrySettingsValue } from '@/packages/onboarding/industry';
+import { useSession } from '@/components/session-gate';
 import IndustrySettings from '@/components/industry-settings';
+import styles from './setup-wizard.module.css';
 
 type Readiness = ReturnType<typeof buildOnboardingReadiness>;
-const panel = { background: '#fff', border: '1px solid #e5e0da', borderRadius: 16, padding: 'clamp(18px, 4vw, 30px)', marginTop: 20 };
-const button = { display: 'inline-block', border: '1px solid #d8d8d8', borderRadius: 24, padding: '11px 18px', background: '#fff', color: '#181716', font: 'inherit', fontWeight: 600, textDecoration: 'none', cursor: 'pointer' };
 const statusLabels = { COMPLETE: 'Complete', IN_PROGRESS: 'Setup needed', NOT_STARTED: 'Not started', BLOCKED: 'Needs attention', OPTIONAL: 'Optional' };
 
-export function ReadinessPanel({ onSmsSetup }: { onSmsSetup: () => void }) {
+export function ReadinessPanel({ onSmsSetup, onScreenChange }: { onSmsSetup: () => void; onScreenChange?: () => void }) {
+  const user = useSession();
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [index, setIndex] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [selection, setSelection] = useState<{ stage: string | null; item: string | null }>({ stage: 'studio', item: null });
   const [refresh, setRefresh] = useState(0);
-  const [staffTerm, setStaffTerm] = useState('artist');
+  const [industry, setIndustry] = useState<IndustrySettingsValue | null>(null);
   const [formCapabilities, setFormCapabilities] = useState({ consent: true, request: true });
+  const dirty = useRef(false);
+  const title = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    const restore = () => setIndex(wizardStage(new URLSearchParams(window.location.search).get('step')));
+    const restore = () => {
+      const query = new URLSearchParams(window.location.search);
+      setSelection({ stage: query.get('step'), item: query.get('item') });
+      onScreenChange?.();
+    };
     restore();
-    window.addEventListener('popstate', restore);
     const update = () => setRefresh(value => value + 1);
+    window.addEventListener('popstate', restore);
     window.addEventListener('focus', update);
     window.addEventListener('maia-industry-settings', update);
     return () => { window.removeEventListener('popstate', restore); window.removeEventListener('focus', update); window.removeEventListener('maia-industry-settings', update); };
@@ -33,66 +42,76 @@ export function ReadinessPanel({ onSmsSetup }: { onSmsSetup: () => void }) {
   useEffect(() => {
     let current = true;
     setLoading(true); setError('');
-    Promise.all([fetch('/api/onboarding/readiness', { cache: 'no-store' }),fetch('/api/studio/industry', { cache: 'no-store' })])
+    Promise.all([fetch('/api/onboarding/readiness', { cache: 'no-store' }), fetch('/api/studio/industry', { cache: 'no-store' })])
       .then(async ([response, industryResponse]) => {
         const [body, industryBody] = await Promise.all([response.json(), industryResponse.json()]);
-        if (!response.ok) throw new Error(body.error || 'Unable to load studio setup.');
-        if (!industryResponse.ok) throw new Error(industryBody.error || 'Unable to load business preferences.');
+        if (!response.ok) throw Error(body.error || 'Unable to load studio setup.');
+        if (!industryResponse.ok) throw Error(industryBody.error || 'Unable to load business preferences.');
         if (current) {
-          setReadiness(body.readiness as Readiness); setStaffTerm(industryBody.settings.staffTerm);
+          setReadiness(body.readiness as Readiness);
+          if (!dirty.current) setIndustry(industryBody.settings);
           setFormCapabilities({ consent: industryBody.settings.consentFormsEnabled, request: industryBody.settings.requestFormsEnabled });
         }
-      })
-      .catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Unable to load studio setup.'); })
+      }).catch(reason => { if (current) setError(reason instanceof Error ? reason.message : 'Unable to load studio setup.'); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
   }, [refresh]);
 
-  function navigate(next: number) {
+  const screens = availableSetupScreens(formCapabilities);
+  const screen = setupScreen(selection.stage, selection.item, formCapabilities);
+  const index = screens.findIndex(item => item.id === screen.id);
+  const stage = setupStages.find(item => item.id === screen.stage)!;
+  const check = readiness && visibleStageChecks(stage, readiness.steps).find(item => item.id === screen.id);
+  const completed = readiness ? setupStages.filter(item => stageComplete(item, readiness.steps)).length : 0;
+  const taskHref = (href: string) => setupTaskHref(href, screen.stage, screen.id);
+
+  async function navigate(next: typeof screens[number], save = true) {
+    if (saving) return;
+    setActionError('');
+    if (save && (dirty.current || screen.id === 'specialties') && industry && user?.role === 'OWNER') {
+      setSaving(true);
+      try {
+        const response = await fetch('/api/studio/industry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(industry) });
+        const data = await response.json();
+        if (!response.ok) throw Error(data.error || 'Unable to save your business specialties.');
+        dirty.current = false;
+        setIndustry(data.settings);
+        setFormCapabilities({ consent: data.settings.consentFormsEnabled, request: data.settings.requestFormsEnabled });
+        window.dispatchEvent(new Event('maia-industry-settings'));
+      } catch (reason) { setActionError(reason instanceof Error ? reason.message : 'Unable to save. Please try again.'); setSaving(false); return; }
+      setSaving(false);
+    }
     const url = new URL(window.location.href);
-    url.searchParams.set('step', setupStages[next].id);
+    url.searchParams.set('step', next.stage); url.searchParams.set('item', next.id);
     window.history.pushState({}, '', url);
-    setIndex(next);
+    setSelection({ stage: next.stage, item: next.id });
+    onScreenChange?.();
+    title.current?.focus({ preventScroll: true });
+    title.current?.scrollIntoView({ block: 'start' });
   }
 
-  const stage = setupStages[index];
-  const terminology = (text: string) => text.replace(/\bartists\b/gi, match => match[0] === 'A' ? `${staffTerm[0].toUpperCase()}${staffTerm.slice(1)}s` : `${staffTerm}s`)
-    .replace(/\bartist\b/gi, match => match[0] === 'A' ? `${staffTerm[0].toUpperCase()}${staffTerm.slice(1)}` : staffTerm);
-  const completed = readiness ? setupStages.filter(item => stageComplete(item, readiness.steps)).length : 0;
-  return <section style={panel} aria-label="Guided studio setup">
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-      <strong>Step {index + 1} of {setupStages.length}</strong>
-      <span style={{ color: '#6f6b66' }}>{completed} of {setupStages.length} sections ready</span>
-    </div>
-    <nav aria-label="Setup steps" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
-      {setupStages.map((item, position) => <button key={item.id} onClick={() => navigate(position)} aria-current={position === index ? 'step' : undefined} style={{ ...button, background: position === index ? '#181716' : '#f5f5f5', color: position === index ? '#fff' : '#181716', borderColor: 'transparent', fontSize: 13 }}>
-        {readiness && stageComplete(item, readiness.steps) ? '✓ ' : `${position + 1}. `}{item.title}
-      </button>)}
-    </nav>
-    <div role="progressbar" aria-label="Studio setup readiness" aria-valuemin={0} aria-valuemax={5} aria-valuenow={completed} style={{ height: 6, background: '#ededed', borderRadius: 4, marginTop: 20 }}><div style={{ height: '100%', width: `${completed * 20}%`, background: '#181716', borderRadius: 4 }} /></div>
-    <h2 style={{ fontSize: 28, marginBottom: 8 }}>{stage.title}</h2>
-    <p style={{ color: '#6f6b66', lineHeight: 1.6 }}>{terminology(stage.description)}</p>
+  return <section className={styles.wizard} aria-label="Guided studio setup">
+    <div className={styles.progressLabel}><strong>Step {index + 1} of {screens.length}</strong><span>{completed} of {setupStages.length} sections ready</span></div>
+    <nav className={styles.steps} aria-label="Setup sections">{setupStages.map(item => <button type="button" key={item.id} disabled={saving} aria-current={item.id === screen.stage ? 'step' : undefined} onClick={() => void navigate(screens.find(entry => entry.stage === item.id)!)}>{item.title}</button>)}</nav>
+    <div className={styles.progress} role="progressbar" aria-label="Studio setup readiness" aria-valuemin={0} aria-valuemax={setupStages.length} aria-valuenow={completed}><span style={{ width: `${completed / setupStages.length * 100}%` }}/></div>
+    <header className={styles.heading}><span>{stage.title}</span><h2 ref={title} tabIndex={-1}>{screen.title}</h2><p>{screen.description}</p></header>
     {loading && <p role="status">Checking saved settings…</p>}
-    {error && <div role="alert"><p>{error}</p><button style={button} onClick={() => setRefresh(value => value + 1)}>Try again</button></div>}
+    {error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setRefresh(value => value + 1)}>Try again</button></div>}
     {readiness && !error && <>
-      {stage.id === 'studio' && <IndustrySettings />}
-      <p style={{ color: '#6f6b66', fontSize: 13 }}>Save your changes on each setup page, then return to this step. Progress updates from your saved settings.</p>
-      {index === 1 && <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '18px 0' }}><a href={setupSettingsHref('/settings/team', stage.id)} style={button}>Manage team →</a><a href={setupSettingsHref('/?view=Calendar', stage.id)} style={button}>Open Maia calendar →</a></div>}
-      {index === 2 && <p style={{ background: '#f5f5f5', padding: 14, borderRadius: 10, lineHeight: 1.6 }}>Maia’s Stripe Connect checkout is currently available for sandbox testing. Live card payments and physical Tap to Pay are not available yet. Manual Venmo deposits require artist confirmation.</p>}
-      <div style={{ display: 'grid', gap: 14 }}>{visibleStageChecks(stage, readiness.steps).filter(check => check.id !== 'waivers' || formCapabilities.consent).map(check => <article key={check.id} style={{ borderTop: '1px solid #e8e8e8', paddingTop: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}><strong>{terminology(check.title)}</strong><span style={{ fontSize: 12, color: check.status === 'COMPLETE' ? '#2f7651' : '#6f6b66' }}>{check.id === 'test' && check.status === 'IN_PROGRESS' ? 'Test needed' : statusLabels[check.status]}</span></div>
-        <p style={{ color: '#6f6b66', lineHeight: 1.5, fontSize: 14 }}>{terminology(check.description)}</p>
-        {check.blockers.length > 0 && <ul style={{ color: '#8f2f22', fontSize: 13 }}>{[...new Set(check.blockers)].map(blocker => <li key={blocker}>{terminology(blocker)}</li>)}</ul>}
-        {check.id === 'studio_profile' && <StudioLogoSetting compact />}
-        {check.id === 'go_live' ? (check.status !== 'COMPLETE' && <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>{readiness.steps.filter(item => ['studio_profile','artist','services','receptionist'].includes(item.id) && item.status !== 'COMPLETE').map(item => <a key={item.id} href={setupSettingsHref(item.href, stage.id)} style={button}>Fix {item.title.toLowerCase()} →</a>)}</div>) : check.id === 'sms' ? <a href="#sms-setup" onClick={onSmsSetup} style={button}>Set up SMS</a> : <a href={setupSettingsHref(check.href, stage.id)} style={button}>{check.id === 'test' ? (check.status === 'COMPLETE' ? 'Preview replies again' : 'Preview replies') : check.status === 'COMPLETE' ? 'Review settings' : 'Open setup'} →</a>}
-      </article>)}</div>
-      {stage.id === 'payments' && formCapabilities.request && <article style={{ borderTop: '1px solid #e8e8e8', paddingTop: 18, marginTop: 18 }}><strong>Request forms</strong><p>Optional inquiries for staff review; they do not book an appointment.</p><a href={setupSettingsHref('/waivers', stage.id)} style={button}>Review request forms →</a></article>}
-      {index === 4 && <div style={{ marginTop: 20, padding: 16, borderRadius: 10, background: '#f5f5f5' }}><strong>{readiness.readyForCoreGoLive ? 'Setup complete' : 'Finish the missing configuration'}</strong><p style={{ lineHeight: 1.5 }}>Booking: {readiness.booking.status.replaceAll('_', ' ')} · SMS: {readiness.sms.status.replaceAll('_', ' ')} · Social: {readiness.social.status.replaceAll('_', ' ')}</p><p style={{ fontSize: 13 }}>Completing this wizard does not activate messaging, purchase a number, or change conversation Auto/Draft modes.</p></div>}
+      {screen.id === 'specialties' && industry && <IndustrySettings mode="embedded" compact settings={industry} onChange={next => { dirty.current = true; setIndustry(next); }} disabled={user?.role !== 'OWNER' || saving} saveVersion={0}/>}
+      {screen.id === 'waivers' ? <div className={styles.choices}>
+        <a className={styles.choice} href={taskHref('/waivers/new?setup=consent')}><span className={styles.choiceIcon} aria-hidden="true">+</span><span><strong>Create a new consent form</strong><small>Start with an industry-specific template or build your own. Review and edit it before saving.</small></span><span aria-hidden="true">›</span></a>
+        <a className={styles.choice} href={taskHref('/waivers?setup=connect')}><span className={styles.choiceIcon} aria-hidden="true">↗</span><span><strong>Connect an existing form</strong><small>Use a hosted form link or connect Jotform. Your original form stays with its provider.</small></span><span aria-hidden="true">›</span></a>
+        {check?.status === 'COMPLETE' && <p className={styles.complete}>Consent setup is already complete. <a href={taskHref('/waivers')}>Review saved forms</a></p>}
+      </div> : screen.id === 'requests' ? <div className={styles.choices}><a className={styles.choice} href={taskHref('/waivers/new?setup=request')}><span className={styles.choiceIcon} aria-hidden="true">+</span><span><strong>Create a request form</strong><small>Choose a template for your business specialties. Requests go to staff for review.</small></span><span aria-hidden="true">›</span></a><a href={taskHref('/waivers')}>Review existing request forms</a></div> : check && <article className={styles.task}>
+        <div className={styles.taskTitle}><strong>{check.title}</strong><span>{statusLabels[check.status]}</span></div>
+        <p>{check.description}</p>
+        {check.blockers.length > 0 && <ul>{[...new Set(check.blockers)].map(blocker => <li key={blocker}>{blocker}</li>)}</ul>}
+        {check.id === 'go_live' ? <><p>{readiness.readyForCoreGoLive ? 'Your core setup is ready.' : 'Finish the required settings shown above.'}</p><div className={styles.actions}>{readiness.steps.filter(item => ['studio_profile', 'artist', 'services', 'receptionist'].includes(item.id) && item.status !== 'COMPLETE').map(item => <a key={item.id} href={taskHref(item.href)}>Fix {item.title.toLowerCase()}</a>)}</div></> : check.id === 'sms' ? <a href="#sms-setup" onClick={onSmsSetup}>Open optional SMS setup</a> : <a href={taskHref(check.href)}>{check.id === 'test' ? 'Preview replies' : check.status === 'COMPLETE' ? 'Review settings' : 'Open setup'}</a>}
+      </article>}
     </>}
-    <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, borderTop: '1px solid #e8e8e8', marginTop: 24, paddingTop: 20 }}>
-      <button style={button} disabled={index === 0} onClick={() => navigate(index - 1)}>Back</button>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>{index < setupStages.length - 1 ? <><button style={button} onClick={() => navigate(index + 1)}>Skip for now</button><button style={{ ...button, background: '#181716', color: '#fff' }} onClick={() => navigate(index + 1)}>Continue</button></> : <a href="/" style={{ ...button, background: '#181716', color: '#fff' }}>Return to dashboard</a>}</div>
-    </footer>
-    <p style={{ fontSize: 12, color: '#6f6b66', marginBottom: 0 }}>Continue and Skip only move between steps. They do not mark unfinished setup as complete.</p>
+    {actionError && <p role="alert" className={styles.error}>{actionError}</p>}
+    <footer className={styles.footer}><button type="button" disabled={index === 0 || saving} onClick={() => void navigate(screens[index - 1], false)}>Back</button><div>{index < screens.length - 1 ? <><button type="button" disabled={saving || loading || !readiness || Boolean(error)} onClick={() => void navigate(screens[index + 1], false)}>Skip for now</button><button type="button" className={styles.primary} disabled={saving || loading || !readiness || Boolean(error)} onClick={() => void navigate(screens[index + 1])}>{saving ? 'Saving…' : screen.id === 'specialties' && user?.role === 'OWNER' ? 'Save & continue' : 'Continue'}</button></> : <a className={styles.primary} href="/">Return to dashboard</a>}</div></footer>
+    <p className={styles.footnote}>Progress reflects saved settings. Skipping a step does not mark it complete or activate messaging.</p>
   </section>;
 }

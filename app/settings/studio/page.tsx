@@ -7,6 +7,7 @@ import StudioLogoSetting from './studio-logo-setting';
 import IndustrySettings from '@/components/industry-settings';
 import { industrySettings, type IndustrySettingsValue } from '@/packages/onboarding/industry';
 import styles from './studio-settings.module.css';
+import { setupScreens } from '@/packages/onboarding/wizard';
 
 type Visibility = 'CLIENT_VISIBLE' | 'AI_INTERNAL';
 type ResponseLength = 'SHORT' | 'STANDARD' | 'DETAILED';
@@ -57,6 +58,12 @@ async function readJson(response: Response) {
 export default function StudioSettingsPage() {
   const user = useSession();
   const organizationId = user?.organization_id || '';
+  const [setupTask, setSetupTask] = useState<string | null>(null);
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const item = query.get('onboardingItem');
+    if (['studio_profile', 'knowledge', 'receptionist'].includes(item || '') && setupScreens.some(screen => screen.stage === query.get('onboardingStep') && screen.id === item)) setSetupTask(item);
+  }, []);
   const [config, setConfig] = useState<Config | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationDraft, setLocationDraft] = useState<LocationDraft>({ ...emptyLocation });
@@ -244,18 +251,19 @@ export default function StudioSettingsPage() {
   return <main className={styles.page}>
     <a href="/settings">← Settings</a>
     <header className={styles.header}>
-      <div><span className={styles.eyebrow}>Your business, your way</span><h1>Studio settings</h1><p>Manage your public details, business specialties, and the knowledge Maia uses.</p></div>
+      <div><span className={styles.eyebrow}>Your business, your way</span><h1>{setupTask === 'studio_profile' ? 'Your studio details' : setupTask === 'knowledge' ? 'Studio knowledge' : setupTask === 'receptionist' ? 'Your receptionist' : 'Studio settings'}</h1><p>Manage your public details, business specialties, and the knowledge Maia uses.</p></div>
       <button type="submit" form="studio-config-form" disabled={saving || (user.role === 'OWNER' && !industry)} style={button}>{saving ? 'Saving…' : 'Save configuration'}</button>
     </header>
     {error && <p role="alert" style={{ background: '#fff0f0', color: '#8b1e1e', padding: 12, borderRadius: 6 }}>{error}</p>}
     {notice && <p role="status" style={{ background: '#eef5ee', color: '#2f7651', padding: 12, borderRadius: 6 }}>{notice}</p>}
 
-    {industry ? <IndustrySettings mode="embedded" settings={industry} onChange={value => { setIndustry(value); setNotice(''); }} disabled={user.role !== 'OWNER' || saving} saveVersion={industrySaveVersion} /> : <p role={industryError ? 'alert' : 'status'}>{industryError || 'Loading specialties and forms…'} {industryError && <button type="button" onClick={() => setIndustryRefresh(value => value + 1)}>Retry</button>}</p>}
+    {!setupTask && (industry ? <IndustrySettings mode="embedded" settings={industry} onChange={value => { setIndustry(value); setNotice(''); }} disabled={user.role !== 'OWNER' || saving} saveVersion={industrySaveVersion} /> : <p role={industryError ? 'alert' : 'status'}>{industryError || 'Loading specialties and forms…'} {industryError && <button type="button" onClick={() => setIndustryRefresh(value => value + 1)}>Retry</button>}</p>)}
     {industry && user.role !== 'OWNER' && <p>Only the business owner can change specialties and form settings.</p>}
-    <StudioLogoSetting />
+    {(!setupTask || setupTask === 'studio_profile') && <StudioLogoSetting />}
     <form id="artist-create-form" onSubmit={createArtist} />
     <form id="studio-config-form" noValidate onSubmit={saveConfiguration}>
       <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      {(!setupTask || setupTask === 'studio_profile') && <>
       <section id="business-profile" style={panel}>
         <div className={styles.sectionTitle}><div><span className={styles.eyebrow}>Public website</span><h2>Business profile</h2><p>These details appear on your studio website. Leave phone or email blank to hide it.</p></div>{user.organization_slug && <a className={styles.previewLink} href={`/a/${encodeURIComponent(user.organization_slug)}`} target="_blank" rel="noreferrer">Preview website</a>}</div>
         <div style={grid}>
@@ -302,6 +310,8 @@ export default function StudioSettingsPage() {
         </div>
       </details>
 
+      </>}
+      {(!setupTask || setupTask === 'knowledge') && <>
       <section id="knowledge" style={{ ...panel, scrollMarginTop: 100 }}>
         <h2 style={{ marginTop: 0 }}>Studio knowledge</h2><p>Tell Maia how you work, in your own words. No separate setup is needed for every question. Prices, deposits, hours, and booking permissions stay in their dedicated settings.</p>
         <label style={label}>Knowledge for artist<select value={selectedArtist} onChange={event=>setSelectedArtist(event.target.value)} style={field}>{config.artists.map(artist=><option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select></label>
@@ -343,7 +353,8 @@ export default function StudioSettingsPage() {
         </div>)}
       </details>
 
-      <details id="receptionist" style={{...panel,scrollMarginTop:100}} ref={node=>{if(node && window.location.hash==='#receptionist'){node.open=true;node.scrollIntoView();}}}><summary style={{fontWeight:700,cursor:'pointer'}}>Artist permissions &amp; Maia preferences</summary>
+      </>}
+      {(!setupTask || setupTask === 'receptionist') && <details id="receptionist" style={{...panel,scrollMarginTop:100}} ref={node=>{if(node && (window.location.hash==='#receptionist' || setupTask === 'receptionist')){node.open=true;node.scrollIntoView();}}}><summary style={{fontWeight:700,cursor:'pointer'}}>Artist permissions &amp; Maia preferences</summary>
         <div style={sectionHeader}><div><h2 style={{ margin: 0 }}>Artist &amp; AI receptionist</h2><p style={{ color: '#706b66' }}>Artist ownership and receptionist settings remain artist-scoped.</p></div><button type="button" onClick={() => setAddingArtist(value => !value)} style={secondary}>{addingArtist ? 'Cancel' : 'Add artist'}</button></div>
         {addingArtist && <div style={{ ...panel, padding: 14 }}><div style={grid}><label style={label}>Artist display name<input form="artist-create-form" required minLength={2} maxLength={120} value={newArtistName} onChange={event => setNewArtistName(event.target.value)} style={field} /></label><label style={label}>Public bio<textarea form="artist-create-form" maxLength={1200} rows={2} value={newArtistBio} onChange={event => setNewArtistBio(event.target.value)} style={field} /></label></div><button form="artist-create-form" type="submit" disabled={saving} style={{ ...button, marginTop: 10 }}>{saving ? 'Creating…' : 'Create artist'}</button></div>}
         <label style={label}>Artist profile
@@ -365,7 +376,7 @@ export default function StudioSettingsPage() {
             <label style={{ ...label, gridColumn: '1 / -1' }}>Additional instructions<textarea maxLength={1200} rows={4} value={activeArtist.receptionistInstructions || ''} onChange={event => updateArtist({ receptionistInstructions: event.target.value })} style={field} /><small>Used as bounded configuration data. It cannot override safety, tenant, compliance, or confirmation requirements.</small></label>
           </div>
         </>}
-      </details>
+      </details>}
       <button type="submit" disabled={saving || (user.role === 'OWNER' && !industry)} style={{ ...button, marginTop: 18 }}>{saving ? 'Saving…' : 'Save configuration'}</button>
       </fieldset>
     </form>

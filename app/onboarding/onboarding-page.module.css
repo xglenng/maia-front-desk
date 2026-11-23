@@ -1,0 +1,6 @@
+.page { min-width:0; }
+@media(max-width:600px) {
+  .page { padding-top:18px !important; }
+  .page > p { margin-top:0; }
+  .intro h1,.intro > div > p:last-child { display:none; }
+}

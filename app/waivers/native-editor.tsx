@@ -11,9 +11,9 @@ import type {WaiverAudience} from '@/packages/waivers/selection';
 
 type ArtistProfile={id:string;name:string};
 export type SavedRequestForm={id:string;artistId:string;name:string;requestType:RequestStarterKind;definition:RequestDefinition;version:number;active:boolean;url:string};
-export default function NativeEditor({currentArtist,artistProfileCount,studioBrand,studioLogoAssetId,studioLogoAvailable,busy,onSaved,initialRequest}:{
+export default function NativeEditor({currentArtist,artistProfileCount,studioBrand,studioLogoAssetId,studioLogoAvailable,busy,onSaved,initialRequest,initialPurpose}:{
  currentArtist:ArtistProfile|null;artistProfileCount:number;studioBrand:string;studioLogoAssetId:string|null;studioLogoAvailable:boolean;busy:boolean;onSaved:(purpose:'REQUEST'|'CONSENT')=>Promise<void>;
- initialRequest?:SavedRequestForm;
+ initialRequest?:SavedRequestForm;initialPurpose?:'CONSENT'|'REQUEST';
 }) {
  const [name,setName]=useState(initialRequest?.name||''),[body,setBody]=useState(initialRequest?.definition.body||''),[audience,setAudience]=useState<WaiverAudience>('ANY');
  const [saving,setSaving]=useState(false),[message,setMessage]=useState('');
@@ -21,7 +21,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
  const [requestKind,setRequestKind]=useState<RequestStarterKind|null>(initialRequest?.requestType||null);
  const [specialties,setSpecialties]=useState<{industries:Industry[];consentFormsEnabled:boolean;requestFormsEnabled:boolean}|null>(null);
  const [requestActive,setRequestActive]=useState(initialRequest?.active??true);
- const [logoSelected,setLogoSelected]=useState(Boolean(initialRequest?.definition.logoAssetId)),[pickerOpen,setPickerOpen]=useState(false);
+ const [logoSelected,setLogoSelected]=useState(Boolean(initialRequest?.definition.logoAssetId)),[pickerOpen,setPickerOpen]=useState(Boolean(initialPurpose));
  const [currentLogoId,setCurrentLogoId]=useState(initialRequest?.definition.logoAssetId||studioLogoAssetId);
  const [logoFile,setLogoFile]=useState<File|null>(null),[logoProgress,setLogoProgress]=useState<number|null>(null),[logoError,setLogoError]=useState('');
  const [previewing,setPreviewing]=useState(false),[previewUrl,setPreviewUrl]=useState<string|null>(null),[previewError,setPreviewError]=useState('');
@@ -80,6 +80,7 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
   try {
    if(!currentArtist)throw Error('Ask the studio owner to create an artist profile and link it to your sign-in before saving a form.');
    if(!specialties)throw Error('Business form preferences could not be loaded. Reload this page before saving.');
+   if(initialPurpose==='REQUEST'&&!requestKind)throw Error('Choose a request template before saving this request form.');
    if(!initialRequest && (requestKind ? !specialties.requestFormsEnabled : !specialties.consentFormsEnabled))throw Error(`Enable ${requestKind?'request':'consent'} forms in business settings before creating a form.`);
    if(bindingChanged)throw Error('Reload the template for the signed-in artist and studio brand before saving.');
    const parsed=requestKind?requestDefinition.safeParse({body,fields,...(logoSelected&&currentLogoId?{logoAssetId:currentLogoId}:{})}):nativeDefinition.safeParse({body,fields,...(logoSelected&&currentLogoId?{logoAssetId:currentLogoId}:{})});
@@ -150,13 +151,13 @@ export default function NativeEditor({currentArtist,artistProfileCount,studioBra
    {previewUrl&&<iframe title="Consent form draft PDF preview" src={previewUrl}/>}
    {previewUrl&&<p><a href={previewUrl} target="_blank" rel="noopener noreferrer">Open PDF in a new tab</a></p>}
   </dialog>
-  {pickerOpen&&specialties&&<TemplatePicker specialties={specialties} audience={audience} brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected)} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
+  {pickerOpen&&specialties&&<TemplatePicker purpose={initialPurpose} specialties={specialties} audience={audience} brand={brand} artistName={currentArtist.name} hasEdits={Boolean(name||body||fields.length||logoSelected)} onApply={loadStarter} onClose={()=>setPickerOpen(false)}/>}
   {initialRequest&&<label className="check"><input type="checkbox" checked={requestActive} onChange={event=>setRequestActive(event.target.checked)}/> Active public link</label>}
   <button disabled={busy||saving||logoProgress!==null}>{saving?'Saving…':initialRequest?'Save changes':'Create form'}</button>{message&&<p role="status">{message}</p>}
  </form>;
 }
 
-function TemplatePicker({specialties,audience,brand,artistName,hasEdits,onApply,onClose}:{specialties:{industries:Industry[];consentFormsEnabled:boolean;requestFormsEnabled:boolean};audience:WaiverAudience;brand:string;artistName:string|undefined;hasEdits:boolean;onApply:(kind:ConsentStarterKind|RequestStarterKind,brand:string)=>string|undefined;onClose:()=>void}){
+function TemplatePicker({specialties,audience,brand,artistName,hasEdits,onApply,onClose,purpose}:{purpose?:'CONSENT'|'REQUEST';specialties:{industries:Industry[];consentFormsEnabled:boolean;requestFormsEnabled:boolean};audience:WaiverAudience;brand:string;artistName:string|undefined;hasEdits:boolean;onApply:(kind:ConsentStarterKind|RequestStarterKind,brand:string)=>string|undefined;onClose:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null);
  const [draftBrand,setDraftBrand]=useState(brand),[pending,setPending]=useState<ConsentStarterKind|RequestStarterKind|null>(null),[error,setError]=useState('');
  useEffect(()=>{dialog.current?.showModal();},[]);
@@ -164,12 +165,14 @@ function TemplatePicker({specialties,audience,brand,artistName,hasEdits,onApply,
  function apply(kind:ConsentStarterKind|RequestStarterKind){const failure=onApply(kind,draftBrand);if(failure)setError(failure);else dialog.current?.close();}
  function choose(kind:ConsentStarterKind|RequestStarterKind){if(hasEdits)setPending(kind);else apply(kind);}
  const title=(kind:ConsentStarterKind|RequestStarterKind)=>requestStarterMetadata.find(item=>item.kind===kind)?.name|| (kind==='TATTOO'?'Tattoo consent · adult':kind==='PIERCING'?'Piercing consent · adult':kind==='MINOR_TATTOO'?'Minor Tattoo Consent':'Minor Piercing Consent');
- const {consent:available,requests}=suggestedStarters(specialties,audience);
+ const suggestions=suggestedStarters(specialties,audience);
+ const available=purpose==='REQUEST'?[]:suggestions.consent;
+ const requests=purpose==='CONSENT'?[]:suggestions.requests;
  return <dialog ref={dialog} className="template-picker" aria-labelledby="template-picker-title" onCancel={event=>{event.preventDefault();dismiss();}} onKeyDown={event=>{if(event.key==='Escape'&&!event.nativeEvent.isComposing){event.preventDefault();dismiss();}}}>
   <div className="template-picker-header"><h3 id="template-picker-title">Use a template</h3><button type="button" aria-label="Close template picker" onClick={dismiss}>✕</button></div>
   {error&&<p role="alert">{error}</p>}
   {pending?<div className="template-picker-confirm"><p>Replace your current unsaved draft with “{title(pending)}”?</p><div><button type="button" className="template-picker-primary" onClick={()=>apply(pending)}>Replace draft</button><button type="button" autoFocus onClick={dismiss}>Keep editing</button></div></div>:<>
-   {available.length||requests.length?<><p>{audience==='ADULT'?'Adult starters use your studio and artist’s names.':audience==='MINOR'?'Minor starters identify the parent or legal guardian as the signer.':'Choosing a consent template sets its audience to match its wording.'} Each is an editable starting point for review before saving.</p>
+   {available.length||requests.length?<><p>{purpose==='REQUEST'?'Request templates collect inquiries for staff review.':audience==='ADULT'?'Adult starters use your studio and artist’s names.':audience==='MINOR'?'Minor starters identify the parent or legal guardian as the signer.':'Choosing a consent template sets its audience to match its wording.'} Each is an editable starting point for review before saving.</p>
    <label>Brand or studio name<input maxLength={160} value={draftBrand} onChange={event=>setDraftBrand(event.target.value)} placeholder="Your brand name"/></label>
    {!artistName&&<p role="status">Your artist profile must be linked before applying a template.</p>}
    {!draftBrand.trim()&&<p role="status">Enter a brand or studio name to apply a template.</p>}

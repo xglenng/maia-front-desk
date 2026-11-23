@@ -8,6 +8,39 @@ export const setupStages = [
   { id: 'review', title: 'Review & test', description: 'Review your receptionist settings and feature availability. You can optionally preview Maia’s replies.', checks: ['receptionist', 'test', 'go_live'] },
 ] as const;
 
+export const setupScreens = [
+  { id: 'specialties', stage: 'studio', title: 'What does your business offer?', description: 'Choose your specialties and the forms your business needs.' },
+  { id: 'studio_profile', stage: 'studio', title: 'Your studio details', description: 'Add your public contact details, location, and business hours.' },
+  { id: 'services', stage: 'studio', title: 'Services & pricing', description: 'Add the services clients can ask about.' },
+  { id: 'knowledge', stage: 'studio', title: 'How your studio works', description: 'Add a few useful policies and answers. You can refine these later.' },
+  { id: 'artist', stage: 'calendar', title: 'Meet your team', description: 'Set up the people who take appointments.' },
+  { id: 'scheduling', stage: 'calendar', title: 'Set your availability', description: 'Choose working hours and your calendar setup.' },
+  { id: 'payments', stage: 'payments', title: 'Payment setup', description: 'Review payment collection and your saved deposit rules.' },
+  { id: 'waivers', stage: 'payments', title: 'Set up consent forms', description: 'Create a new form, or connect a form you already use.' },
+  { id: 'requests', stage: 'payments', title: 'Receive client requests', description: 'Set up an inquiry form for your public website.' },
+  { id: 'social', stage: 'messaging', title: 'Connect social channels', description: 'Choose the Instagram or Facebook accounts Maia should handle.' },
+  { id: 'sms', stage: 'messaging', title: 'Set up SMS', description: 'SMS is optional. Review registration and phone setup when you are ready.' },
+  { id: 'receptionist', stage: 'review', title: 'Your receptionist', description: 'Review how Maia responds and what it can do.' },
+  { id: 'test', stage: 'review', title: 'Preview your replies', description: 'Try a few sample questions before going live.' },
+  { id: 'go_live', stage: 'review', title: 'Ready for your clients?', description: 'Review what is ready and finish any required settings.' },
+] as const;
+
+export function availableSetupScreens(capabilities: { consent: boolean; request: boolean }) {
+  return setupScreens.filter(screen => (screen.id !== 'waivers' || capabilities.consent) && (screen.id !== 'requests' || capabilities.request));
+}
+
+export function setupScreen(stageValue: string | null, item: string | null, capabilities: { consent: boolean; request: boolean }) {
+  const stage = setupStages[wizardStage(stageValue)].id;
+  const screens = availableSetupScreens(capabilities);
+  return screens.find(screen => screen.stage === stage && screen.id === item) || screens.find(screen => screen.stage === stage)!;
+}
+
+export function setupTaskHref(href: string, stage: string, item: string) {
+  const url = new URL(setupSettingsHref(href, stage), 'https://maia.invalid');
+  if (setupScreens.some(screen => screen.stage === stage && screen.id === item)) url.searchParams.set('onboardingItem', item);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 export function wizardStage(value: string | null) {
   return setupStages.findIndex(stage => stage.id === value) < 0 ? 0 : setupStages.findIndex(stage => stage.id === value);
 }
@@ -43,7 +76,7 @@ export function setupSettingsHref(href: string, stageId: string) {
   url.searchParams.set('onboardingStep', setupStages.some(stage => stage.id === stageId) ? stageId : 'studio');
   return `${url.pathname}${url.search}${url.hash}`;
 }
-export function setupReturnHref(value: string | null, fallback = 'studio') {
+export function setupReturnHref(value: string | null, fallback = 'studio', item?: string | null) {
   const stage = setupStages.find(stage => stage.id === value)?.id ?? setupStages.find(stage => stage.id === fallback)?.id ?? 'studio';
-  return `/onboarding?step=${stage}`;
+  return `/onboarding?step=${stage}${setupScreens.some(screen => screen.stage === stage && screen.id === item) ? `&item=${item}` : ''}`;
 }
