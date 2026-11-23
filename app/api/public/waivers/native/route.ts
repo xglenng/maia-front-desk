@@ -1,9 +1,10 @@
+import {contentHash,signedConsentSnapshot} from '@/packages/waivers/versions.server';
 import {createHash} from 'node:crypto';
 import {and,eq,sql,inArray} from 'drizzle-orm';
 import {NextRequest,NextResponse} from 'next/server';
 import {z} from 'zod';
 import {db} from '@/packages/db/src';
-import {appointments,externalWaiverAssignments,externalWaiverForms,studioLogoAssets,waiverTemplates,waiverSubmissions,externalWaiverEvents,automationJobs,waiverIdentityDocuments,organizations} from '@/packages/db/src/schema';
+import {consentFormVersions,appointments,externalWaiverAssignments,externalWaiverForms,studioLogoAssets,waiverTemplates,waiverSubmissions,externalWaiverEvents,automationJobs,waiverIdentityDocuments,organizations} from '@/packages/db/src/schema';
 import {localDateString} from '@/packages/booking/src/time';
 import {nativeDefinition,nativeAnswers,validateNativeAnswers} from '@/packages/waivers/forms';
 import {boundedBody} from '@/packages/waivers/bounded-body';
@@ -17,16 +18,38 @@ async function resolve(token:string){
  .innerJoin(organizations,eq(externalWaiverAssignments.organizationId,organizations.id))
  .where(eq(externalWaiverAssignments.trackingTokenHash,digest(token)));
  if(!row||row.form.provider!=='MAIA'||row.assignment.status==='VOID'||['CANCELLED','NO_SHOW'].includes(row.appointment.status)||Date.now()>row.appointment.startsAt.getTime()+7*86400000)return null;
- const meta=row.form.metadata as {templateId?:string;definition?:unknown}|null;
- const definition=nativeDefinition.safeParse(meta?.definition);
- if(!definition.success||!meta?.templateId)return null;
+ let name=row.form.name,audience=row.form.audience;
+ let templateId:string|undefined,definitionValue:unknown;
+ if(row.assignment.nativeVersionId){
+  const [version]=await db.select().from(consentFormVersions).where(and(eq(consentFormVersions.id,row.assignment.nativeVersionId),eq(consentFormVersions.formId,row.form.id),eq(consentFormVersions.organizationId,row.assignment.organizationId)));
+  if(!version)return null;
+  const checked=nativeDefinition.safeParse(version.definition);
+  if(!checked.success||contentHash(version.name,version.audience,checked.data)!==version.contentHash)return null;
+  name=version.name;audience=version.audience;templateId=version.templateId;definitionValue=version.definition;
+ }else if(['COMPLETED','REVIEWED'].includes(row.assignment.status)){
+  // Only retained signing evidence can establish historical content. Never
+  // reconstruct a signed legacy form from the mutable current template.
+  const submissionId=(row.assignment.providerMetadata as {submissionId?:string})?.submissionId;
+  if(!submissionId||!z.string().uuid().safeParse(submissionId).success)return null;
+  const [signed]=await db.select({submission:waiverSubmissions,template:waiverTemplates}).from(waiverSubmissions)
+   .innerJoin(waiverTemplates,and(eq(waiverTemplates.id,waiverSubmissions.waiverTemplateId),eq(waiverTemplates.organizationId,waiverSubmissions.organizationId)))
+   .where(and(eq(waiverSubmissions.id,submissionId),eq(waiverSubmissions.organizationId,row.assignment.organizationId),eq(waiverSubmissions.appointmentId,row.assignment.appointmentId),sql`${waiverSubmissions.clientId} IS NOT DISTINCT FROM ${row.assignment.clientId}`));
+  const snapshot=signed&&signedConsentSnapshot(signed.submission.signatureData||'',signed.template.body);
+  if(!snapshot)return null;
+  name=signed.template.name;audience=snapshot.audience;templateId=signed.template.id;definitionValue=snapshot.definition;
+ }else{
+  const meta=row.form.metadata as {templateId?:string;definition?:unknown}|null;
+  templateId=meta?.templateId;definitionValue=meta?.definition;
+ }
+ const definition=nativeDefinition.safeParse(definitionValue);
+ if(!definition.success||!templateId)return null;
  if(definition.data.logoAssetId){
   const [logo]=await db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.id,definition.data.logoAssetId),eq(studioLogoAssets.organizationId,row.assignment.organizationId))).limit(1);
   if(!logo)return null;
  }
- const [template]=await db.select().from(waiverTemplates).where(and(eq(waiverTemplates.id,meta.templateId),eq(waiverTemplates.organizationId,row.assignment.organizationId)));
+ const [template]=await db.select().from(waiverTemplates).where(and(eq(waiverTemplates.id,templateId),eq(waiverTemplates.organizationId,row.assignment.organizationId)));
  if(!template||template.body!==definition.data.body)return null;
- return {...row,template,definition:definition.data};
+ return {...row,form:{...row.form,name,audience},template,definition:definition.data};
 }
 export async function GET(request:NextRequest){
  const token=tokenSchema.safeParse(request.nextUrl.searchParams.get('token'));if(!token.success)return NextResponse.json({error:'Invalid form link.'},{status:404});
@@ -68,7 +91,7 @@ export async function POST(request:NextRequest){
   if(['COMPLETED','REVIEWED'].includes(current.status))return;
   if(current.status==='VOID')throw Error('Form was voided.');
   const latest=await resolve(values.token);if(!latest)throw Error('Form unavailable.');
-  const signatureData=JSON.stringify({agreed:true,audience:row.form.audience,definition:row.definition,answers:checked.data,drawnSignature:values.signature,...(identityImage?{photoId:{fieldId:photoField!.id,sha256:identityImage.sha256,contentType:identityImage.contentType,byteLength:identityImage.byteLength}}:{})});
+  const signatureData=JSON.stringify({agreed:true,name:row.form.name,nativeVersionId:row.assignment.nativeVersionId,audience:row.form.audience,definition:row.definition,answers:checked.data,drawnSignature:values.signature,...(identityImage?{photoId:{fieldId:photoField!.id,sha256:identityImage.sha256,contentType:identityImage.contentType,byteLength:identityImage.byteLength}}:{})});
   const documentHash=digest(JSON.stringify({templateId:row.template.id,version:row.template.version,body:row.template.body,signatureData,signedName:values.signedName,signedAt:now.toISOString(),appointmentId:row.assignment.appointmentId,clientId:row.assignment.clientId}));
   const [signed]=await tx.insert(waiverSubmissions).values({organizationId:row.assignment.organizationId,appointmentId:row.assignment.appointmentId,clientId:row.assignment.clientId,waiverTemplateId:row.template.id,signedName:values.signedName,signatureData,signedAt:now,documentHash,userAgent:request.headers.get('user-agent')?.slice(0,1000)}).returning({id:waiverSubmissions.id});
   if(identityImage)await tx.insert(waiverIdentityDocuments).values({organizationId:row.assignment.organizationId,assignmentId:row.assignment.id,submissionId:signed.id,fieldId:photoField!.id,...identityImage});

@@ -1,3 +1,4 @@
+import {createConsentAssignment} from '@/packages/waivers/versions.server';
 import 'server-only';
 import crypto from 'node:crypto';
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
@@ -202,10 +203,10 @@ async function processAppointmentWaiver(job: ClaimedAutomationJob, payload: Reco
       if (existing) return { duplicate: true as const };
       let createdAssignmentId: string | null = null;
       if (externalForm && externalToken) {
-        const [assignment] = await tx.insert(externalWaiverAssignments).values({
+        const assignment = await createConsentAssignment(tx,{
           organizationId: job.organizationId, waiverFormId: externalForm.id, appointmentId: row.appointment.id, clientId: job.clientId,
           trackingTokenHash: crypto.createHash('sha256').update(externalToken).digest('hex'), status: 'PENDING', deliveryChannel: 'SMS', dueAt: row.appointment.startsAt,
-        }).returning({ id: externalWaiverAssignments.id });
+        },externalForm);
         createdAssignmentId = assignment.id;
       }
       const [message] = await tx.insert(messages).values({

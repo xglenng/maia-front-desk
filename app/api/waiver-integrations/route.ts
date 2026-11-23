@@ -1,3 +1,4 @@
+import {contentHash,latestConsentVersion} from '@/packages/waivers/versions.server';
 import {canManageStudioSettings} from '@/packages/auth/settings-policy';
 import {canManageForm,nativeDefinition,publicFormUrl} from '@/packages/waivers/forms';
 import crypto from "node:crypto";
@@ -8,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/index";
-import { artists, organizations, externalWaiverForms, services, studioLogoAssets, waiverProviderConnections, waiverTemplates } from "@db/schema";
+import { artists, organizations, consentFormVersions, externalWaiverAssignments, externalWaiverForms, services, studioLogoAssets, waiverProviderConnections, waiverTemplates } from "@db/schema";
 import {isMissingStudioLogoTable} from '@/packages/waivers/studio-logo-schema';
 
 const schema = z.discriminatedUnion("action", [
@@ -98,7 +99,9 @@ async function handlePOST(request: NextRequest) {
    if(input.definition.fields?.some(field=>field.type==='PHOTO_ID')){const {identityImageStorageReady}=await import('@/packages/waivers/identity-image.server');if(!identityImageStorageReady())return NextResponse.json({error:'Private photo ID storage must be configured before saving this form.'},{status:503});}
    const form=await db.transaction(async tx=>{
     const [template]=await tx.insert(waiverTemplates).values({organizationId,name:input.name,body:input.definition.body,active:false}).returning();
-    return (await tx.insert(externalWaiverForms).values({organizationId,name:input.name,provider:'MAIA',formUrl:'/waiver',artistId:ownProfile.id,audience:input.audience,completionMode:'HOSTED',metadata:{templateId:template.id,definition:input.definition}}).returning())[0];
+    const [created]=await tx.insert(externalWaiverForms).values({organizationId,name:input.name,provider:'MAIA',formUrl:'/waiver',artistId:ownProfile.id,audience:input.audience,completionMode:'HOSTED',metadata:{templateId:template.id,definition:input.definition}}).returning();
+    await tx.insert(consentFormVersions).values({organizationId,formId:created.id,version:1,name:input.name,audience:input.audience,definition:input.definition,templateId:template.id,contentHash:contentHash(input.name,input.audience,input.definition),createdByUserId:user.id});
+    return created;
    });return NextResponse.json({form},{status:201});
   }
   if (parsed.data.action === "CONNECT_JOTFORM") {
@@ -140,12 +143,26 @@ async function handlePOST(request: NextRequest) {
     if(!existing)return NextResponse.json({error:"Waiver form not found"},{status:404});
     return NextResponse.json({error:`The routing rule for "${existing.name}" is active. Edit the form and turn off Active before deleting it.`},{status:409});
   }
-  if(parsed.data.action!=="UPDATE_FORM")return NextResponse.json({error:"Unknown action"},{status:400});
-  const [existingForm] = await db.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.id, parsed.data.formId), eq(externalWaiverForms.organizationId, organizationId)));
-  if (!existingForm || !canManageStudioSettings(user.role)) return NextResponse.json({ error: "Waiver form not found" }, { status: 404 });
-  const [form] = await db.update(externalWaiverForms).set({ category: parsed.data.category, audience: parsed.data.audience, artistId: parsed.data.artistId, serviceId: parsed.data.serviceId, priority: parsed.data.priority, active: parsed.data.active, collectsMedicalData: parsed.data.collectsMedicalData, updatedAt: new Date() }).where(and(eq(externalWaiverForms.id, existingForm.id),eq(externalWaiverForms.organizationId,organizationId),notArchived)).returning();
-  if(!form)return NextResponse.json({error:"Waiver form not found"},{status:404});
-  return NextResponse.json({ form });
+  if(input.action!=="UPDATE_FORM")return NextResponse.json({error:"Unknown action"},{status:400});
+  const result=await db.transaction(async tx=>{
+    await tx.execute(sql`SELECT id FROM ${externalWaiverForms} WHERE id=${input.formId} AND organization_id=${organizationId} FOR UPDATE`);
+    const [existingForm]=await tx.select().from(externalWaiverForms).where(and(eq(externalWaiverForms.id,input.formId),eq(externalWaiverForms.organizationId,organizationId),notArchived));
+    if(!existingForm||!canManageForm(user.role,ownIds,existingForm.artistId))return {error:"Waiver form not found",status:404} as const;
+    if(user.role!=="OWNER"&&(!input.artistId||!ownIds.includes(input.artistId)))return {error:"Choose one of your own artist profiles.",status:403} as const;
+    if(existingForm.provider==="MAIA"&&existingForm.audience!==input.audience){
+      if(await latestConsentVersion(tx,organizationId,existingForm.id))return {error:"Use Edit form and publish a new version to change this consent form’s audience.",status:409} as const;
+      const [issued]=await tx.select({id:externalWaiverAssignments.id}).from(externalWaiverAssignments).where(and(
+        eq(externalWaiverAssignments.organizationId,organizationId),
+        eq(externalWaiverAssignments.waiverFormId,existingForm.id),
+        sql`${externalWaiverAssignments.status} <> 'VOID'`
+      )).limit(1);
+      if(issued)return {error:"This form has issued links whose original audience was not saved. Changing its audience could change those links; review them before making this change.",status:409} as const;
+    }
+    const [form]=await tx.update(externalWaiverForms).set({category:input.category,audience:input.audience,artistId:input.artistId,serviceId:input.serviceId,priority:input.priority,active:input.active,collectsMedicalData:input.collectsMedicalData,updatedAt:new Date()}).where(and(eq(externalWaiverForms.id,existingForm.id),eq(externalWaiverForms.organizationId,organizationId),notArchived)).returning();
+    return {form} as const;
+  });
+  if('error' in result)return NextResponse.json({error:result.error},{status:result.status});
+  return NextResponse.json({form:result.form});
 }
 
 export const GET = protectedRoute(handleGET, false);

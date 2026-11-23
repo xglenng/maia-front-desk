@@ -267,6 +267,13 @@
       "when": 1795460800000,
       "tag": "0037_passkeys",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795460900000,
+      "tag": "0038_consent_versions",
+      "breakpoints": true
     }
   ]
 }

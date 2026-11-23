@@ -1,3 +1,4 @@
+import {createConsentAssignment} from '@/packages/waivers/versions.server';
 import {studioCheckout} from '@/packages/booking/src/studio-checkout.server';
 import { lockArtistCalendar,nativeSlotAvailable } from '@/packages/booking/src/native-calendar.server';
 import { approvedQuoteDeposit, matchesConfirmedQuoteTerms, parseQuoteState } from '@/packages/inbox/quote-policy';
@@ -474,7 +475,7 @@ export async function getWaiverLink(ctx: AgentContext, appointmentId: string) {
     if (external.provider==='MAIA'&&!process.env.NEXT_PUBLIC_APP_URL) throw new Error('Public form URL is not configured.');
     const token = crypto.randomBytes(24).toString('hex');
     const waiverUrl=assignedFormUrl(external,token,process.env.NEXT_PUBLIC_APP_URL||'');
-    const [assignment] = await db.insert(externalWaiverAssignments).values({ organizationId: ctx.organizationId, waiverFormId: external.id, appointmentId, clientId: ctx.clientId, trackingTokenHash: crypto.createHash('sha256').update(token).digest('hex'), status: 'LINK_CREATED', dueAt: new Date(Math.max(Date.now(), appointment.startsAt.getTime() - 24 * 60 * 60 * 1000)) }).returning();
+    const assignment = await db.transaction(tx=>createConsentAssignment(tx,{ organizationId: ctx.organizationId, waiverFormId: external.id, appointmentId, clientId: ctx.clientId, trackingTokenHash: crypto.createHash('sha256').update(token).digest('hex'), status: 'LINK_CREATED', dueAt: new Date(Math.max(Date.now(), appointment.startsAt.getTime() - 24 * 60 * 60 * 1000)) },external));
     return { waiverUrl, externalWaiverFormId: external.id, assignmentId: assignment.id, provider: external.provider };
   }
   const [template] = await db.select().from(waiverTemplates).where(and(eq(waiverTemplates.organizationId, ctx.organizationId), eq(waiverTemplates.active, true))).orderBy(desc(waiverTemplates.version)).limit(1);

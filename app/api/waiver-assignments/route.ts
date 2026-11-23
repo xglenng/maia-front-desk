@@ -1,3 +1,4 @@
+import {createConsentAssignment,ConsentVersionError} from '@/packages/waivers/versions.server';
 import crypto from "node:crypto";
 import { protectedRoute, identity } from "@/packages/auth/server";
 import { canAccessArtist } from "@/packages/inbox/state";
@@ -71,7 +72,9 @@ async function handlePOST(request: NextRequest) {
   const trackingTokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const waiverUrl=assignedFormUrl(selected,rawToken,new URL(process.env.NEXT_PUBLIC_APP_URL||request.url).origin);
   const dueAt = new Date(Math.max(Date.now(), appointment.startsAt.getTime() - 24 * 60 * 60 * 1000));
-  const [assignment] = await db.insert(externalWaiverAssignments).values({ organizationId: user.organization_id, waiverFormId: selected.id, appointmentId: appointment.id, clientId: client?.id || null, trackingTokenHash, dueAt, status: "PENDING" }).returning();
+  let assignment;
+  try{assignment=await db.transaction(tx=>createConsentAssignment(tx,{ organizationId: user.organization_id, waiverFormId: selected.id, appointmentId: appointment.id, clientId: client?.id || null, trackingTokenHash, dueAt, status: "PENDING" },selected));}
+  catch(error){return NextResponse.json({error:error instanceof ConsentVersionError?error.message:'Unable to create the consent request.'},{status:409});}
   if(parsed.data.action==='CREATE_LINK'){
     await db.insert(externalWaiverEvents).values({organizationId:user.organization_id,assignmentId:assignment.id,userId:user.id,action:'LINK_CREATED'});
     return NextResponse.json({assignment,url:waiverUrl},{status:201});

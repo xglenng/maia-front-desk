@@ -34,6 +34,8 @@ test('request migration and routes support isolated forms, uploads, retries and 
     await local.query(`CREATE SCHEMA ${schema}`);createdSchema=true;
     await local.query(readFileSync('packages/db/staging/schema.sql','utf8').replaceAll('"public".',`"${schema}".`));
     const snapshotColumns=(await local.query("SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name IN ('request_forms','request_submissions','request_attachments','request_notifications') ORDER BY table_name,ordinal_position",[schema])).rows;
+    await local.query("DROP TRIGGER consent_assignment_version_retention ON external_waiver_assignments; DROP TRIGGER published_consent_template_retention ON waiver_templates; DROP TABLE consent_form_drafts; ALTER TABLE external_waiver_assignments DROP COLUMN native_version_id; DROP TABLE consent_form_versions; DROP FUNCTION protect_consent_assignment_version(),protect_published_consent_template(),protect_published_consent_version();");
+    await local.query('DROP TABLE auth_passkey_challenges, auth_passkeys; DROP INDEX auth_sessions_token_user_uidx');
     await local.query('DROP TABLE invoice_notifications; DROP INDEX studio_invoices_id_organization_uidx');
     await local.query('DROP TABLE request_notifications, request_attachments, request_submissions, request_forms');
     await local.query('ALTER TABLE organizations DROP COLUMN industries, DROP COLUMN staff_term, DROP COLUMN consent_forms_enabled, DROP COLUMN request_forms_enabled');
@@ -43,7 +45,7 @@ test('request migration and routes support isolated forms, uploads, retries and 
     await local.query(`INSERT INTO ${journalSchema}.__drizzle_migrations(hash,created_at) VALUES($1,$2)`,[previousHash,1795460400000]);
     await migrate(drizzle(local),{migrationsFolder:'packages/db/drizzle',migrationsSchema:journalSchema});
     await migrate(drizzle(local),{migrationsFolder:'packages/db/drizzle',migrationsSchema:journalSchema});
-    assert.equal((await local.query(`SELECT count(*)::int AS n FROM ${journalSchema}.__drizzle_migrations`)).rows[0].n,4);
+    assert.equal((await local.query(`SELECT count(*)::int AS n FROM ${journalSchema}.__drizzle_migrations`)).rows[0].n,6);
     assert.deepEqual((await local.query("SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name IN ('request_forms','request_submissions','request_attachments','request_notifications') ORDER BY table_name,ordinal_position",[schema])).rows,snapshotColumns);
     t.mock.method(pool,'query',local.query.bind(local));
     t.mock.method(pool,'connect',local.connect.bind(local));
@@ -192,8 +194,18 @@ test('request migration and routes support isolated forms, uploads, retries and 
       const response=await createConsent(authenticated('/api/waiver-integrations','b',{action:'ADD_NATIVE_FORM',name:starter.name,definition:starter.definition,artistId:artist,audience:starter.audience}),undefined);
       assert.equal(response.status,201,await response.clone().text());
       const consentForm=(await response.json()).form;
+      const settings={action:'UPDATE_FORM',formId:consentForm.id,category:'GENERAL',audience:'MINOR',artistId:artist,serviceId:null,priority:100,active:true,collectsMedicalData:false};
+      assert.equal((await createConsent(authenticated('/api/waiver-integrations','b',settings),undefined)).status,409);
+      assert.equal((await createConsent(authenticated('/api/waiver-integrations','b',{...settings,audience:'ADULT'}),undefined)).status,200);
       await local.query("INSERT INTO external_waiver_assignments(organization_id,waiver_form_id,appointment_id,client_id,tracking_token_hash) VALUES($1,$2,$3,$4,$5)",[org,consentForm.id,appointment,client,hash(token)]);
       assert.equal((await readConsent(new NextRequest(`http://localhost/api/public/waivers/native?token=${token}`))).status,200);
+      const denied=await createConsent(authenticated('/api/waiver-integrations','b',settings),undefined);
+      assert.equal(denied.status,409);assert.match((await denied.json()).error,/publish a new version/);
+      assert.equal((await createConsent(authenticated('/api/waiver-integrations','c',settings),undefined)).status,404);
+      assert.equal((await createConsent(authenticated('/api/waiver-integrations','d',settings),undefined)).status,404);
+      const preserved=await (await readConsent(new NextRequest(`http://localhost/api/public/waivers/native?token=${token}`))).json();
+      assert.equal(preserved.audience,'ADULT');assert.deepEqual(preserved.definition,starter.definition);
+      assert.equal((await createConsent(authenticated('/api/waiver-integrations','a',{...settings,audience:'ADULT',priority:101}),undefined)).status,200);
       const consentAnswers={client_name:'Synthetic Client',date_of_birth:'1990-01-01',phone:'3035550123',address:'Synthetic address',procedure_description:'Synthetic',body_location:'Arm',appointment_date:'2035-01-08',adult:true,voluntary:true,questions:true,risks:true,aftercare:true,accuracy:true};
       const signed=await signConsent(new NextRequest('http://localhost/api/public/waivers/native',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify({token,signedName:'Synthetic Client',agreed:true,answers:consentAnswers,signature:{strokes:[[{x:0.1,y:0.5},{x:0.8,y:0.6}]]}})}));
       assert.equal(signed.status,200,await signed.clone().text());

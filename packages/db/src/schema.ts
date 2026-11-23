@@ -784,12 +784,52 @@ export const studioLogoAssets = pgTable("studio_logo_assets", {
   imageLengthCheck: check("studio_logo_assets_byte_length_check", sql`${table.byteLength} BETWEEN 1 AND 524288`),
 }));
 
+// Published consent content is append-only; mutable work lives in separate drafts.
+export const consentFormVersions = pgTable('consent_form_versions', {
+ id:uuid('id').defaultRandom().primaryKey(),
+ organizationId:uuid('organization_id').notNull().references(()=>organizations.id),
+ formId:uuid('form_id').notNull(),
+ version:integer('version').notNull(),
+ name:text('name').notNull(),
+ audience:text('audience').notNull(),
+ definition:jsonb('definition').notNull(),
+ templateId:uuid('template_id').notNull(),
+ contentHash:text('content_hash').notNull(),
+ createdByUserId:uuid('created_by_user_id'),
+ createdAt:timestamp('created_at',{withTimezone:true}).defaultNow().notNull(),
+},table=>[
+ uniqueIndex('consent_versions_form_number_uidx').on(table.organizationId,table.formId,table.version),
+ uniqueIndex('consent_versions_id_form_org_uidx').on(table.id,table.formId,table.organizationId),
+ foreignKey({name:'consent_versions_form_tenant_fk',columns:[table.formId,table.organizationId],foreignColumns:[externalWaiverForms.id,externalWaiverForms.organizationId]}),
+ foreignKey({name:'consent_versions_template_tenant_fk',columns:[table.templateId,table.organizationId],foreignColumns:[waiverTemplates.id,waiverTemplates.organizationId]}),
+ foreignKey({name:'consent_versions_user_tenant_fk',columns:[table.createdByUserId,table.organizationId],foreignColumns:[users.id,users.organizationId]}),
+ check('consent_versions_number_check',sql`${table.version} > 0`),
+ check('consent_versions_audience_check',sql`${table.audience} IN ('ANY','ADULT','MINOR')`),
+ check('consent_versions_hash_check',sql`${table.contentHash} ~ '^[a-f0-9]{64}$'`),
+]);
+export const consentFormDrafts = pgTable('consent_form_drafts', {
+ id:uuid('id').defaultRandom().primaryKey(),
+ organizationId:uuid('organization_id').notNull().references(()=>organizations.id),
+ formId:uuid('form_id').notNull(),
+ name:text('name').notNull(),audience:text('audience').notNull(),definition:jsonb('definition').notNull(),
+ revision:integer('revision').default(1).notNull(),baseVersion:integer('base_version').notNull(),
+ updatedByUserId:uuid('updated_by_user_id').notNull(),
+ updatedAt:timestamp('updated_at',{withTimezone:true}).defaultNow().notNull(),
+},table=>[
+ uniqueIndex('consent_drafts_form_uidx').on(table.organizationId,table.formId),
+ foreignKey({name:'consent_drafts_form_tenant_fk',columns:[table.formId,table.organizationId],foreignColumns:[externalWaiverForms.id,externalWaiverForms.organizationId]}),
+ foreignKey({name:'consent_drafts_user_tenant_fk',columns:[table.updatedByUserId,table.organizationId],foreignColumns:[users.id,users.organizationId]}),
+ check('consent_drafts_revision_check',sql`${table.revision} > 0 AND ${table.baseVersion} >= 0`),
+ check('consent_drafts_audience_check',sql`${table.audience} IN ('ANY','ADULT','MINOR')`),
+]);
+
 export const externalWaiverAssignments = pgTable("external_waiver_assignments", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id").references(() => organizations.id).notNull(),
   waiverFormId: uuid("waiver_form_id").references(() => externalWaiverForms.id).notNull(),
   appointmentId: uuid("appointment_id").references(() => appointments.id).notNull(),
   clientId: uuid("client_id").references(() => clients.id),
+  nativeVersionId: uuid("native_version_id"),
   trackingTokenHash: text("tracking_token_hash").notNull().unique(),
   providerSubmissionId: text("provider_submission_id"),
   status: text("status").default("PENDING").notNull(),
@@ -803,6 +843,7 @@ export const externalWaiverAssignments = pgTable("external_waiver_assignments", 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 }, table => ({
+  nativeVersionReference: foreignKey({name:"waiver_assignment_native_version_fk",columns:[table.nativeVersionId,table.waiverFormId,table.organizationId],foreignColumns:[consentFormVersions.id,consentFormVersions.formId,consentFormVersions.organizationId]}),
   tenantIdentityUnique: uniqueIndex("external_waiver_assignments_id_organization_uidx").on(table.id, table.organizationId),
   tenantWaiverFormIdReference: foreignKey({ name: "external_waiver_assignments_waiver_form_id_tenant_fk", columns: [table.waiverFormId, table.organizationId], foreignColumns: [externalWaiverForms.id, externalWaiverForms.organizationId] }),
   tenantAppointmentIdReference: foreignKey({ name: "external_waiver_assignments_appointment_id_tenant_fk", columns: [table.appointmentId, table.organizationId], foreignColumns: [appointments.id, appointments.organizationId] }),

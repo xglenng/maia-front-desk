@@ -16,6 +16,7 @@ const tables=parts.filter(s=>s.startsWith('CREATE TABLE'));
 const indexes=parts.filter(s=>/^CREATE (UNIQUE )?INDEX/.test(s));
 const rest=parts.filter(s=>!tables.includes(s)&&!indexes.includes(s));
 const hash=crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'packages/db/src/schema.ts'))).digest('hex');
+const versionRetention=fs.readFileSync(path.join(root,'packages/db/drizzle/0038_consent_versions.sql'),'utf8').split('-- No legacy assignments')[1];
 const retention=fs.readFileSync(path.join(root,'packages/db/drizzle/0026_signed_consent_retention.sql'),'utf8').trim();
-fs.writeFileSync(path.join(root,'packages/db/staging/schema.sql'),'-- Synthetic staging bootstrap only; not a production migration.\n-- schema-source-sha256: '+hash+'\n'+[...tables,...indexes,...rest,retention].join('\n--> statement-breakpoint\n')+'\n');
+fs.writeFileSync(path.join(root,'packages/db/staging/schema.sql'),'-- Synthetic staging bootstrap only; not a production migration.\n-- schema-source-sha256: '+hash+'\n'+[...tables,...indexes,...rest,retention,("-- No legacy assignments"+versionRetention).trim()].join('\n--> statement-breakpoint\n')+'\n');
 console.log('Generated staging-only schema snapshot; review and test before initialization. No database connection.');
