@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, timestamp, boolean, integer, date, jsonb, bigint, index, uniqueIndex, foreignKey, check
+  pgTable, uuid, text, timestamp, boolean, integer, date, jsonb, bigint, index, uniqueIndex, foreignKey, check, customType
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -59,7 +59,39 @@ export const ownerWelcomeEmails = pgTable('owner_welcome_emails', {
 export const authSessions = pgTable('auth_sessions', {
   tokenHash:text('token_hash').primaryKey(),userId:uuid('user_id').notNull().references(()=>users.id,{onDelete:'cascade'}),
   expiresAt:timestamp('expires_at',{withTimezone:true}).notNull()
-});
+}, table => ({
+  tokenUserUnique: uniqueIndex('auth_sessions_token_user_uidx').on(table.tokenHash, table.userId)
+}));
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
+export const authPasskeys = pgTable('auth_passkeys', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  credentialId: text('credential_id').notNull().unique(),
+  publicKey: bytea('public_key').notNull(),
+  counter: bigint('counter', { mode: 'number' }).notNull(),
+  deviceType: text('device_type').notNull(),
+  backedUp: boolean('backed_up').notNull(),
+  transports: jsonb('transports').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true })
+}, table => ({
+  userIndex: index('auth_passkeys_user_idx').on(table.userId),
+  counterCheck: check('auth_passkeys_counter_check', sql`${table.counter} >= 0`),
+  deviceTypeCheck: check('auth_passkeys_device_type_check', sql`${table.deviceType} IN ('singleDevice','multiDevice')`)
+}));
+export const authPasskeyChallenges = pgTable('auth_passkey_challenges', {
+  browserHash: text('browser_hash').primaryKey(),
+  operation: text('operation').notNull(),
+  challenge: text('challenge').notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  sessionHash: text('session_hash'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
+}, table => ({
+  expiryIndex: index('auth_passkey_challenges_expiry_idx').on(table.expiresAt),
+  sessionOwner: foreignKey({ name: 'auth_passkey_challenges_session_owner_fk', columns: [table.sessionHash, table.userId], foreignColumns: [authSessions.tokenHash, authSessions.userId] }).onDelete('cascade'),
+  operationCheck: check('auth_passkey_challenges_operation_check', sql`(${table.operation} = 'registration' AND ${table.userId} IS NOT NULL AND ${table.sessionHash} IS NOT NULL) OR (${table.operation} = 'authentication' AND ${table.userId} IS NULL AND ${table.sessionHash} IS NULL)`)
+}));
 export const authPasswordResets = pgTable('auth_password_resets', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),

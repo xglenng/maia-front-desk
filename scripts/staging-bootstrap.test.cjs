@@ -7,7 +7,7 @@ const {bootstrapSql,initialize}=require('./staging-bootstrap.cjs');
 test('staging bootstrap snapshot matches source and contains no data inserts',()=>{
   const {sql,hash}=bootstrapSql();
   assert.equal(hash.length,64);
-  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,70);
+  assert.equal((sql.match(/CREATE TABLE /g)||[]).length,72);
   assert.match(sql,/users_normalized_email_uidx/);
   assert.equal(/^\s*(?:INSERT|DELETE|TRUNCATE|DROP)\b/im.test(sql),false);
 });
@@ -22,7 +22,7 @@ test('full-schema initialization is atomic and refuses an existing database',{sk
     const snapshot=bootstrapSql();
     await assert.rejects(initialize(pool,{...snapshot,sql:snapshot.sql+'; SELECT missing_function_for_rollback_test()'}),{code:'42883'});
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'")).rows[0].n,0);
-    assert.equal(await initialize(pool,snapshot),70);
+    assert.equal(await initialize(pool,snapshot),72);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM maia_staging_meta.bootstrap')).rows[0].n,1);
     await assert.rejects(initialize(pool,snapshot),/existing relations/);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM maia_staging_meta.bootstrap')).rows[0].n,1);
@@ -57,7 +57,7 @@ test('regenerated bootstrap initializes an isolated PostgreSQL database',{skip:!
     const snapshot=bootstrapSql();
     await assert.rejects(initialize(local,{...snapshot,sql:snapshot.sql+'; SELECT missing_function_for_rollback_test()'}),{code:'42883'});
     assert.equal((await local.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'")).rows[0].n,0);
-    assert.equal(await initialize(local,snapshot),70);
+    assert.equal(await initialize(local,snapshot),72);
     await assert.rejects(initialize(local,snapshot),/existing relations/);
   } finally {
     if(local){await local.end();await admin.query(`DROP DATABASE ${database}`);}

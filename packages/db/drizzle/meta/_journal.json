@@ -260,6 +260,13 @@
       "when": 1795460700000,
       "tag": "0036_invoice_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795460800000,
+      "tag": "0037_passkeys",
+      "breakpoints": true
     }
   ]
 }

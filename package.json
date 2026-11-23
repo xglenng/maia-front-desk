@@ -39,6 +39,8 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.0",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.1.0",
     "@stripe/stripe-js": "^10.1.0",
     "ai": "^4.0.0",
     "drizzle-orm": "^0.45.2",

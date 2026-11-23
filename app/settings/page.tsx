@@ -13,6 +13,7 @@ export default function SettingsPage() {
     <a href="/">← Dashboard</a><h1>Settings</h1>
     <p style={{ color: '#77736e' }}>Manage studio operations and the information Maia can share with clients.</p>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16, marginTop: 24 }}>
+      <a href="/settings/account" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="settings" />Account &amp; passkeys</strong><p>Manage your personal sign-in methods.</p></a>
       {owner&&<a href="/settings/payments" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="card" />Studio payments</strong><p>Manage the studio’s Stripe connection and payment setup.</p></a>}
       {owner&&<a href="/banking" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="bank" />Banking</strong><p>View studio balances, payout schedules, and recent payouts.</p></a>}
       {owner&&<a href="/settings/team" style={card}><strong style={{ display: 'flex', alignItems: 'center', gap: 12 }}><SettingIcon name="clients" />Team &amp; invitations</strong><p>Invite artists and apprentices to set up their own studio login.</p></a>}

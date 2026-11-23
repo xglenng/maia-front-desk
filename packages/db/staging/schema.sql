@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: 152d3e9eb3959afc2f42a2ff7bf16f9c0dec70ecd8abc6969bdf7dd9cbfa9eb3
+-- schema-source-sha256: fe059fa8a0912ac3b39fe2f789cb0cb2e02c8c4f197c29f6a4a67ed6464418f3
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -153,6 +153,33 @@ CREATE TABLE "auth_oauth_states" (
 	"organization_id" uuid NOT NULL,
 	"artist_id" uuid NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "auth_passkey_challenges" (
+	"browser_hash" text PRIMARY KEY NOT NULL,
+	"operation" text NOT NULL,
+	"challenge" text NOT NULL,
+	"user_id" uuid,
+	"session_hash" text,
+	"expires_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "auth_passkey_challenges_operation_check" CHECK (("auth_passkey_challenges"."operation" = 'registration' AND "auth_passkey_challenges"."user_id" IS NOT NULL AND "auth_passkey_challenges"."session_hash" IS NOT NULL) OR ("auth_passkey_challenges"."operation" = 'authentication' AND "auth_passkey_challenges"."user_id" IS NULL AND "auth_passkey_challenges"."session_hash" IS NULL))
+);
+--> statement-breakpoint
+CREATE TABLE "auth_passkeys" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"credential_id" text NOT NULL,
+	"public_key" "bytea" NOT NULL,
+	"counter" bigint NOT NULL,
+	"device_type" text NOT NULL,
+	"backed_up" boolean NOT NULL,
+	"transports" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"name" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_used_at" timestamp with time zone,
+	CONSTRAINT "auth_passkeys_credential_id_unique" UNIQUE("credential_id"),
+	CONSTRAINT "auth_passkeys_counter_check" CHECK ("auth_passkeys"."counter" >= 0),
+	CONSTRAINT "auth_passkeys_device_type_check" CHECK ("auth_passkeys"."device_type" IN ('singleDevice','multiDevice'))
 );
 --> statement-breakpoint
 CREATE TABLE "auth_password_resets" (
@@ -1168,6 +1195,12 @@ CREATE UNIQUE INDEX "artist_consent_forms_id_organization_uidx" ON "artist_conse
 --> statement-breakpoint
 CREATE UNIQUE INDEX "artists_id_organization_uidx" ON "artists" USING btree ("id","organization_id");
 --> statement-breakpoint
+CREATE INDEX "auth_passkey_challenges_expiry_idx" ON "auth_passkey_challenges" USING btree ("expires_at");
+--> statement-breakpoint
+CREATE INDEX "auth_passkeys_user_idx" ON "auth_passkeys" USING btree ("user_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "auth_sessions_token_user_uidx" ON "auth_sessions" USING btree ("token_hash","user_id");
+--> statement-breakpoint
 CREATE INDEX "automation_jobs_appointment_status_idx" ON "automation_jobs" USING btree ("appointment_id","status");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "automation_jobs_organization_dedupe_uidx" ON "automation_jobs" USING btree ("organization_id","dedupe_key");
@@ -1337,6 +1370,12 @@ ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_artist_id_arti
 ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_user_id_tenant_fk" FOREIGN KEY ("user_id","organization_id") REFERENCES "public"."users"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "auth_oauth_states" ADD CONSTRAINT "auth_oauth_states_artist_id_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "auth_passkey_challenges" ADD CONSTRAINT "auth_passkey_challenges_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "auth_passkey_challenges" ADD CONSTRAINT "auth_passkey_challenges_session_owner_fk" FOREIGN KEY ("session_hash","user_id") REFERENCES "public"."auth_sessions"("token_hash","user_id") ON DELETE cascade ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "auth_passkeys" ADD CONSTRAINT "auth_passkeys_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "auth_password_resets" ADD CONSTRAINT "auth_password_resets_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint

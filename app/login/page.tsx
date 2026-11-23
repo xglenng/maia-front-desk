@@ -3,6 +3,8 @@
 import { useState, FormEvent } from 'react';
 import PasswordInput from '@/components/password-input';
 import { setupReturnPath } from '@/packages/auth/setup-return';
+import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
+import { passkeyError, passkeyRequest, requirePasskeySupport } from '@/packages/auth/passkeys.client';
 
 export default function Login() {
   const [error, setError] = useState('');
@@ -34,6 +36,20 @@ export default function Login() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function signInWithPasskey() {
+    setBusy(true);
+    setError('');
+    try {
+      requirePasskeySupport();
+      const { options } = await passkeyRequest<{ options: PublicKeyCredentialRequestOptionsJSON }>({ action: 'authentication-options' });
+      const credential = await startAuthentication({ optionsJSON: options });
+      await passkeyRequest({ action: 'authentication-verify', credential });
+      window.location.assign(setupReturnPath(new URLSearchParams(window.location.search).get('next')));
+    } catch (reason) {
+      setError(passkeyError(reason));
+    } finally { setBusy(false); }
   }
 
   return (
@@ -88,6 +104,10 @@ export default function Login() {
 
         <p role="alert">{error}</p>
       </form>
+
+      <button type="button" disabled={busy} onClick={signInWithPasskey} style={{ padding: 12, width: '100%', marginTop: 16 }}>
+        Sign in with a passkey
+      </button>
 
       <p style={{ marginTop: 24 }}>
         New to Maia? <a href="/signup">Create your studio</a>
