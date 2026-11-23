@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
 import { selectedArtistId } from "@/packages/studio/artist-selection";
+import { invoiceEmail } from "@/packages/invoices/action-input";
 import UiIcon from "@/components/ui-icon";
 import "../checkout/checkout.css";
 import "./invoices.css";
@@ -289,6 +290,12 @@ export default function Invoices() {
   }
   async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL" | "VOID") {
     if (!selected || actionRunning.current) return;
+    if (action === "ISSUE" && !selected.clientEmail && !selected.stripeInvoiceId && issueEmail.trim()) {
+      if (!invoiceEmail.safeParse(issueEmail).success) {
+        setError('Enter a valid customer email address.');
+        return;
+      }
+    }
     actionRunning.current = true;
     setBusy(true);
     setError("");
@@ -304,7 +311,7 @@ export default function Invoices() {
           invoiceId: selected.id,
           ...(action === "ISSUE" &&
           !selected.clientEmail &&
-          !selected.stripeInvoiceId
+          !selected.stripeInvoiceId && issueEmail.trim()
             ? { customerEmail: issueEmail.trim() }
             : {}),
           ...(action === "SEND_EMAIL" && emailForm.address
@@ -921,13 +928,14 @@ export default function Invoices() {
                   <input
                     type="email"
                     autoComplete="email"
+                    maxLength={254}
                     value={issueEmail}
                     onChange={(event) => setIssueEmail(event.target.value)}
                     placeholder="name@example.com"
                   />
                   <small>
-                    If provided, used for the invoice; Maia will not send an
-                    email when creating the link.
+                    Leave blank to create a shareable payment link. Creating the
+                    link does not send an email or charge the client.
                   </small>
                 </label>
               )}

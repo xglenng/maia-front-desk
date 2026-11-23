@@ -2,17 +2,27 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {Pool} from 'pg';
 import {NextRequest} from 'next/server';
 import {PDFArray,PDFDocument,PDFRawStream,decodePDFRawStream} from 'pdf-lib';
 import {pool} from '../../db/src';
 const socket=process.env.MAIA_INVOICE_TEST_SOCKET;
-test('invoice migration and routes isolate tenants/artists, deduplicate drafts, and expose transaction history',{skip:!socket},async t=>{
- assert.match(socket!,/^\/private\/tmp\/maia-forms-[A-Za-z0-9]+$/);
+const container=process.env.MAIA_INVOICE_TEST_CONTAINER;
+test('invoice migration and routes isolate tenants/artists, deduplicate drafts, and expose transaction history',{skip:!socket&&!container},async t=>{
+ if(!container)assert.match(socket!,/^\/private\/tmp\/maia-forms-[A-Za-z0-9]+$/);
  const schema='invoices_'+randomUUID().replaceAll('-','');
- const local=new Pool({host:socket,port:55449,database:'maia_forms_test',user:process.env.USER,options:`-c search_path=${schema}`,max:8});
+ let connection:{host:string;port:number;database:string;user?:string;password?:string};
+ if(container){
+  assert.match(container,/^[a-f0-9]{64}$/);
+  assert.equal(execFileSync('docker',['inspect','--format','{{index .Config.Labels "maia-purpose"}}',container],{encoding:'utf8'}).trim(),'invoice-integration');
+  const mapping=execFileSync('docker',['port',container,'5432/tcp'],{encoding:'utf8'}).trim();
+  assert.match(mapping,/^127\.0\.0\.1:\d+$/);
+  connection={host:'127.0.0.1',port:Number(mapping.split(':')[1]),database:'maia_invoice_test',user:'postgres',password:'synthetic-local-only'};
+ }else connection={host:socket!,port:55449,database:'maia_forms_test',user:process.env.USER};
+ const local=new Pool({...connection,options:`-c search_path=${schema}`,max:8});
  try{
-  assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,`${socket}/data`);
+  assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,container?'/var/lib/postgresql/data':`${socket}/data`);
   await local.query(`CREATE SCHEMA ${schema}`);
   await local.query(readFileSync('packages/db/staging/schema.sql','utf8').replaceAll('"public".',`"${schema}".`));
   const snapshotColumns=(await local.query("SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name='studio_invoices' ORDER BY column_name",[schema])).rows;
@@ -97,9 +107,19 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
    const issued=await issueInvoice(draft,stripe);assert.equal(issued.status,'OPEN');assert.equal(creates,1);assert.equal(customerCreates,1);assert.equal(items.length,1);assert.equal(items[0].amount,2000);
 
    const missingEmail=(await (await POST(request('/api/invoices','b',{...input,requestId:randomUUID(),clientEmail:'',dueDays:1,lines:[{name:'Service',quantity:1,unitCents:6500}]}),undefined)).json()).invoice;
-   await local.query("UPDATE studio_invoices SET status='ISSUING',issuing_at=now(),stripe_account_id='acct_synthetic' WHERE id=$1",[missingEmail.id]);
+   delete process.env.STRIPE_SECRET_KEY; // Route validation only; never contact Stripe.
+   const blankEmailResponse=await POST(request('/api/invoices','b',{action:'ISSUE',invoiceId:missingEmail.id,customerEmail:''}),undefined);
+   assert.equal(blankEmailResponse.status,409);
+   const blankEmailBody=await blankEmailResponse.json();
+   assert.match(blankEmailBody.error,/not configured/);
+   process.env.STRIPE_SECRET_KEY='sk_test_synthetic';
+   assert.equal(blankEmailBody.invoice.id,missingEmail.id);
+   assert.equal(blankEmailBody.invoice.status,'DRAFT');
+   const invalidEmailResponse=await POST(request('/api/invoices','b',{action:'ISSUE',invoiceId:missingEmail.id,customerEmail:'bad'}),undefined);
+   assert.equal(invalidEmailResponse.status,400);
+   assert.match((await invalidEmailResponse.json()).error,/valid customer email/);
    let [recoverable]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,missingEmail.id));
-   await assert.rejects(issueInvoice(recoverable,stripe),/email/);
+
    const recoveredItems:Array<any>=[];let invoiceCreations=0,updates=0,timeoutCreate=true,timeoutFinalize=true;
    const recovered:any={id:'in_recovery',customer:'cus_recovery',status:'draft',currency:'usd',livemode:false,total:6500,hosted_invoice_url:null,metadata:{maiaInvoiceId:recoverable.id,organizationId:org,artistId:artist}};
    const recoveryStripe:any={
@@ -117,7 +137,34 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
    [recoverable]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,missingEmail.id));assert.equal(recoverable.stripeInvoiceId,null);assert.equal(recoverable.clientEmail,'');
    await assert.rejects(issueInvoice(recoverable,recoveryStripe,'synthetic@example.test'),/Retry this same invoice/);
    [recoverable]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,missingEmail.id));assert.equal(recoverable.stripeInvoiceId,'in_recovery');assert.equal(recoverable.clientEmail,'synthetic@example.test');
-   const recoveredResult=await issueInvoice(recoverable,recoveryStripe);assert.equal(recoveredResult.status,'OPEN');assert.equal(recoveredResult.hostedUrl,'https://invoice.stripe.com/recovery');assert.equal(invoiceCreations,1);assert.equal(recoveredItems.length,1);assert.equal(updates,2);
+   const recoveredResult=await issueInvoice(recoverable,recoveryStripe);assert.equal(recoveredResult.status,'OPEN');assert.equal(recoveredResult.hostedUrl,'https://invoice.stripe.com/recovery');assert.equal(invoiceCreations,1);assert.equal(recoveredItems.length,1);assert.equal(updates,1);
+   // Email-less links use manual advancement and retry the same remote invoice.
+   const linkDraft=(await (await POST(request('/api/invoices','b',{...input,requestId:randomUUID(),clientEmail:''}),undefined)).json()).invoice;
+   let [linkRow]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,linkDraft.id));
+   const linkItems:Array<any>=[];let linkAttempts=0,linkTimeout=true;
+   const linkRemote:any={...remote,id:'in_link_only',status:'draft',collection_method:'charge_automatically',metadata:{maiaInvoiceId:linkRow.id,organizationId:org,artistId:artist}};
+   const linkStripe:any={
+    accounts:stripe.accounts,
+    customers:{create:async(body:any)=>{assert.equal(body.email,undefined);return {id:'cus_link_only'};}},
+    invoices:{
+     create:async(body:any,options:any)=>{
+      assert.equal(body.auto_advance,false);
+      if(options.idempotencyKey.endsWith(':create'))throw Object.assign(Error('The customer needs a valid email when `collection_method=send_invoice`.'),{type:'StripeInvalidRequestError',statusCode:400});
+      assert.match(options.idempotencyKey,/:create-after-email$/);
+      assert.equal(body.collection_method,'charge_automatically');assert.equal(body.days_until_due,undefined);
+      linkAttempts++;if(linkTimeout){linkTimeout=false;throw Error('Synthetic timeout after link creation');}return linkRemote;
+     },
+     retrieve:async()=>linkRemote,
+     update:async(_id:string,body:any)=>{assert.equal(body.auto_advance,false);assert.equal(body.due_date,undefined);return linkRemote;},
+     finalizeInvoice:async(_id:string,body:any)=>{assert.equal(body.auto_advance,false);linkRemote.status='open';return linkRemote;}
+    },
+    invoiceItems:{list:async()=>({data:linkItems,has_more:false}),create:async(body:any)=>{linkItems.push(body);}}
+   };
+   await assert.rejects(issueInvoice(linkRow,linkStripe),/Retry this same invoice/);
+   [linkRow]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,linkDraft.id));
+   const linkResult=await issueInvoice(linkRow,linkStripe);
+   assert.equal(linkResult.status,'OPEN');assert.equal(linkResult.clientEmail,'');assert.equal(linkResult.stripeInvoiceId,'in_link_only');
+   assert.equal(linkAttempts,2);assert.equal(linkItems.length,1);
    const unavailableStripe:any={accounts:{retrieve:async()=>({charges_enabled:false,payouts_enabled:false,details_submitted:false})}};
    await assert.rejects(issueInvoice({...draft,status:'DRAFT',stripeInvoiceId:null},unavailableStripe),/Finish the studio’s Stripe setup/);
    await assert.rejects(issueInvoice({...recoverable,status:'ISSUING',stripeInvoiceId:null,issuingAt:new Date(Date.now()-24*60*60*1000)},recoveryStripe),/support review/);

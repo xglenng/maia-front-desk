@@ -39,3 +39,14 @@ test('invoice status labels prioritize payment and preserve delivery outcomes',(
  assert.match(invoiceDeliveryLabel('SENT','undelivered'),/failed/);
  assert.match(invoiceDeliveryLabel('UNKNOWN',null),/uncertain/);
 });
+
+test('invoice actions normalize empty email fields without obscuring retry validation', async () => {
+ const {invoiceActionInput}=await import('../../invoices/action-input');
+ const action={action:'ISSUE',invoiceId:base.requestId};
+ for(const email of [undefined,'','   '])assert.equal(invoiceActionInput.parse({...action,customerEmail:email}).customerEmail,undefined);
+ assert.equal(invoiceActionInput.parse({...action,customerEmail:' client@example.test '}).customerEmail,'client@example.test');
+ assert.equal(invoiceActionInput.safeParse({...action,customerEmail:'not-an-email'}).success,false);
+ assert.equal(invoiceActionInput.safeParse({...action,invoiceId:'invalid'}).success,false);
+ assert.equal(invoiceActionInput.safeParse({...action,action:'CHARGE'}).success,false);
+ assert.equal(invoiceActionInput.safeParse({...action,customerEmail:123}).success,false);
+});

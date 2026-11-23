@@ -33,7 +33,6 @@ export async function issueInvoice(row:typeof studioInvoices.$inferSelect,stripe
   const {livemode}=counterCardConfiguration();
   const provider=stripe??getStripe();
   const customerEmail=row.clientEmail||email||'';
-  if(!customerEmail&&!row.stripeInvoiceId)throw new InvoiceIssueError('Add the customer’s email to create the payment link. Stripe requires it for invoices.','customer_email');
   stage='account_lookup';
   const [account]=await db.select().from(studioPaymentAccounts).where(eq(studioPaymentAccounts.organizationId,row.organizationId));
   if(!account||account.livemode!==livemode)throw new InvoiceIssueError('Check the studio’s Stripe connection in Settings → Studio payments, then retry this invoice.','account_lookup');
@@ -52,7 +51,9 @@ export async function issueInvoice(row:typeof studioInvoices.$inferSelect,stripe
    stage='customer_create';
    // Keep the original customer parameters stable for drafts attempted before an email was supplied.
    const customer=await provider.customers.create({name:row.clientName,email:row.clientEmail||undefined,metadata:{maiaInvoiceId:row.id}},options('customer'));
-   if(!row.clientEmail){
+   // Do not change the remote customer during an uncertain email-less attempt:
+   // that could make the original send-invoice request succeed after a link was created.
+   if(!row.clientEmail&&customerEmail&&row.status==='DRAFT'){
     stage='customer_update';
     await provider.customers.update(customer.id,{email:customerEmail},{stripeAccount:account.stripeAccountId});
    }
@@ -63,7 +64,10 @@ export async function issueInvoice(row:typeof studioInvoices.$inferSelect,stripe
     // A definitive missing-email rejection cannot have created an invoice. Stripe may cache it.
     if(row.clientEmail||!missingCustomerEmail(error))throw error;
     stage='invoice_create_after_email';
-    invoice=await provider.invoices.create(params,options('create-after-email'));
+    // Reuse the recovery key, even for link-only invoices. A conflicting cached
+    // request fails safely rather than creating a second invoice after a timeout.
+    const recoveryParams:Stripe.InvoiceCreateParams=customerEmail?params:{...params,collection_method:'charge_automatically',days_until_due:undefined};
+    invoice=await provider.invoices.create(recoveryParams,options('create-after-email'));
    }
   }
   if(!invoice.id||(invoice.status!=='draft'&&invoice.total!==row.totalCents)||invoice.livemode!==livemode||invoice.currency!=='usd'||invoice.metadata?.maiaInvoiceId!==row.id||invoice.metadata?.organizationId!==row.organizationId||invoice.metadata?.artistId!==row.artistId)throw new InvoiceIssueError('This invoice needs support review before retrying. Do not create a replacement invoice.','reference_mismatch');
@@ -84,7 +88,7 @@ export async function issueInvoice(row:typeof studioInvoices.$inferSelect,stripe
    const checked=await provider.invoices.retrieve(invoiceId,{stripeAccount:account.stripeAccountId});
    if(checked.total!==row.totalCents)throw new InvoiceIssueError('This invoice total needs support review before retrying. Do not create a replacement invoice.','total_mismatch');
    stage='set_due_date';
-   await provider.invoices.update(invoiceId,{...testPlatformFee(row.totalCents, livemode),due_date:Math.floor(Date.now()/1000)+row.dueDays*86400},{stripeAccount:account.stripeAccountId});
+   await provider.invoices.update(invoiceId,{...testPlatformFee(row.totalCents, livemode),auto_advance:false,...(invoice.collection_method==='charge_automatically'?{}:{due_date:Math.floor(Date.now()/1000)+row.dueDays*86400})},{stripeAccount:account.stripeAccountId});
    stage='finalize';
    invoice=await provider.invoices.finalizeInvoice(invoiceId,{auto_advance:false},options('finalize'));
   }

@@ -9,6 +9,7 @@ import {invoiceClient,sendInvoiceSms} from '@/packages/invoices/sms.server';
 import {sendInvoiceEmail} from '@/packages/invoices/email.server';
 import {invoiceFields} from '@/packages/invoices/fields';
 import {invoiceInput} from '@/packages/invoices/input';
+import {invoiceActionInput} from '@/packages/invoices/action-input';
 import {InvoiceIssueError,invoiceErrorDetails,issueInvoice} from '@/packages/invoices/issue.server';
 import {counterCardConfiguration} from '@/packages/checkout/card-config.server';
 import {getStripe} from '@/packages/integrations/payments';
@@ -69,8 +70,11 @@ async function post(request:NextRequest){
    return NextResponse.json({error:'Unable to save the invoice draft. Please retry.'},{status:500,headers});
   }
  }
- const action=z.object({action:z.enum(['ISSUE','SYNC','SEND_SMS','SEND_EMAIL','VOID']),invoiceId:z.string().uuid(),customerEmail:z.string().trim().email().max(254).optional(),recipientEmail:z.string().trim().email().max(254).optional()}).safeParse(body);
- if(!action.success)return NextResponse.json({error:'Invalid invoice action.'},{status:400,headers});
+ const action=invoiceActionInput.safeParse(body);
+ if(!action.success){
+  const field=action.error.issues[0]?.path[0];
+  return NextResponse.json({error:field==='customerEmail'?'Enter a valid customer email address.':field==='recipientEmail'?'Enter a valid recipient email address.':'Invalid invoice action.'},{status:400,headers});
+ }
  const lock=await pool.connect();
  let authorized=false;
  try{
