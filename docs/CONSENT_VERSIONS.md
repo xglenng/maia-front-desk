@@ -8,6 +8,9 @@ hosted forms continue to be edited with their provider.
 
 - **Edit form** changes the name, audience, wording, questions, selected logo, and
   signature wording in a draft. **Save draft** does not change issued links.
+- The editor keeps draft saving and its status in a sticky action bar. Publication
+  blockers have a short explanation with expandable review details; they do not
+  prevent draft saving or preview.
 - **Publish new version** publishes the saved draft explicitly. Stale saves and
   simultaneous publications return a conflict; reload before retrying.
 - New manual, AI, and automation assignments bind a published version under the

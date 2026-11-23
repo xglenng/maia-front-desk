@@ -412,3 +412,15 @@
 
 .waiver-admin .consent-version-actions button{border:1px solid var(--line);border-radius:9px;padding:12px 18px;background:var(--paper);color:var(--ink)}
 .waiver-admin .consent-version-actions button[type=submit]{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+.waiver-admin .consent-editor-help{color:var(--muted);line-height:1.6;margin:12px 0 20px}
+.waiver-admin .consent-editor-savebar{position:sticky;top:76px;z-index:40;padding:14px 16px;margin:0 0 20px;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 3px 12px #0000000d}
+.waiver-admin .consent-editor-savebar .consent-version-actions{margin:0;gap:10px}
+.waiver-admin .consent-editor-savebar p{margin:10px 0 0;font-size:13px;line-height:1.5;color:var(--muted)}
+.waiver-admin .consent-editor-savebar [role=alert]{color:#9b2f20}
+.waiver-admin .consent-editor-savebar [role=status]{color:var(--green)}
+.waiver-admin .consent-publication-review{margin:0 0 24px;border:1px solid var(--line);border-radius:10px;padding:12px 16px;font-size:14px;line-height:1.6}
+.waiver-admin .consent-publication-review summary{cursor:pointer;font-weight:600}
+.waiver-admin .consent-publication-review a{color:var(--violet)}
+.waiver-admin #issued-consent-forms{scroll-margin-top:90px}
+@media(max-width:600px){.waiver-admin .consent-editor-savebar{top:68px;padding:10px}.waiver-admin .consent-editor-savebar .consent-version-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.waiver-admin .consent-editor-savebar .consent-version-actions>*{min-width:0;white-space:normal;padding:10px;font-size:12px}.waiver-admin .consent-editor-savebar .consent-version-actions a{grid-column:1/-1}.waiver-admin .consent-editor-savebar p{font-size:12px}}
