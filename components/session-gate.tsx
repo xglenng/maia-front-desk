@@ -9,6 +9,7 @@ import { useThemePreference } from './theme';
 import {ownerSettingsPage} from '@/packages/auth/settings-policy';
 import {avatarSmsStatus, type AvatarSmsStatus, type SmsNumberRecord} from '@/packages/onboarding/sms-number';
 import {requestTypeLabel} from '@/packages/waivers/request-starters';
+import { BRAND_ASSET_ROOT } from '@/app/brand-assets';
 
 export type SessionUser = { id: string; name: string; email: string; organization_id: string; organization_slug?: string; role: 'OWNER' | 'ARTIST' };
 type Notification={id:string;clientName:string;createdAt:string;readAt:string|null} & (
@@ -36,6 +37,9 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const [dashboardView,setDashboardView]=useState('Overview');
   useEffect(()=>{const update=()=>setDashboardView(new URLSearchParams(window.location.search).get('view')||'Overview');update();window.addEventListener('maia-view',update);return()=>window.removeEventListener('maia-view',update);},[path]);
   const [user, setUser] = useState<SessionUser | null>(null);
+  const userRef = useRef<SessionUser | null>(null);
+  const [sessionError, setSessionError] = useState('');
+  const [sessionRetry, setSessionRetry] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
   const [accountOpen,setAccountOpen]=useState(false);
@@ -106,15 +110,34 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (publicPage) return;
     let active = true;
-    fetch('/api/auth/session', { cache: 'no-store' }).then(async response => {
-      if (response.status === 401) { window.location.replace(path === '/onboarding' || path === '/help' ? `/login?next=${encodeURIComponent(path)}` : '/login'); return; }
-      if (!response.ok) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15000);
+    setSessionError('');
+    fetch('/api/auth/session', { cache: 'no-store', signal: controller.signal }).then(async response => {
+      if (!active) return;
+      if (response.status === 401) {
+        if (userRef.current) {
+          setSessionError('Your session expired. Copy any unsaved work before signing in again.');
+        } else {
+          window.location.replace(path === '/onboarding' || path === '/help' ? `/login?next=${encodeURIComponent(path)}` : '/login');
+        }
+        return;
+      }
+      if (!response.ok) throw new Error('Session check failed');
       const current = (await response.json()).user as SessionUser;
+      if (!current || typeof current.id !== 'string' || typeof current.name !== 'string' ||
+          typeof current.email !== 'string' || typeof current.organization_id !== 'string' || typeof current.role !== 'string') throw new Error('Invalid session response');
+      if (!active) return;
       if (current.role !== 'OWNER' && ownerPage) { window.location.replace('/?access=owner-required'); return; }
-      if (active) setUser(current);
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [publicPage, ownerPage, path]);
+      userRef.current = current;
+      setUser(current);
+    }).catch(() => {
+      if (active) setSessionError(controller.signal.aborted
+        ? 'The session check timed out. Check your connection and try again.'
+        : 'Unable to check your session. Check your connection and try again.');
+    }).finally(() => window.clearTimeout(timer));
+    return () => { active = false; controller.abort(); window.clearTimeout(timer); };
+  }, [publicPage, ownerPage, path, sessionRetry]);
   useEffect(()=>{
     if(!accountOpen||!user)return;
     const controller=new AbortController();
@@ -133,10 +156,20 @@ export default function SessionGate({ children }: { children: ReactNode }) {
     return ()=>controller.abort();
   },[accountOpen,user?.id,user?.organization_id]);
   if (publicPage) return <>{children}</>;
-  if (!user) return <p style={{ padding: 24 }}>Checking your session… <a href="/login">Sign in</a></p>;
+  if (!user) return <main className="launch-splash">
+    <img className="launch-emblem" src={`${BRAND_ASSET_ROOT}/maia-emblem.png`} alt="" width={180} height={180} />
+    <div className="launch-message">
+      {sessionError ? <>
+        <p role="alert">{sessionError}</p>
+        <button type="button" onClick={() => setSessionRetry(value => value + 1)}>Try again</button>
+        <a href="/login">Sign in</a>
+      </> : <p role="status"><span className="launch-spinner" aria-hidden="true" />Checking your session…</p>}
+      <noscript><p>JavaScript is required. Enable it and reload, or <a href="/login">sign in</a>.</p></noscript>
+    </div>
+  </main>;
   return <SessionContext.Provider value={user}><RefreshContext.Provider value={pageRefresh.registry}>
     <header className="session-bar">
-      <a href="/" className="session-brand" aria-label="Maia home"><span aria-hidden="true">✦</span> Maia</a>
+      <a href="/" className="session-brand" aria-label="Maia home"><img src={`${BRAND_ASSET_ROOT}/icon-48.png`} width={32} height={32} alt="" /> Maia</a>
       <nav className="session-nav" aria-label="Quick navigation">
         <a href="/" className="session-icon" aria-label="Dashboard" title="Dashboard"><UiIcon name="dashboard" /></a>
         <details ref={notificationsRef} className="session-notifications" onKeyDown={closeOnEscape} onToggle={event=>{if(event.currentTarget.open){if(accountRef.current)accountRef.current.open=false;void loadNotifications();}}}>
@@ -176,6 +209,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
         </details>
       </nav>
     </header>
+    {sessionError && <div className="session-refresh-error" role="alert"><span>{sessionError}</span><button type="button" onClick={() => setSessionRetry(value => value + 1)}>Try again</button><a href="/login">Sign in</a></div>}
     <div className="session-refresh-status" role="status" aria-live="polite">{pageRefresh.refreshing ? 'Refreshing page…' : ''}</div>
     {pageRefresh.error && <div className="session-refresh-error" role="alert"><span>{pageRefresh.error}</span><button type="button" onClick={() => void pageRefresh.refresh()}>Try again</button><button type="button" aria-label="Dismiss refresh error" onClick={pageRefresh.clearError}>✕</button></div>}
     <nav className="mobile-nav" aria-label="Main navigation">
