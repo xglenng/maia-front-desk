@@ -108,6 +108,38 @@ test('consent versions preserve issued links and signed evidence with scoped dra
   await local.query('UPDATE external_waiver_assignments SET provider_metadata=$1 WHERE id=$2',[JSON.stringify({submissionId:signedId}),legacyAssignment]);
   const signedLegacyBefore=await publicForm(legacyToken);assert.equal((await publish(legacyForm,refreshedLegacyDraft)).status,200);assert.deepEqual(await publicForm(legacyToken),signedLegacyBefore);
   assert.equal((await local.query('SELECT signature_data,document_hash FROM waiver_submissions WHERE id=$1',[signedId])).rows[0].signature_data,legacySignature);
+  // Publishing for future clients retains an unversioned form instead of
+  // retroactively inventing its issuance snapshot or invalidating its link.
+  const retainedForm=randomUUID(),retainedAssignment=randomUUID(),retainedToken='c'.repeat(48);
+  await local.query("INSERT INTO external_waiver_forms(id,organization_id,artist_id,provider,name,form_url,audience,completion_mode,metadata) VALUES($1,$2,$3,'MAIA','Retained form','/waiver','ADULT','HOSTED',$4)",[retainedForm,org,artist,JSON.stringify({templateId:legacyTemplate,definition})]);
+  await local.query("INSERT INTO external_waiver_assignments(id,organization_id,waiver_form_id,appointment_id,client_id,tracking_token_hash) VALUES($1,$2,$3,$4,$5,$6)",[retainedAssignment,org,retainedForm,appointment,client,digest(retainedToken)]);
+  const retainedBefore=await publicForm(retainedToken);
+  const retainedRecord=(await local.query('SELECT * FROM external_waiver_assignments WHERE id=$1',[retainedAssignment])).rows[0];
+  const futureDraft=await save(retainedForm,'Updated future form','New future wording','MINOR');
+  const futureAction={action:'PUBLISH_FUTURE',formId:retainedForm,draftId:futureDraft.id,revision:futureDraft.revision};
+  assert.equal((await action(futureAction,'c')).status,404);
+  assert.equal((await action(futureAction,'d')).status,404);
+  const futureResults=await Promise.all([action(futureAction),action(futureAction)]);
+  assert.deepEqual(futureResults.map(r=>r.status).sort(),[200,404]);
+  const futureResult=await futureResults.find(r=>r.status===200)!.json();
+  assert.notEqual(futureResult.formId,retainedForm);
+  assert.equal(futureResult.preservedExistingLinks,true);
+  assert.deepEqual(await publicForm(retainedToken),retainedBefore);
+  assert.deepEqual((await local.query('SELECT * FROM external_waiver_assignments WHERE id=$1',[retainedAssignment])).rows[0],retainedRecord);
+  const oldForm=(await local.query('SELECT * FROM external_waiver_forms WHERE id=$1',[retainedForm])).rows[0];
+  assert.equal(oldForm.active,false);assert.equal(oldForm.metadata.archived,true);
+  assert.equal(oldForm.audience,'ADULT');assert.deepEqual(oldForm.metadata.definition,definition);
+  assert.equal(oldForm.metadata.templateId,legacyTemplate);
+  assert.equal((await edit(request('/api/consent-versions?formId='+retainedForm),undefined)).status,404);
+  const futureState=await editor(futureResult.formId);
+  assert.equal(futureState.form.definition.body,'New future wording');assert.equal(futureState.form.audience,'MINOR');
+  const futureLink=await link(futureResult.formId);
+  assert.ok(futureLink.assignment.nativeVersionId);
+  assert.equal((await publicForm(new URL(futureLink.url).searchParams.get('waiverToken')!)).definition.body,'New future wording');
+  const oldSigned=await sign(request('/api/public/waivers/native','b',{token:retainedToken,signedName:'Synthetic Client',agreed:true,answers:{agree:true},signature:{strokes:[[{x:0.1,y:0.1},{x:0.8,y:0.8}]]}}));
+  assert.equal(oldSigned.status,200,await oldSigned.clone().text());
+  const retainedSignedView=await publicForm(retainedToken);assert.equal(retainedSignedView.definition.body,definition.body);assert.equal(retainedSignedView.audience,'ADULT');
+
  }finally{
   await local.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await local.query(`DROP SCHEMA IF EXISTS ${journal} CASCADE`);await local.end();await pool.end();rmSync(folder,{recursive:true,force:true});
  }

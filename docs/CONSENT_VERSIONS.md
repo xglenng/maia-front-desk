@@ -9,8 +9,7 @@ hosted forms continue to be edited with their provider.
 - **Edit form** changes the name, audience, wording, questions, selected logo, and
   signature wording in a draft. **Save draft** does not change issued links.
 - The editor keeps draft saving and its status in a sticky action bar. Publication
-  blockers have a short explanation with expandable review details; they do not
-  prevent draft saving or preview.
+  legacy records have an explanation of how existing links are preserved.
 - **Publish new version** publishes the saved draft explicitly. Stale saves and
   simultaneous publications return a conflict; reload before retrying.
 - New manual, AI, and automation assignments bind a published version under the
@@ -28,17 +27,20 @@ hosted forms continue to be edited with their provider.
 
 ## Legacy records
 
-Unsigned non-void assignments without a version block publication. Completed or
-reviewed legacy assignments must have retained definition and audience evidence
-matching the retained template body. Missing or unverifiable evidence blocks
-publication. Form names never determine audience. An existing signed snapshot
-is used to render a completed legacy assignment; current content is not substituted.
+When old assignments lack snapshots, **Publish for future clients** publishes the
+saved draft as a replacement form with the same routing configuration. In one
+transaction it archives/deactivates the old form for future issuance, creates the
+new immutable publication, and removes the consumed draft. Existing assignments
+are never moved, backfilled, voided, or rewritten. Their old definition, audience,
+and template remain untouched; existing links can still be completed under their
+normal validity rules. The editor redirects to the replacement after success.
 
-Review unresolved links and missing evidence from an authorized database copy.
-Do not manufacture historical versions, infer wording from today's template,
-or invalidate client links merely to bypass the guard. Any replacement/reissue
-requires an explicit operational decision and preservation of existing evidence.
-Production counts have not been inspected by this implementation.
+Ordinary in-place publication still rejects unresolved legacy links or missing
+signed evidence. The explicit future-client action avoids modifying their source
+form. Concurrent or stale publication cannot create multiple replacements. No
+historical content is inferred from a title or invented from current content.
+Missing signed evidence remains missing and must be reviewed independently; it
+is not repaired or fabricated by publishing a replacement.
 
 ## Database and rollout
 

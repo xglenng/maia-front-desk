@@ -1,10 +1,12 @@
 'use client';
 import {useRef,useState} from 'react';
+import {useRouter} from 'next/navigation';
 import QuestionBuilder from './question-builder';
 import {nativeDefinition,type NativeDefinition,type NativeField} from '@/packages/waivers/forms';
 type Content={name:string;audience:string;definition:NativeDefinition};
 export type ConsentEditorState={form:Content&{id:string;artistId:string|null};publishedVersion:number;draft:(Content&{id:string;revision:number;baseVersion:number})|null;versions:Array<{id:string;version:number;name:string;createdAt:string}>;legacyReview:{unsigned:number;signedWithoutSnapshot:number}};
 export default function ConsentEditor({initial,studioLogoId,onReload}:{initial:ConsentEditorState;studioLogoId:string|null;onReload:()=>Promise<void>}){
+ const router=useRouter();
  const saved=initial.draft||initial.form;
  const [name,setName]=useState(saved.name),[audience,setAudience]=useState(saved.audience),[definition,setDefinition]=useState<NativeDefinition>(saved.definition);
  const [draft,setDraft]=useState(initial.draft),[savedContent,setSavedContent]=useState(JSON.stringify({name:saved.name,audience:saved.audience,definition:saved.definition}));
@@ -23,11 +25,12 @@ export default function ConsentEditor({initial,studioLogoId,onReload}:{initial:C
   }catch(e){setError(e instanceof Error?e.message:'Unable to save draft.');}finally{setBusy(false);}
  }
  async function publish(){
-  if(!draft||dirty||blocked||busy)return;
+  if(!draft||dirty||busy)return;
   setBusy(true);setError('');setMessage('');
   try{
-   const response=await fetch('/api/consent-versions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'PUBLISH',formId:initial.form.id,draftId:draft.id,revision:draft.revision})});
+   const response=await fetch('/api/consent-versions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:blocked?'PUBLISH_FUTURE':'PUBLISH',formId:initial.form.id,draftId:draft.id,revision:draft.revision})});
    const data=await response.json();if(!response.ok)throw Error(data.error||'Unable to publish.');
+   if(data.formId&&data.formId!==initial.form.id){router.replace(`/waivers/consent/${data.formId}?published=1`);return;}
    await onReload();
   }catch(e){setError(e instanceof Error?e.message:'Unable to publish.');}finally{setBusy(false);}
  }
@@ -38,16 +41,16 @@ export default function ConsentEditor({initial,studioLogoId,onReload}:{initial:C
   <div className="consent-editor-savebar" aria-label="Form save controls">
    <div className="consent-version-actions">
     <button type="submit" disabled={busy||(!dirty&&Boolean(draft))}>{busy?'Working…':!dirty&&draft?'Draft saved':'Save draft'}</button>
-    <button type="button" disabled={busy||!draft||dirty||blocked} aria-describedby="consent-publish-status" onClick={()=>void publish()}>Publish new version</button>
+    <button type="button" disabled={busy||!draft||dirty} aria-describedby="consent-publish-status" onClick={()=>void publish()}>{blocked?'Publish for future clients':'Publish new version'}</button>
     {!dirty&&<a className="request-row-action" href={previewHref} target="_blank" rel="noreferrer">Preview saved form</a>}
    </div>
-   <p id="consent-publish-status">{blocked?'Drafts can be saved. Review previously sent forms before publishing.':dirty?'Unsaved changes — save your draft before publishing.':!draft?'Save a draft to enable publishing.':'Draft saved — ready to publish.'}</p>
+   <p id="consent-publish-status">{dirty?'Unsaved changes — save your draft before publishing.':!draft?'Save a draft to enable publishing.':'Draft saved — ready to publish.'}</p>
    {error&&<p role="alert">{error}</p>}{message&&!dirty&&<p role="status">{message}</p>}
   </div>
-  {blocked&&<details className="consent-publication-review"><summary>Why is publishing unavailable?</summary>
-   <p>Some previously sent forms need review before a new version can be published. Saving and previewing your draft are still available.</p>
+  {blocked&&<details className="consent-publication-review"><summary>What happens to previously sent forms?</summary>
+   <p>Publishing creates an updated form for future clients. Previously sent links keep using the existing form, and signed records stay unchanged. You do not need to void or complete those links to publish.</p>
    <ul>{initial.legacyReview.unsigned>0&&<li>{initial.legacyReview.unsigned} previously sent {initial.legacyReview.unsigned===1?'link uses':'links use'} the older form format.</li>}{initial.legacyReview.signedWithoutSnapshot>0&&<li>{initial.legacyReview.signedWithoutSnapshot} signed {initial.legacyReview.signedWithoutSnapshot===1?'record needs':'records need'} its original form content verified.</li>}</ul>
-   <p><a href="/waivers#issued-consent-forms">Review issued forms</a>{initial.legacyReview.signedWithoutSnapshot>0&&<> or <a href="/waivers/archive">review signed forms</a></>}. Keep any links clients still need; review them before deciding whether to replace or void them.</p>
+
   </details>}
   <fieldset disabled={busy} style={{border:0,padding:0,minWidth:0}}>
    <label>Audience<select value={audience} onChange={event=>setAudience(event.target.value)}><option value="ADULT">Adult</option><option value="MINOR">Minor / guardian</option><option value="ANY">Any age</option></select></label>
