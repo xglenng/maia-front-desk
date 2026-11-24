@@ -1,7 +1,8 @@
 import type { SVGProps } from 'react';
 
-export type IconName = 'services' | 'card' | 'bank' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off' | 'edit' | 'refresh' | 'sun' | 'moon' | 'copy' | 'bell';
+export type IconName = 'services' | 'card' | 'bank' | 'chart' | 'document' | 'message' | 'clock' | 'phone' | 'social' | 'help' | 'checkout' | 'dashboard' | 'settings' | 'calendar' | 'inbox' | 'clients' | 'check' | 'more' | 'wand' | 'logout' | 'eye' | 'eye-off' | 'edit' | 'refresh' | 'sun' | 'moon' | 'copy' | 'bell' | 'trash';
 const paths: Record<IconName, React.ReactNode> = {
+  trash: <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></>,
   bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-2 7-2 9h16c0-2-2-2-2-9ZM10 20a2 2 0 0 0 4 0"/></>,
   copy: <><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></>,
   refresh: <><path d="M20 11a8 8 0 0 0-14.6-4.4M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.6 4.4M20 20v-4h-4"/></>,

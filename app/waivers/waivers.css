@@ -424,3 +424,13 @@
 .waiver-admin .consent-publication-review a{color:var(--violet)}
 .waiver-admin #issued-consent-forms{scroll-margin-top:90px}
 @media(max-width:600px){.waiver-admin .consent-editor-savebar{top:68px;padding:10px}.waiver-admin .consent-editor-savebar .consent-version-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.waiver-admin .consent-editor-savebar .consent-version-actions>*{min-width:0;white-space:normal;padding:10px;font-size:12px}.waiver-admin .consent-editor-savebar .consent-version-actions a{grid-column:1/-1}.waiver-admin .consent-editor-savebar p{font-size:12px}}
+
+/* Consistent, compact form library rows with accessible icon actions. */
+.waiver-admin .consent-form-row,.waiver-admin .request-form-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:12px 0}
+.waiver-admin .consent-form-row .routing-summary,.waiver-admin .request-form-row .routing-summary{min-width:0;gap:3px}
+.waiver-admin .consent-form-row>.form-state,.waiver-admin .request-form-row>.form-state{font-size:12px;font-weight:600;padding:5px 9px;border-radius:7px;white-space:nowrap;justify-self:end}
+.waiver-admin .consent-form-row .request-form-actions,.waiver-admin .request-form-row .request-form-actions,.waiver-admin .request-form-row .request-link-actions{gap:6px;flex-wrap:wrap}
+.waiver-admin .consent-form-row .form-icon-action,.waiver-admin .request-form-row .form-icon-action{display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;min-height:36px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--violet);box-sizing:border-box}
+.waiver-admin .form-icon-action svg{width:18px;height:18px;pointer-events:none}
+.waiver-admin .consent-form-row>.form-save-feedback{grid-column:1/-1}
+@media(max-width:700px){.waiver-admin .consent-form-row,.waiver-admin .request-form-row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px}.waiver-admin .consent-form-row .request-form-actions,.waiver-admin .request-form-row .request-form-actions{grid-column:1/-1}.waiver-admin .consent-form-row .form-icon-action,.waiver-admin .request-form-row .form-icon-action{flex-basis:44px;width:44px;height:44px;min-height:44px}.waiver-admin .consent-form-row .routing-summary,.waiver-admin .request-form-row .routing-summary{flex-basis:auto}.waiver-admin .consent-form-row .routing-summary strong,.waiver-admin .request-form-row .routing-summary strong{font-size:15px}.waiver-admin .consent-form-row .routing-summary span,.waiver-admin .request-form-row .routing-summary span{font-size:12px}}
