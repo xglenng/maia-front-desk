@@ -1,3 +1,4 @@
+import {readPayoutControl} from './schedule.server';
 import {getStripe} from '@/packages/integrations/payments';
 export async function readStudioBanking(account:{stripeAccountId:string;livemode:boolean;payoutsEnabled:boolean},stripe=getStripe()){
  const options={stripeAccount:account.stripeAccountId};
@@ -19,5 +20,7 @@ export async function readStudioBanking(account:{stripeAccountId:string;livemode
  } catch {
   // Account settings permissions can differ from balance read permissions.
  }
- return {payoutSettings,connected:true,testMode:!account.livemode,payoutsEnabled:account.payoutsEnabled,available:balance.available.map(({amount,currency})=>({amount,currency})),pending:balance.pending.map(({amount,currency})=>({amount,currency})),payouts:payouts.data.map(({id,amount,currency,status,arrival_date})=>({id,amount,currency,status,arrivalDate:arrival_date}))};
+ let scheduleControl:{canEdit:boolean;schedule:import('./schedule.server').StoredPayoutSchedule|null;reason:string|null};
+ try{scheduleControl=await readPayoutControl(account,stripe);}catch{scheduleControl={canEdit:false,schedule:null,reason:'Payout controls are unavailable. Refresh or manage the schedule in Stripe.'};}
+ return {scheduleControl,payoutSettings,connected:true,testMode:!account.livemode,payoutsEnabled:account.payoutsEnabled,available:balance.available.map(({amount,currency})=>({amount,currency})),pending:balance.pending.map(({amount,currency})=>({amount,currency})),payouts:payouts.data.map(({id,amount,currency,status,arrival_date})=>({id,amount,currency,status,arrivalDate:arrival_date}))};
 }
