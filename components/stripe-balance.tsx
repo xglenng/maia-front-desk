@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import UiIcon from './ui-icon';
 
 type Balance = {
   connected: boolean;
@@ -47,7 +48,7 @@ export function StripeBalance() {
   return <section className="panel" aria-label="Studio Stripe balance">
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
       <h2>Studio Stripe balance{balance?.testMode ? ' · Test mode' : ''}</h2>
-      <button type="button" disabled={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
+      <button type="button" className="icon-btn" aria-label="Refresh Stripe balance" title="Refresh balance" disabled={loading} onClick={() => setRefresh(value => value + 1)} style={{ width: 44, height: 44, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><UiIcon name="refresh"/></button>
     </div>
     <a href="/banking">View balances and payouts →</a>
     {loading && <p role="status">Loading Stripe balance…</p>}
