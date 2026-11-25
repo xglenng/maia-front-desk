@@ -48,3 +48,12 @@
 .embedded > section > header{display:flex!important;flex-wrap:wrap;gap:12px}
 .embedded h1,.embedded > section > header > a[href="/settings"]{display:none!important}
 @media(max-width:540px){.embedded [style*="grid-template-columns: 1fr 320px"],.embedded [style*="grid-template-columns:1fr 320px"]{grid-template-columns:minmax(0,1fr)!important}}
+
+/* Keep Back and Skip together, with a consistent primary action above them. */
+@media(max-width:540px){
+ .footer{grid-template-columns:1fr 1fr;align-items:center}
+ .footer > div{display:contents}
+ .footer > div > .primary{grid-column:1/-1;grid-row:1}
+ .footer > button{grid-column:1;grid-row:2;justify-self:stretch;width:100%;min-height:48px}
+ .footer > div > button:not(.primary){grid-column:2;grid-row:2}
+}

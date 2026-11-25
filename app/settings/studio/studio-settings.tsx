@@ -321,7 +321,7 @@ export default function StudioSettings({embeddedTask,onSaved,onSavingChange}:{em
         <label style={label}>Knowledge for artist<select value={selectedArtist} onChange={event=>setSelectedArtist(event.target.value)} style={field}>{config.artists.map(artist=><option key={artist.artistId} value={artist.artistId}>{artist.displayName}</option>)}</select></label>
         {config.rules.map((rule,index)=>rule.artistId===selectedArtist&&rule.visibility==='CLIENT_VISIBLE'?<div key={rule.id||`note-${index}`} style={{marginTop:14}}><textarea aria-label="Studio knowledge note" rows={3} maxLength={1200} value={rule.rule} onChange={event=>patchConfig({rules:config.rules.map((item,i)=>i===index?{...item,rule:event.target.value}:item)})} style={field}/><label><input type="checkbox" checked={rule.active} onChange={event=>patchConfig({rules:config.rules.map((item,i)=>i===index?{...item,active:event.target.checked}:item)})}/> Use this note in future replies</label></div>:null)}
         <button type="button" style={{...secondary,marginTop:12}} onClick={()=>patchConfig({rules:[...config.rules,{artistId:selectedArtist,category:'STUDIO_KNOWLEDGE',rule:'',visibility:'CLIENT_VISIBLE',priority:100,active:true}]})}>Add a note</button>
-        <KnowledgeSuggestions artistId={selectedArtist} onApproved={rule=>setConfig(current=>current?{...current,rules:[...current.rules.filter(item=>item.id!==rule.id),rule]}:current)}/>
+        {!embeddedTask&&<KnowledgeSuggestions artistId={selectedArtist} onApproved={rule=>setConfig(current=>current?{...current,rules:[...current.rules.filter(item=>item.id!==rule.id),rule]}:current)}/>}
       </section>
 
       <details style={panel}><summary style={{fontWeight:700,cursor:'pointer'}}>Advanced knowledge controls · optional</summary>

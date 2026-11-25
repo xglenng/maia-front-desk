@@ -26,6 +26,15 @@ link to the original screen. Regular studio-settings previews use **Back to Maia
 Return parameters are converted only into known local wizard URLs; no arbitrary
 return destination or protected studio data is exposed by public preview links.
 
-The mobile footer uses a full-width primary action with a separate Skip and
-content-height Back control. Logo upload is an explicit visible button with file
+Wizard steps use a consistent **Continue** label; configuration saves still run
+before advancing where applicable. The mobile footer places the full-width primary
+action above an equal-height Back / Skip row. Logo upload is an explicit visible button with file
 validation and upload feedback. Existing signed forms retain their saved logos.
+
+Onboarding omits reply-derived knowledge suggestions because they require prior
+conversation history; they remain available in studio settings. The wizard shows
+Maia scheduling without Square connection/import controls. Existing Square users
+can explicitly switch to Maia using the established confirmation flow; opening
+the wizard never changes their scheduling provider. Social onboarding omits Meta
+developer endpoints and the live developer checklist while retaining account
+connection and status controls. Full integration settings remain available separately.

@@ -203,15 +203,16 @@ export default function SchedulingSettingsPage({embedded=false}:{embedded?:boole
     {error && <p role="alert" style={alert}>{error}</p>}
     {notice && <p role="status" style={noticeStyle}>{notice}</p>}
     {loading && <p>Loading scheduling settings…</p>}
+    {embedded && data?.provider === 'SQUARE' && <section style={panel}><h2>Use Maia scheduling</h2><p style={muted}>This provider currently uses Square. Switch to Maia’s native calendar to manage availability here.</p><button type="button" onClick={() => void disconnectSquare()} disabled={busy} style={button}>Use Maia scheduling</button></section>}
     {data && data.provider === 'MAIA' && <section style={panel}>
       <div style={providerHead}><div><strong>Maia scheduling</strong><p style={muted}>Use Maia’s native calendar and artist availability. No external calendar account is required.</p></div><span style={pill}>Active</span></div>
-      <a href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`} style={buttonLink}>Connect Square (optional)</a>
+      {!embedded && <a href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`} style={buttonLink}>Connect Square (optional)</a>}
     </section>}
-    {data && data.provider === 'SQUARE' && !connected && <section style={panel}>
+    {!embedded && data && data.provider === 'SQUARE' && !connected && <section style={panel}>
       <div style={providerHead}><div><strong>Square connection needs attention</strong><p style={muted}>Availability will not fall back to Maia scheduling while an external provider connection is in an error state.</p></div><span style={{ ...pill, background: '#fff0f0', color: '#8b1e1e' }}>Action required</span></div>
       <a href={`/api/scheduling/square/connect?organizationId=${encodeURIComponent(organizationId)}&artistId=${encodeURIComponent(artistId)}`} style={buttonLink}>Reconnect Square</a>
     </section>}
-    {connected && data?.connection && <>
+    {!embedded && connected && data?.connection && <>
       <section style={panel}>
         <div style={providerHead}>
           <div>
