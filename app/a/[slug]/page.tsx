@@ -11,23 +11,23 @@ function webLink(value?: string | null) {
 }
 function phoneLink(phone: string) { return `tel:${phone.replace(/[^+\d]/g, '')}`; }
 
-export default async function PublicBusinessPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string; from?: string;setupStep?:string;setupItem?:string }>; params: Promise<{ slug: string }> }) {
+export default async function PublicBusinessPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string; from?: string;setupStep?:string;setupItem?:string;websiteSetup?:string }>; params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const site = await publicStudioSite(slug);
   if (!site) notFound();
-  const { fromSmsSetup, from,setupStep,setupItem } = await searchParams;
+  const { fromSmsSetup, from,setupStep,setupItem,websiteSetup } = await searchParams;
   const setupPreview=setupScreens.some(screen=>screen.stage===setupStep&&screen.id===setupItem);
   const hasContact = Boolean(site.phone || site.email || site.locations.length);
   const privacy = webLink(site.legal?.privacy), terms = webLink(site.legal?.terms);
   return <main className={styles.site}>
     <div className={styles.container}>
       {(from === 'settings' || from === 'studio' || fromSmsSetup) && <nav className={styles.backLinks} aria-label="Studio settings">
-        {from==='studio'&&<a href={setupPreview?setupReturnHref(setupStep||null,'studio',setupItem):'/settings/studio'}>{setupPreview?'← Return to setup':'← Back to Maia'}</a>}
+        {from==='studio'&&<a href={websiteSetup==='1'?'/onboarding':setupPreview?setupReturnHref(setupStep||null,'studio',setupItem):'/settings/studio'}>{websiteSetup==='1'||setupPreview?'← Return to setup':'← Back to Maia'}</a>}
         {from === 'settings' && <a href="/settings">← Back to Settings</a>}
         {fromSmsSetup && <a href={`/settings/sms?tab=consent&artistId=${encodeURIComponent(fromSmsSetup)}`}>← Back to SMS setup</a>}
       </nav>}
       <nav className={styles.navigation} aria-label="Studio website">
-        <a className={styles.brand} href="#home">{site.name}</a>
+        <a className={styles.brand} href="#home">{site.logoUrl&&<img src={site.logoUrl} alt="" style={{maxWidth:120,maxHeight:52,objectFit:'contain',verticalAlign:'middle',marginRight:12}}/>}{site.name}</a>
         <div>{site.requests.length > 0 && <a href="#requests">Request an appointment</a>}<a href="#contact">Contact</a>{site.faqs.length > 0 && <a href="#faq">FAQ</a>}</div>
       </nav>
       <header id="home" className={styles.hero}>

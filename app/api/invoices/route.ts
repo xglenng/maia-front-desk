@@ -1,3 +1,6 @@
+import type Stripe from 'stripe';
+import {markInvoicePaidOutsideStripe} from '@/packages/invoices/manual-payment';
+import {invoicePaymentsReady} from '@/packages/invoices/readiness.server';
 import {NextRequest,NextResponse} from 'next/server';
 import {and,desc,eq,sql} from 'drizzle-orm';
 import {z} from 'zod';
@@ -27,11 +30,12 @@ async function get(request:NextRequest){
  const page=z.coerce.number().int().min(0).max(10000).safeParse(request.nextUrl.searchParams.get('page')||0);
  if(!page.success)return NextResponse.json({error:'Invalid page.'},{status:400,headers});
  const rows=await db.select({invoice:invoiceFields,artistName:artists.displayName}).from(studioInvoices).innerJoin(artists,and(eq(artists.id,studioInvoices.artistId),eq(artists.organizationId,studioInvoices.organizationId))).where(and(eq(studioInvoices.organizationId,user.organization_id),user.role==='OWNER'?undefined:eq(artists.userId,user.id))).orderBy(desc(studioInvoices.createdAt),desc(studioInvoices.id)).limit(51).offset(page.data*50);
- return NextResponse.json({rows:rows.slice(0,50),hasMore:rows.length>50},{headers});
+ return NextResponse.json({rows:rows.slice(0,50),hasMore:rows.length>50,paymentsReady:await invoicePaymentsReady(user.organization_id)},{headers});
 }
 async function post(request:NextRequest){
  const user=(await identity(request))!,body=await request.json();
  if(body.action==='CREATE'){
+  if(!await invoicePaymentsReady(user.organization_id))return NextResponse.json({error:'Set up studio payments before creating invoices.'},{status:409,headers});
   const input=invoiceInput.safeParse(body);if(!input.success)return NextResponse.json({error:input.error.issues.find(issue=>issue.path.includes('phone'))?.message||'Check client details, prices, quantities, and due days.'},{status:400,headers});
   if(!await allowedInvoiceArtist(user,input.data.artistId))return NextResponse.json({error:'Artist not found.'},{status:404,headers});
   const {requestId,artistId,clientId,newClient,clientName,clientEmail,dueDays,note,lines}=input.data;
@@ -49,7 +53,7 @@ async function post(request:NextRequest){
      const [duplicate]=await tx.select({id:clients.id}).from(clients).where(and(eq(clients.organizationId,user.organization_id),eq(clients.phone,newClient.phone))).limit(1);
      if(duplicate)return {error:'That phone number belongs to another customer. Select the existing customer or contact the studio owner.'};
     }
-    const [created]=await tx.insert(clients).values({organizationId:user.organization_id,firstName:clientName,email:clientEmail||null,phone:newClient.phone||null,smsOptIn:false,smsConsentStatus:'NOT_REQUESTED'}).returning({id:clients.id});
+    const [created]=await tx.insert(clients).values({organizationId:user.organization_id,firstName:clientName,email:clientEmail||null,phone:newClient.phone||null,dateOfBirth:newClient.dateOfBirth||null,smsOptIn:false,smsConsentStatus:'NOT_REQUESTED'}).returning({id:clients.id});
     linkedClientId=created.id;
    }
    // Drizzle includes every declared column in INSERT, even when its value is DEFAULT.
@@ -88,15 +92,19 @@ async function post(request:NextRequest){
   }
   if(!row.stripeInvoiceId||!row.stripeAccountId)return NextResponse.json({error:'Create the payment link first.'},{status:409,headers});
   const stripe=getStripe();
-  let remote=await stripe.invoices.retrieve(row.stripeInvoiceId,{stripeAccount:row.stripeAccountId});
+  let remote:Stripe.Invoice=await stripe.invoices.retrieve(row.stripeInvoiceId,{stripeAccount:row.stripeAccountId});
   if(remote.livemode!==counterCardConfiguration().livemode||remote.currency!=='usd'||remote.metadata?.artistId!==row.artistId||remote.metadata?.maiaInvoiceId!==row.id||remote.metadata?.organizationId!==user.organization_id||remote.total!==row.totalCents)throw Error('Invoice reference mismatch.');
   if(action.data.action==='SEND_SMS'){
    if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
    try{return NextResponse.json(await sendInvoiceSms(row,undefined,invoiceDelivery(remote)),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice SMS.',invoice:updated},{status:409,headers});}
   }
-  if(action.data.action==='SEND_EMAIL'){
+  if(action.data.action==='SEND_EMAIL'||action.data.action==='RESEND_EMAIL'){
    if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
-   try{return NextResponse.json(await sendInvoiceEmail(row,action.data.recipientEmail,invoiceDelivery(remote)),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice email.',invoice:updated},{status:409,headers});}
+   try{return NextResponse.json(await sendInvoiceEmail(row,action.data.action==='RESEND_EMAIL'?undefined:action.data.recipientEmail,invoiceDelivery(remote),action.data.action==='RESEND_EMAIL'?action.data.requestId:undefined),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice email.',invoice:updated},{status:409,headers});}
+  }
+  if(action.data.action==='MARK_PAID'){
+   if(remote.status!=='open'&&remote.status!=='paid')return NextResponse.json({error:'Only open invoices can be marked paid.'},{status:409,headers});
+   remote=await markInvoicePaidOutsideStripe(stripe,{id:row.id,stripeInvoiceId:row.stripeInvoiceId,stripeAccountId:row.stripeAccountId},user.id,remote);
   }
   if(action.data.action==='VOID' && remote.status==='open'){
    try {

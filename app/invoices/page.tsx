@@ -6,6 +6,7 @@ import { invoiceEmail } from "@/packages/invoices/action-input";
 import UiIcon from "@/components/ui-icon";
 import "../checkout/checkout.css";
 import "./invoices.css";
+import InvoicePaymentIntro from "@/components/invoice-payment-intro";
 import { CatalogPicker } from "./catalog-picker";
 import { CustomerPicker, type InvoiceClient } from "./customer-picker";
 import {
@@ -46,6 +47,7 @@ async function read(response: Response) {
 }
 export default function Invoices() {
   const user = useSession();
+  const [paymentsReady,setPaymentsReady]=useState<boolean|null>(null);
   const [artists, setArtists] = useState<
       Array<{ id: string; displayName: string }>
     >([]),
@@ -73,8 +75,10 @@ export default function Invoices() {
     [dueDays, setDueDays] = useState(1),
     [lines, setLines] = useState([{ name: "", quantity: 1, price: "" }]),
     [requestId, setRequestId] = useState("");
+  const [customerBirthDate,setCustomerBirthDate]=useState('');
   const [issueEmail, setIssueEmail] = useState("");
   const actionRunning = useRef(false);
+  const resendRequest=useRef(crypto.randomUUID());
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
   const [shareLink, setShareLink] = useState<{invoiceId:string;hostedUrl:string;url:string}|null>(null);
   const shareUrl = shareLink && shareLink.invoiceId === selected?.id && shareLink.hostedUrl === selected?.hostedUrl ? shareLink.url : "";
@@ -221,7 +225,7 @@ export default function Invoices() {
     const data = await fetch(`/api/invoices?page=${page}`, {
       cache: "no-store",
     }).then(read);
-    setRows(data.rows);
+    setRows(data.rows);setPaymentsReady(data.paymentsReady===true);
     setMore(data.hasMore);
   }
   useEffect(() => {
@@ -254,7 +258,7 @@ export default function Invoices() {
     setClientId("");
     setName("");
     setEmail("");
-    setCustomerPhone("");
+    setCustomerPhone("");setCustomerBirthDate('');
     setClients([]);
     setClientsError("");
     if (!artistId) {
@@ -300,7 +304,7 @@ export default function Invoices() {
           action: "CREATE",
           artistId,
           requestId,
-          ...(clientId ? { clientId } : { newClient: { ...(customerPhone.trim() ? { phone: customerPhone.trim() } : {}) } }),
+          ...(clientId ? { clientId } : { newClient: { ...(customerBirthDate?{dateOfBirth:customerBirthDate}:{}),...(customerPhone.trim() ? { phone: customerPhone.trim() } : {}) } }),
           clientName: name,
           clientEmail: email,
           note,
@@ -326,7 +330,7 @@ export default function Invoices() {
       setBusy(false);
     }
   }
-  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL" | "VOID") {
+  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL" | "VOID" | "MARK_PAID" | "RESEND_EMAIL") {
     if (!selected || actionRunning.current) return;
     if (action === "ISSUE" && !selected.clientEmail && !selected.stripeInvoiceId && issueEmail.trim()) {
       if (!invoiceEmail.safeParse(issueEmail).success) {
@@ -352,6 +356,7 @@ export default function Invoices() {
           !selected.stripeInvoiceId && issueEmail.trim()
             ? { customerEmail: issueEmail.trim() }
             : {}),
+          ...(action === "RESEND_EMAIL"?{requestId:resendRequest.current}:{}),
           ...(action === "SEND_EMAIL" && emailForm.address
             ? { recipientEmail: emailForm.address.trim() }
             : {}),
@@ -380,6 +385,8 @@ export default function Invoices() {
             }
           }, 0);
         }
+      } else if (action === "RESEND_EMAIL") {
+        resendRequest.current=crypto.randomUUID();setMessage("Invoice resent by email.");
       } else if (action === "SEND_EMAIL") {
         setEmailFeedback({
           invoiceId: selected.id,
@@ -392,7 +399,7 @@ export default function Invoices() {
           data.message ||
             (action === "ISSUE"
               ? "Payment link ready. No SMS has been sent."
-              : action === "VOID" ? "Invoice cancelled. The payment link no longer accepts payments." : "Invoice status refreshed."),
+              : action === "VOID" ? "Invoice cancelled. The payment link no longer accepts payments." : action === "MARK_PAID" ? "Invoice marked paid outside Stripe." : "Invoice status refreshed."),
         );
       }
       await load();
@@ -510,11 +517,12 @@ export default function Invoices() {
       }
     }
   }
+  if(!selected&&!creating&&!paymentsReady&&!rows.length)return <InvoicePaymentIntro loading={loading} error={error} retry={()=>void load().catch(e=>setError(e.message))}/>;
   return (
     <main
       className={`checkout-page invoice-page ${creating ? "invoice-editing" : ""}`}
     >
-      <a href="/more">← More</a>
+      <a href="/more">← More</a>{!paymentsReady&&<p role="status">Set up payments to create new invoices. <a href="/settings/payments?welcome=1">Set up payments</a></p>}
       <header>
         <div>
           <h1>Invoices</h1>
@@ -524,14 +532,14 @@ export default function Invoices() {
           </p>
         </div>
         <button
-          disabled={busy}
+          disabled={busy||!paymentsReady}
           onClick={() => {
             setCreating(true);
             setSelected(null);
             setClientId("");
             setName("");
             setEmail("");
-            setCustomerPhone("");
+            setCustomerPhone("");setCustomerBirthDate('');
             setNote("");
             setLines([{ name: "", quantity: 1, price: "" }]);
             setRequestId(crypto.randomUUID());
@@ -831,7 +839,7 @@ export default function Invoices() {
       {selected && (
         <section className="checkout-cart">
           <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-            <h2 ref={reviewHeadingRef} tabIndex={-1} className="invoice-review-heading" style={{ flex: 1, margin: 0 }}>Invoice review</h2>
+            <h2 ref={reviewHeadingRef} tabIndex={-1} className="invoice-review-heading" style={{ flex: 1, margin: 0 }}>Invoice details</h2>
             <div className="invoice-menu-container">
               <button
                 className="invoice-menu-button"
@@ -895,14 +903,7 @@ export default function Invoices() {
               {menuActionResult.message}
             </div>
           )}
-          <p>
-            <strong>
-              {invoiceStatusLabel(selected.status, selected.smsStatus)}
-            </strong>{" "}
-            · {selected.clientName}
-            <br />
-            {selected.clientEmail}
-          </p>
+
           {isInvoiceOverdue({
             status: selected.status,
             issuingAt: selected.issuingAt ? new Date(selected.issuingAt) : null,
@@ -919,6 +920,8 @@ export default function Invoices() {
               })?.toLocaleDateString()}
             </div>
           )}
+          <div className="invoice-detail-summary"><strong>{selected.clientName}</strong><p>{selected.clientEmail}</p><dl><div><dt>Status</dt><dd>{invoiceStatusLabel(selected.status,selected.smsStatus)}</dd></div><div><dt>Amount {selected.status==='PAID'?'paid':'due'}</dt><dd>{money(selected.totalCents)}</dd></div><div><dt>Invoice date</dt><dd>{new Date(selected.createdAt).toLocaleDateString()}</dd></div></dl></div>
+          <details className="invoice-expanded-details" open={selected.status==='DRAFT'||selected.status==='ISSUING'}><summary>Invoice items & payment details</summary>
           {selected.lines.map((line, index) => (
             <p key={index}>
               {line.quantity} × {line.name} —{" "}
@@ -1192,6 +1195,8 @@ export default function Invoices() {
               )}
             </>
           )}
+          </details>
+          {selected.status === "OPEN" && <div className="invoice-simple-actions"><button disabled={busy||!selected.clientEmail} onClick={()=>{if(window.confirm('Resend this invoice to the client’s saved email address?'))void action('RESEND_EMAIL');}}>Resend invoice by email</button><details><summary>More options</summary><button disabled={busy} onClick={()=>{if(window.confirm('Confirm that you received the full invoice amount outside Stripe. This permanently marks the invoice paid without charging the client.'))void action('MARK_PAID');}}>Mark as paid</button></details></div>}
           {selected.status !== "DRAFT" && (
             <button disabled={busy} onClick={() => void action("SYNC")}>
               Refresh payment status
@@ -1199,7 +1204,7 @@ export default function Invoices() {
           )}
         </section>
       )}
-      {!creating && (
+      {!creating && !selected && (
         <section className="checkout-cart">
           <h2>Current invoices</h2>
           {loading ? (
@@ -1279,7 +1284,7 @@ export default function Invoices() {
             setClientId(value.clientId);
             setName(value.name);
             setEmail(value.email);
-            setCustomerPhone(value.phone);
+            setCustomerPhone(value.phone);setCustomerBirthDate(value.dateOfBirth||'');
             setCustomerOpen(false);
           }}
           onClose={() => setCustomerOpen(false)}

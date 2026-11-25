@@ -72,9 +72,11 @@ test('invoice email uses the invoice studio name and verified address safely', a
     },
   })) as never);
 
+  const idempotencyKeys:string[]=[];
   const payloads: { from: string; to: string; html: string; text: string; attachments?: {content:string;content_type:string;content_id:string}[] }[] = [];
   globalThis.fetch = async (url, init) => {
     assert.equal(url, 'https://api.resend.com/emails');
+    idempotencyKeys.push(new Headers(init?.headers).get('idempotency-key')||'');
     const body = init?.body;
     if (typeof body !== 'string') throw new Error('Expected JSON request body');
     payloads.push(JSON.parse(body));
@@ -125,6 +127,14 @@ test('invoice email uses the invoice studio name and verified address safely', a
   await assert.rejects(sendInvoiceEmail(invoice, undefined, delivery), /studio logo could not be verified/);
   assert.equal(payloads.length, 3);
   assert.deepEqual(statuses.slice(-6), ['SENDING', 'NOT_SENT', 'SENDING', 'NOT_SENT', 'SENDING', 'NOT_SENT']);
+  logo.sha256=createHash('sha256').update(Buffer.from(logo.data,'base64')).digest('hex');
+  const resendId='11111111-1111-4111-8111-111111111111';
+  await sendInvoiceEmail({...invoice,emailStatus:'SENT'},undefined,delivery,resendId);
+  await sendInvoiceEmail({...invoice,emailStatus:'SENT'},undefined,delivery,resendId);
+  assert.equal(idempotencyKeys.at(-1),idempotencyKeys.at(-2));
+  assert.match(idempotencyKeys.at(-1)!,/-resend-11111111/);
+  await assert.rejects(sendInvoiceEmail({...invoice,emailStatus:'UNKNOWN'},undefined,delivery,resendId),/needs review/);
+
 });
 
 test('invoice delivery accepts only Stripe links and surfaces missing PDFs', t => {

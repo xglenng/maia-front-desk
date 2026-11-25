@@ -2,7 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 
 type LogoState={assetId:string|null;url:string|null};
-export default function StudioLogoSetting({compact=false}:{compact?:boolean}){
+export default function StudioLogoSetting({compact=false,website=false}:{compact?:boolean;website?:boolean}){
  const [logo,setLogo]=useState<LogoState>({assetId:null,url:null});
  const [file,setFile]=useState<File|null>(null);
  const [busy,setBusy]=useState(false);
@@ -61,7 +61,7 @@ export default function StudioLogoSetting({compact=false}:{compact?:boolean}){
  </div>;
  return <section id="studio-branding" style={{border:'1px solid #e4dfda',borderRadius:8,padding:18,background:'#fff',marginTop:16,scrollMarginTop:100}}>
   <h2 style={{marginTop:0}}>Studio logo</h2>
-  <p style={{color:'#706b66'}}>Add an optional logo to new Maia consent forms. Logo changes do not replace the version saved with signed forms.</p>
+  <p style={{color:'#706b66'}}>{website?'Add your studio logo to your public website. It can also appear on new consent forms.':'Add an optional logo to new Maia consent forms. Logo changes do not replace the version saved with signed forms.'}</p>
   {logo.url&&<img src={logo.url} alt="Current studio logo" style={{display:'block',maxWidth:'100%',maxHeight:180,objectFit:'contain',margin:'12px 0'}}/>}
   <p style={{fontSize:13,color:'#706b66'}}>JPEG, PNG, or WebP; up to 2 MB.</p>
   <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden disabled={busy||!loaded} onChange={event=>{const selected=event.target.files?.[0];event.target.value='';if(selected){setFile(selected);void save(selected);}}}/>

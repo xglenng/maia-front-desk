@@ -83,7 +83,7 @@ async function handleGET(request: NextRequest) {
       conversationId: messages.conversationId, content: messages.content, createdAt: messages.createdAt,
     }).from(messages).where(inArray(messages.conversationId, conversationIds)) : [];
 
-    const clientScope = and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)), sql`(
+    const clientScope = and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)), user.role==='OWNER'?undefined:sql`(
       EXISTS (SELECT 1 FROM conversations c WHERE c.client_id = ${clients.id} AND c.organization_id = ${organizationId} AND c.artist_id = ${artist.id} AND c.channel <> 'WEB_TEST')
       OR EXISTS (SELECT 1 FROM appointments a WHERE a.client_id = ${clients.id} AND a.organization_id = ${organizationId} AND a.artist_id = ${artist.id})
       OR EXISTS (SELECT 1 FROM studio_invoices i WHERE i.client_id = ${clients.id} AND i.organization_id = ${organizationId} AND i.artist_id = ${artist.id})

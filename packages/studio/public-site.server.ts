@@ -2,7 +2,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { and, asc, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/packages/db/src';
-import { artistConsentForms, artists, complianceProfiles, organizations, requestForms, studioFaqs, studioLocations } from '@/packages/db/src/schema';
+import { artistConsentForms, artists, complianceProfiles, organizations, requestForms, studioFaqs, studioLocations, studioLogoAssets } from '@/packages/db/src/schema';
 import { decryptComplianceSecret } from '@/packages/compliance/secrets';
 import { requestDefinition } from '@/packages/waivers/request-forms';
 import { appBaseUrl, formOptInUrl, isConsentFormReady } from '@/packages/consent';
@@ -13,7 +13,7 @@ export async function publicStudioSite(slug: string) {
     .from(organizations).where(eq(organizations.slug, slug)).limit(1);
   if (!organization) return null;
   const industryContent = publicSiteIndustry(organization.industries);
-  const [forms, locations, faqs, [legal], consentForms] = await Promise.all([
+  const [forms, locations, faqs, [legal], consentForms, [logo]] = await Promise.all([
     db.select({ id: requestForms.id, name: requestForms.name, type: requestForms.requestType, definition: requestForms.definition, encrypted: requestForms.tokenEncrypted, hash: requestForms.tokenHash, artist: artists.displayName })
       .from(requestForms).innerJoin(artists, and(eq(requestForms.artistId, artists.id), eq(requestForms.organizationId, artists.organizationId)))
       .where(and(eq(requestForms.organizationId, organization.id), eq(requestForms.active, true))).orderBy(asc(requestForms.requestType), asc(artists.displayName), asc(requestForms.createdAt)),
@@ -26,6 +26,7 @@ export async function publicStudioSite(slug: string) {
     db.select({ form: artistConsentForms, artist: artists.displayName }).from(artistConsentForms)
       .innerJoin(artists, and(eq(artistConsentForms.artistId, artists.id), eq(artistConsentForms.organizationId, artists.organizationId)))
       .where(and(eq(artistConsentForms.organizationId, organization.id), eq(artistConsentForms.active, true))),
+    db.select({id:studioLogoAssets.id}).from(studioLogoAssets).where(and(eq(studioLogoAssets.organizationId,organization.id),eq(studioLogoAssets.active,true))).limit(1),
   ]);
   const requests = forms.flatMap(form => {
     if (!industryContent.requestTypes.some(type => type === form.type)) return [];
@@ -37,5 +38,5 @@ export async function publicStudioSite(slug: string) {
     } catch { return []; }
   });
   const smsLinks = legal?.smsEnabled ? consentForms.flatMap(({ form, artist }) => isConsentFormReady(form) ? [{ artist, url: formOptInUrl(form, appBaseUrl(), slug) }] : []) : [];
-  return { name: organization.publicName || organization.name, phone: organization.phone, email: organization.email, locations, faqs, requests, legal, smsLinks, industryContent };
+  return { logoUrl:logo?`/api/public/studio-logo/${logo.id}`:null,name: organization.publicName || organization.name, phone: organization.phone, email: organization.email, locations, faqs, requests, legal, smsLinks, industryContent };
 }

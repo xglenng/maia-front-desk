@@ -57,3 +57,5 @@
  .footer > button{grid-column:1;grid-row:2;justify-self:stretch;width:100%;min-height:48px}
  .footer > div > button:not(.primary){grid-column:2;grid-row:2}
 }
+
+.wizard{--wizard-accent:#f46b24}.footer .primary,.steps button[aria-current=step]{background:linear-gradient(110deg,#fa5637,#f98b1d);color:#211206;border-color:transparent}.progress > span{background:#f46b24}.heading > span{color:#b44f18}.choice:hover{background:#fff0e6;border-color:#f46b24}.choiceIcon{background:#fff0e6;color:#bd4c16}

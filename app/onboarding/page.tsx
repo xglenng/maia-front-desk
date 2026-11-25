@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session-gate";
+import WebsiteSetup from './website-setup';
 import { ReadinessPanel } from './readiness-panel';
 import styles from './onboarding-page.module.css';
 
@@ -37,6 +38,8 @@ const button = { border: "1px solid #cfc8c1", borderRadius: 8, background: "#fff
 
 export default function OnboardingPage() {
   const user = useSession();
+  const [websiteFirst,setWebsiteFirst]=useState(false);
+  useEffect(()=>{const q=new URLSearchParams(window.location.search);setWebsiteFirst(!q.has('step')&&!q.has('item')&&q.get('advanced')!=='1');},[]);
   const organizationId = user?.organization_id || "";
   const [data, setData] = useState<Payload | null>(null);
   const [artistId, setArtistId] = useState("");
@@ -85,6 +88,7 @@ export default function OnboardingPage() {
     setMessage(`Test message sent successfully (${payload.sid}).`); await load(artistId);
   }
 
+  if(websiteFirst&&user?.role==='OWNER')return <WebsiteSetup/>;
   return <main className={styles.page} style={{ maxWidth: 980, margin: "0 auto", padding: "38px 20px 80px", color: "#181716", fontFamily: "Arial, sans-serif" }}>
     <p><a href="/settings" style={{ color: "#8f2f22" }}>← Settings</a></p>
     <div className={styles.intro} style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>

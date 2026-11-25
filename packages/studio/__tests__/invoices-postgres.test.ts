@@ -11,7 +11,7 @@ const socket=process.env.MAIA_INVOICE_TEST_SOCKET;
 const container=process.env.MAIA_INVOICE_TEST_CONTAINER;
 test('invoice migration and routes isolate tenants/artists, deduplicate drafts, and expose transaction history',{skip:!socket&&!container},async t=>{
  if(!container)assert.match(socket!,/^\/private\/tmp\/maia-forms-[A-Za-z0-9]+$/);
- const shareEnvKeys=['COMPLIANCE_ENCRYPTION_KEY','NEXT_PUBLIC_APP_URL','TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN'];const priorShareEnv=shareEnvKeys.map(key=>process.env[key]);
+ const shareEnvKeys=['COMPLIANCE_ENCRYPTION_KEY','NEXT_PUBLIC_APP_URL','TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','MAIA_COUNTER_CARD_ENABLED','STRIPE_SECRET_KEY','STRIPE_COUNTER_WEBHOOK_SECRET'];const priorShareEnv=shareEnvKeys.map(key=>process.env[key]);
  t.after(()=>shareEnvKeys.forEach((key,i)=>{if(priorShareEnv[i]===undefined)delete process.env[key];else process.env[key]=priorShareEnv[i];}));
  process.env.COMPLIANCE_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64');process.env.NEXT_PUBLIC_APP_URL='http://localhost';
  process.env.TWILIO_ACCOUNT_SID='AC_synthetic';process.env.TWILIO_AUTH_TOKEN='synthetic';
@@ -73,6 +73,23 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   assert.deepEqual(await (await banking(request('/api/banking','d'),undefined)).json(),{connected:false});
   assert.equal((await banking(request('/api/banking?organizationId='+other,'a'),undefined)).status,403);
   const input={action:'CREATE',artistId:artist,requestId:randomUUID(),clientName:'Synthetic client',clientEmail:'client@example.test',lines:[{name:'Test service',quantity:2,unitCents:1000}],dueDays:30,note:''};
+  assert.equal((await POST(request('/api/invoices','b',input),undefined)).status,409);
+  Object.assign(process.env,{MAIA_COUNTER_CARD_ENABLED:'true',STRIPE_SECRET_KEY:'sk_test_synthetic',STRIPE_COUNTER_WEBHOOK_SECRET:'whsec_synthetic'});
+  await local.query("INSERT INTO studio_payment_accounts(organization_id,stripe_account_id,livemode,charges_enabled,payouts_enabled,details_submitted) VALUES($1,'acct_synthetic',false,true,true,true)",[org]);
+  const {POST:addClient}=await import('../../../app/api/clients/route');
+  const clientBody={name:'Synthetic New Client',email:'new@example.test',phone:'3035550160',dateOfBirth:'1995-03-01'};
+  assert.equal((await addClient(request('/api/clients','b',clientBody),undefined)).status,403);
+  const added=await addClient(request('/api/clients','a',clientBody),undefined);assert.equal(added.status,201,added.status!==201?await added.clone().text():'');
+  const addedBody=await added.json();const savedClient=(await local.query('SELECT organization_id,date_of_birth::text,sms_opt_in FROM clients WHERE id=$1',[addedBody.client.id])).rows[0];
+  assert.equal(savedClient.organization_id,org);assert.equal(savedClient.date_of_birth,'1995-03-01');assert.equal(savedClient.sms_opt_in,false);
+  const {GET:newClientDashboard}=await import('../../../app/api/dashboard/route');
+  const ownerDirectory=await (await newClientDashboard(request('/api/dashboard?artistId='+artist,'a'),undefined)).json();
+  assert.equal(ownerDirectory.clients.some((client:any)=>client.id===addedBody.client.id),true);
+  const artistDirectory=await (await newClientDashboard(request('/api/dashboard?artistId='+artist,'b'),undefined)).json();
+  assert.equal(artistDirectory.clients.some((client:any)=>client.id===addedBody.client.id),false);
+  assert.equal((await addClient(request('/api/clients','a',clientBody),undefined)).status,409);
+  assert.equal((await addClient(request('/api/clients','d',clientBody),undefined)).status,201);
+  assert.equal((await addClient(request('/api/clients','a',{...clientBody,organizationId:other}),undefined)).status,403);
   const responses=await Promise.all([POST(request('/api/invoices','b',input),undefined),POST(request('/api/invoices','b',input),undefined)]);
   assert.deepEqual(responses.map(response=>response.status).sort(),[200,201]);
   const own=(await responses[0].json()).invoice;assert.equal(own.totalCents,2000);
@@ -89,6 +106,7 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   assert.equal((await POST(request('/api/invoices','b',{...input,requestId:randomUUID(),artistId:peer}),undefined)).status,404);
   assert.equal((await POST(request('/api/invoices','b',{...input,requestId:randomUUID(),artistId:foreign}),undefined)).status,404);
   assert.equal((await POST(request('/api/invoices','c',{action:'ISSUE',invoiceId:own.id}),undefined)).status,404);
+  for(const action of ['MARK_PAID','RESEND_EMAIL'])assert.equal((await POST(request('/api/invoices','d',{action,invoiceId:own.id,requestId:randomUUID()}),undefined)).status,404);
   assert.equal((await POST(request('/api/invoices','d',{action:'SYNC',invoiceId:own.id}),undefined)).status,404);
   assert.equal((await POST(request('/api/invoices','b',{action:'SEND_SMS',invoiceId:own.id}),undefined)).status,409);
   await POST(request('/api/invoices','a',{...input,requestId:randomUUID(),artistId:peer}),undefined);
@@ -98,7 +116,7 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const keys=['MAIA_COUNTER_CARD_ENABLED','STRIPE_SECRET_KEY','STRIPE_COUNTER_WEBHOOK_SECRET','NEXT_PUBLIC_APP_URL'];const previous=keys.map(key=>process.env[key]);
   Object.assign(process.env,{MAIA_COUNTER_CARD_ENABLED:'true',STRIPE_SECRET_KEY:'sk_test_synthetic',STRIPE_COUNTER_WEBHOOK_SECRET:'whsec_synthetic',NEXT_PUBLIC_APP_URL:'http://localhost'});
   try{
-   await local.query("INSERT INTO studio_payment_accounts(organization_id,stripe_account_id,livemode,charges_enabled,payouts_enabled,details_submitted) VALUES($1,'acct_synthetic',false,true,true,true)",[org]);
+   await local.query("INSERT INTO studio_payment_accounts(organization_id,stripe_account_id,livemode,charges_enabled,payouts_enabled,details_submitted) VALUES($1,'acct_synthetic',false,true,true,true) ON CONFLICT (organization_id) DO NOTHING",[org]);
    let creates=0,customerCreates=0,fail=true;const items:Array<any>=[];
    const remote:any={id:'in_synthetic',customer:'cus_synthetic',status:'draft',currency:'usd',livemode:false,total:2000,hosted_invoice_url:'https://invoice.stripe.com/synthetic',metadata:{maiaInvoiceId:own.id,organizationId:org,artistId:artist}};
    const stripe:any={accounts:{retrieve:async()=>({charges_enabled:true,payouts_enabled:true,details_submitted:true})},customers:{create:async()=>{customerCreates++;return {id:'cus_synthetic'};}},invoices:{create:async(body:any,options:any)=>{creates++;assert.equal(options.stripeAccount,'acct_synthetic');assert.equal(body.auto_advance,false);assert.equal(body.collection_method,'send_invoice');return remote;},retrieve:async()=>remote,update:async()=>remote,finalizeInvoice:async()=>{if(fail){fail=false;throw Error('Synthetic provider timeout');}remote.status='open';return remote;}},invoiceItems:{list:async()=>({data:items,has_more:false}),create:async(body:any)=>{items.push(body);return body;}}};
@@ -243,7 +261,7 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const peerClients=(await (await clientList(request('/api/invoices/clients?artistId='+peer,'c'),undefined)).json()).clients;
   assert.ok(!peerClients.some((client:any)=>client.id===createdInvoice.clientId));
   const {GET:dashboard}=await import('../../../app/api/dashboard/route');
-  const ownDashboard=await (await dashboard(request('/api/dashboard?artistId='+artist),undefined)).json();
+  const ownDashboard=await (await newClientDashboard(request('/api/dashboard?artistId='+artist),undefined)).json();
   const peerDashboard=await (await dashboard(request('/api/dashboard?artistId='+peer,'c'),undefined)).json();
   assert.ok(ownDashboard.clients.some((client:any)=>client.id===createdInvoice.clientId));
   assert.ok(!peerDashboard.clients.some((client:any)=>client.id===createdInvoice.clientId));
@@ -284,7 +302,9 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const withoutPhoneId=(await withoutPhone.json()).invoice.clientId;
   assert.equal((await local.query('SELECT phone FROM clients WHERE id=$1',[withoutPhoneId])).rows[0].phone,null);
   const otherTenant=await POST(request('/api/invoices','d',{...newCustomer,artistId:foreign,requestId:randomUUID()}),undefined);
-  assert.equal(otherTenant.status,201);
+  assert.equal(otherTenant.status,409);
+  await local.query("INSERT INTO studio_payment_accounts(organization_id,stripe_account_id,livemode,charges_enabled,payouts_enabled,details_submitted) VALUES($1,'acct_other',false,true,true,true)",[other]);
+  assert.equal((await POST(request('/api/invoices','d',{...newCustomer,artistId:foreign,requestId:randomUUID()}),undefined)).status,201);
   const missingPhone=randomUUID();
   await local.query("INSERT INTO clients(id,organization_id,first_name,phone,sms_opt_in,sms_consent_status) VALUES($1,$2,'Synthetic missing phone',NULL,false,'NOT_REQUESTED')",[missingPhone,org]);
   await local.query("INSERT INTO conversations(organization_id,artist_id,client_id,channel,status) VALUES($1,$2,$3,'SMS','OPEN')",[org,artist,missingPhone]);

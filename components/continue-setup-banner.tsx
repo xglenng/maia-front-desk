@@ -60,7 +60,10 @@ export function ContinueSetupBanner({ onNavigateToSetup }: ContinueSetupBannerPr
   const nextStep = readiness.steps.find(step => step.id === nextIncompleteStep.checks[0]);
 
   const handleContinue = () => {
-    window.location.href = resumeSetupHref(user?readSetupPosition(user):null,nextIncompleteStep.id);
+    let unfinishedWebsite=false;
+    try{const value=user?localStorage.getItem(`maia:website-setup:${user.organization_id}:${user.id}`):null;unfinishedWebsite=value!==null&&['0','1','2'].includes(value);}catch{}
+    const position=user?readSetupPosition(user):null;
+    window.location.href = unfinishedWebsite||!position?'/onboarding':resumeSetupHref(position,nextIncompleteStep.id);
   };
 
   return (

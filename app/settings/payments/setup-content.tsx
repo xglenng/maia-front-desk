@@ -3,6 +3,7 @@ import {useCallback,useEffect,useState} from 'react';
 import UiIcon from '@/components/ui-icon';
 import {usePageRefresh} from '@/components/page-refresh';
 import './payments.css';
+import '@/components/mobile-flow.css';
 
 type PaymentsData={enabled:boolean;configurationError?:string;checkoutEnabled:boolean;canConnectLive:boolean;previousAccountId?:string;testMode:boolean;modeMismatch:boolean;connected:boolean;ready:boolean;reviewPayments:{id:string;appointmentId:string;status:string;appointmentStatus:string;amountCents:number}[]};
 const money=(cents:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(cents/100);
@@ -10,9 +11,11 @@ const money=(cents:number)=>new Intl.NumberFormat('en-US',{style:'currency',curr
 export default function StudioPayments({embedded=false}:{embedded?:boolean}={}){
  const Container=embedded?'section':'main';
  const [data,setData]=useState<PaymentsData|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [welcome,setWelcome]=useState(false);
  const [fromTrial,setFromTrial]=useState(false);
  const [trialEnabled,setTrialEnabled]=useState(false),[trialBusy,setTrialBusy]=useState(false);
  useEffect(()=>{
+  setWelcome(['welcome','returned','refresh'].some(key=>new URLSearchParams(window.location.search).has(key)));
   setFromTrial(new URLSearchParams(window.location.search).get("trial")==="1");
   const controller=new AbortController();
   void fetch('/api/billing',{signal:controller.signal,cache:'no-store'})
@@ -37,7 +40,7 @@ export default function StudioPayments({embedded=false}:{embedded?:boolean}={}){
   }
  }
  const load=useCallback(async()=>{const r=await fetch('/api/payments/connect',{cache:'no-store'});const body=await r.json();if(!r.ok)throw new Error(body.error||'Unable to load payment settings.');setData(body);},[]);
- useEffect(()=>{void load().catch(e=>setError(e.message));},[load]);
+ useEffect(()=>{void (async()=>{if(new URLSearchParams(window.location.search).has('returned'))await fetch('/api/payments/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'REFRESH'})});await load();})().catch(e=>setError(e.message));},[load]);
 
  // The shared Refresh action re-checks Stripe for a connected account, then reloads what this page shows.
  usePageRefresh(async()=>{
@@ -58,6 +61,7 @@ export default function StudioPayments({embedded=false}:{embedded?:boolean}={}){
  const mode=data?.enabled?(data.testMode?'Stripe test mode. No real money is collected.':data.checkoutEnabled?'Live card checkout is enabled. Card sales are paid into the studio account.':'Live Stripe setup is available. Live card checkout remains disabled.'):'';
  const review=data?.reviewPayments??[];
 
+ if(welcome&&!embedded)return <div className="flow-surface"><main className="maia-flow flow-success"><header><a href="/" aria-label="Close payment setup">×</a><span>Payments</span><span/></header><div className="flow-symbol" aria-hidden="true">{data?.ready&&data.checkoutEnabled?'✓':data?.connected?'◷':'↗'}</div><h1>{data?.ready&&data.checkoutEnabled?(data.testMode?'You’re ready for test payments!':'You can now accept payments!'):data?.connected?'Let’s finish your payment setup.':'Start accepting payments.'}</h1><p>{data?.ready&&data.checkoutEnabled?'Create invoices, share secure payment links, and track payments in Maia.':data?.connected?'Stripe may need additional details or time to review your account. You can keep setting up Maia while verification is pending.':'Connect your studio’s Stripe account to securely accept card payments and send invoices. Stripe will ask for your business and payout details.'}</p>{data?.testMode&&<p>Test mode · no real money is collected.</p>}{error&&<p className="flow-error" role="alert">{error}</p>}{!data&&!error&&<p role="status">Checking payment setup…</p>}{data&&!data.enabled&&<p role="alert">Payments are not available yet. Contact Maia support.</p>}<footer>{data?.ready&&data.checkoutEnabled?<a className="flow-primary" href="/invoices">Create an invoice</a>:<button className="flow-primary" disabled={busy||!data?.enabled} onClick={()=>void connect('CONNECT')}>{busy?'Opening Stripe…':data?.connected?'Return to Stripe verification':'Set up payments'}</button>}{data?.connected&&<button className="flow-secondary" disabled={busy} onClick={()=>void connect('REFRESH')}>Check verification status</button>}<a className="flow-secondary" href="/onboarding?advanced=1">Continue studio setup</a><a className="flow-secondary" href="/settings/payments">Payment settings</a></footer></main></div>;
  return <Container className="payments-page">
   <a href="/settings">← Settings</a>
   <h1>Studio payments</h1>

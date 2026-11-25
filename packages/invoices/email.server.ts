@@ -45,10 +45,12 @@ export async function sendInvoiceEmail(
   invoice: typeof studioInvoices.$inferSelect,
   recipientEmail: string | undefined,
   delivery: InvoiceDelivery,
+  resendRequestId?:string,
 ) {
   const email = recipientEmail || invoice.clientEmail;
   if (!email) throw new Error('Client email is required to send invoice.');
-  if (invoice.emailStatus === 'SENT') return { invoice, message: 'Invoice already sent by email.' };
+  if (invoice.emailStatus === 'SENT'&&!resendRequestId) return { invoice, message: 'Invoice already sent by email.' };
+  if (resendRequestId&&['UNKNOWN','SENDING'].includes(invoice.emailStatus))throw new Error('Email delivery needs review before resending. Check provider delivery status.');
   if (!invoice.hostedUrl) throw new Error('Payment link must be created before sending by email.');
   const from = process.env.AUTH_EMAIL_FROM?.trim();
   if (!from) throw new Error('Invoice email is unavailable. Configure the verified email sender.');
@@ -66,6 +68,7 @@ export async function sendInvoiceEmail(
     throw error;
   }
 
+  let providerStarted=false;
   try {
     const { org, logo } = await getInvoiceContext(invoice);
     const studioName = org?.publicName?.trim() || org?.name?.trim();
@@ -86,6 +89,7 @@ export async function sendInvoiceEmail(
     }
     const content = invoiceEmailTemplate(invoice, studioName, email, delivery, Boolean(logoPng));
     const resend = getResend();
+    providerStarted=true;
     const { data, error } = await resend.emails.send({
       from: sender,
       to: email,
@@ -93,7 +97,7 @@ export async function sendInvoiceEmail(
       ...content,
       ...(logoPng ? { attachments: [{ filename: 'studio-logo.png', content: logoPng, contentType: 'image/png', contentId: 'studio-logo' }] } : {}),
       headers: { 'Idempotency-Key': `invoice-${invoice.id}-${email.toLowerCase()}` },
-    });
+    },{idempotencyKey:`invoice-${invoice.id}-${email.toLowerCase()}${resendRequestId?`-resend-${resendRequestId}`:''}`});
 
     if (error) {
       console.error('Invoice email provider rejected send', { code: error.name });
@@ -106,7 +110,7 @@ export async function sendInvoiceEmail(
     return { invoice: updated, message: `Invoice sent successfully.${pdfUnavailableWarning(delivery)}` };
   } catch (error) {
     try {
-      await db.update(studioInvoices).set({ emailStatus: 'NOT_SENT', updatedAt: new Date() }).where(eq(studioInvoices.id, invoice.id));
+      await db.update(studioInvoices).set({ emailStatus: providerStarted?'UNKNOWN':'NOT_SENT', updatedAt: new Date() }).where(eq(studioInvoices.id, invoice.id));
     } catch {
       // If reset fails, don't mask the original error.
     }
