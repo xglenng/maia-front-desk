@@ -61,7 +61,7 @@ export function MaiaInstall() {
   return <>
     {installed ? <>
       <p>Maia is ready to use as an app.</p>
-      <Link className="install-open" href="/inbox">Open Maia</Link>
+      <Link className="install-open" href="/">Open Maia</Link>
     </> : <>
       {installPrompt && <button className="install-open" type="button" disabled={busy} onClick={() => void install()}>{busy ? 'Installing…' : 'Install Maia'}</button>}
       {platform === 'apple' ? <section aria-labelledby="apple-install-title">
@@ -79,7 +79,7 @@ export function MaiaInstall() {
         {!installPrompt && <p>If your browser offers installation, open its menu and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>. On Android, Chrome supports app installation.</p>}
         <p>After installation, open Maia from your Home Screen or app launcher.</p>
       </section>}
-      <Link className="install-browser-link" href="/inbox">Continue in browser</Link>
+      <Link className="install-browser-link" href="/">Continue in browser</Link>
     </>}
     <p role="status" aria-live="polite">{message}</p>
     <p className="install-note">An internet connection and a Maia account are required. Sign in with your existing studio account.</p>
