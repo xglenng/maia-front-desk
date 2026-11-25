@@ -41,7 +41,6 @@ export default function OnboardingPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [artistId, setArtistId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [smsOpen, setSmsOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [testClientId, setTestClientId] = useState("");
   const activation = data?.activation;
@@ -93,10 +92,9 @@ export default function OnboardingPage() {
       {activation?.status === "LIVE" && <span style={{ padding: "9px 13px", borderRadius: 20, background: "#e6f2ea", color: "#2f7651", fontWeight: 800 }}>● SMS LIVE</span>}
     </div>
 
-    <ReadinessPanel onScreenChange={() => setSmsOpen(false)} onSmsSetup={() => setSmsOpen(true)} />
+    <ReadinessPanel>
 
-    <details id="sms-setup" hidden={!smsOpen} open={smsOpen} onToggle={event => setSmsOpen(event.currentTarget.open)} style={{ marginTop: 24 }}>
-      <summary style={{ cursor: "pointer", fontWeight: 700, padding: 18 }}>Optional SMS setup and activation</summary>
+    <section id="sms-setup" style={{ marginTop: 24 }}>
 
     <section style={{ ...card, marginTop: 22 }}>
       <label style={{ display: "block", fontSize: 13, fontWeight: 700 }}>Artist
@@ -147,7 +145,8 @@ export default function OnboardingPage() {
     </>}
 
     {!activation && !busy && data?.artists.length === 0 && <section style={{ ...card, marginTop: 16 }}>No artist profile exists yet. Create the first artist from Studio Configuration to continue.</section>}
-    </details>
+    </section>
+    </ReadinessPanel>
     {busy && <p style={{ color: "#6f6b66" }}>Updating activation status…</p>}
     {message && <div style={{ ...card, marginTop: 16, borderColor: "#c9ada4" }}>{message}</div>}
   </main>;

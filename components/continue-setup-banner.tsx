@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { stageComplete, setupStages, wizardStage } from '@/packages/onboarding/wizard';
 import type { OnboardingStep } from '@/packages/onboarding/readiness';
-import UiIcon from './ui-icon';
+import {useSession} from './session-gate';
+import {readSetupPosition,resumeSetupHref} from '@/packages/onboarding/position';
 
 type ReadinessData = {
   steps: OnboardingStep[];
@@ -14,6 +15,7 @@ type ContinueSetupBannerProps = {
 };
 
 export function ContinueSetupBanner({ onNavigateToSetup }: ContinueSetupBannerProps) {
+  const user=useSession();
   const [readiness, setReadiness] = useState<ReadinessData | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [error, setError] = useState('');
@@ -58,9 +60,7 @@ export function ContinueSetupBanner({ onNavigateToSetup }: ContinueSetupBannerPr
   const nextStep = readiness.steps.find(step => step.id === nextIncompleteStep.checks[0]);
 
   const handleContinue = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('step', nextIncompleteStep.id);
-    window.location.href = `/onboarding${url.search}`;
+    window.location.href = resumeSetupHref(user?readSetupPosition(user):null,nextIncompleteStep.id);
   };
 
   return (

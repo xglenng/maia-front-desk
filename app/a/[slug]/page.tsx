@@ -2,6 +2,7 @@ import styles from './studio.module.css';
 import { notFound } from 'next/navigation';
 import { publicStudioSite } from '@/packages/studio/public-site.server';
 import RequestCard from './request-card';
+import {setupReturnHref,setupScreens} from '@/packages/onboarding/wizard';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,16 +11,18 @@ function webLink(value?: string | null) {
 }
 function phoneLink(phone: string) { return `tel:${phone.replace(/[^+\d]/g, '')}`; }
 
-export default async function PublicBusinessPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string; from?: string }>; params: Promise<{ slug: string }> }) {
+export default async function PublicBusinessPage({ params, searchParams }: { searchParams: Promise<{ fromSmsSetup?: string; from?: string;setupStep?:string;setupItem?:string }>; params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const site = await publicStudioSite(slug);
   if (!site) notFound();
-  const { fromSmsSetup, from } = await searchParams;
+  const { fromSmsSetup, from,setupStep,setupItem } = await searchParams;
+  const setupPreview=setupScreens.some(screen=>screen.stage===setupStep&&screen.id===setupItem);
   const hasContact = Boolean(site.phone || site.email || site.locations.length);
   const privacy = webLink(site.legal?.privacy), terms = webLink(site.legal?.terms);
   return <main className={styles.site}>
     <div className={styles.container}>
-      {(from === 'settings' || fromSmsSetup) && <nav className={styles.backLinks} aria-label="Studio settings">
+      {(from === 'settings' || from === 'studio' || fromSmsSetup) && <nav className={styles.backLinks} aria-label="Studio settings">
+        {from==='studio'&&<a href={setupPreview?setupReturnHref(setupStep||null,'studio',setupItem):'/settings/studio'}>{setupPreview?'← Return to setup':'← Back to Maia'}</a>}
         {from === 'settings' && <a href="/settings">← Back to Settings</a>}
         {fromSmsSetup && <a href={`/settings/sms?tab=consent&artistId=${encodeURIComponent(fromSmsSetup)}`}>← Back to SMS setup</a>}
       </nav>}

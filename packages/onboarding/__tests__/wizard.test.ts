@@ -63,3 +63,16 @@ test('task links and returns keep only validated setup destinations', async () =
   assert.equal(setupReturnHref('studio', 'studio', 'waivers'), '/onboarding?step=studio');
   assert.throws(() => setupTaskHref('https://untrusted.example', 'payments', 'waivers'));
 });
+
+test('resume positions preserve exact steps and reject arbitrary destinations or mixed sections',async()=>{
+ const {parseSetupPosition,resumeSetupHref,setupPositionKey}=await import('../position');
+ assert.deepEqual(parseSetupPosition({stage:'studio',item:'studio_profile'}),{stage:'studio',item:'studio_profile'});
+ assert.deepEqual(parseSetupPosition({stage:'payments',item:'waivers'}),{stage:'payments',item:'waivers'});
+ assert.equal(parseSetupPosition({stage:'studio',item:'waivers'}),null);
+ assert.equal(parseSetupPosition({stage:'https://evil.example',item:'studio_profile'}),null);
+ assert.equal(parseSetupPosition(null),null);
+ assert.equal(resumeSetupHref({stage:'review',item:'receptionist'},'studio'),'/onboarding?step=review&item=receptionist');
+ assert.equal(resumeSetupHref(null,'calendar'),'/onboarding?step=calendar');
+ assert.notEqual(setupPositionKey({id:'owner',organization_id:'one'}),setupPositionKey({id:'owner',organization_id:'two'}));
+ assert.notEqual(setupPositionKey({id:'owner',organization_id:'one'}),setupPositionKey({id:'staff',organization_id:'one'}));
+});

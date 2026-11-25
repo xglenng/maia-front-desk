@@ -63,13 +63,16 @@ export default function StudioLogoSetting({compact=false}:{compact?:boolean}){
   <h2 style={{marginTop:0}}>Studio logo</h2>
   <p style={{color:'#706b66'}}>Add an optional logo to new Maia consent forms. Logo changes do not replace the version saved with signed forms.</p>
   {logo.url&&<img src={logo.url} alt="Current studio logo" style={{display:'block',maxWidth:'100%',maxHeight:180,objectFit:'contain',margin:'12px 0'}}/>}
-  <label style={{display:'grid',gap:8,maxWidth:520,fontSize:13,fontWeight:600}}>Upload a logo (JPEG, PNG, or WebP; up to 2 MB)<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={event=>setFile(event.target.files?.[0]||null)}/></label>
+  <p style={{fontSize:13,color:'#706b66'}}>JPEG, PNG, or WebP; up to 2 MB.</p>
+  <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden disabled={busy||!loaded} onChange={event=>{const selected=event.target.files?.[0];event.target.value='';if(selected){setFile(selected);void save(selected);}}}/>
   <div style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:12}}>
-   <button type="button" disabled={!file||busy} onClick={()=>void save()} style={logoButton}>{busy?'Saving…':'Save logo'}</button>
+   <button type="button" disabled={busy||!loaded} onClick={()=>fileInput.current?.click()} style={logoButton}>{busy?'Uploading…':logo.assetId?'Replace logo':'Upload logo'}</button>
+   {error&&file&&!busy&&<button type="button" style={removeButton} onClick={()=>void save(file)}>Retry upload</button>}
+   {error&&!loaded&&!loading&&<button type="button" style={removeButton} onClick={()=>void loadLogo()}>Retry loading logo</button>}
    {logo.assetId&&<button type="button" disabled={busy} onClick={()=>void remove()} style={removeButton}>Remove logo</button>}
   </div>
   {message&&<p role="status">{message}</p>}{error&&<p role="alert" style={{color:'#9b2f20'}}>{error}</p>}
  </section>;
 }
-const logoButton={border:0,borderRadius:6,padding:'10px 15px',background:'#181716',color:'#fff',fontWeight:700,cursor:'pointer'};
+const logoButton={display:'inline-flex',alignItems:'center',justifyContent:'center',minHeight:48,border:'1px solid #65507d',borderRadius:10,padding:'12px 20px',background:'#181716',color:'#fff',fontWeight:700,cursor:'pointer'};
 const removeButton={border:'1px solid #ccc',borderRadius:6,padding:'9px 12px',background:'#fff',color:'#181716',fontWeight:600,cursor:'pointer'};

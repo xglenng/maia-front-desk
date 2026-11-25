@@ -220,6 +220,6 @@ export default function SessionGate({ children }: { children: ReactNode }) {
       <a href="/more" aria-current={path==='/more'||path==='/help'||path==='/items'||path.startsWith('/settings')?'page':undefined}><UiIcon name="more"/>More</a>
     </nav>
     <Fragment key={pageRefresh.generation}>{children}</Fragment>
-    <SetupReturn path={path} />
+    <SetupReturn path={path} user={user} />
   </RefreshContext.Provider></SessionContext.Provider>;
 }
