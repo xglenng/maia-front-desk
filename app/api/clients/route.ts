@@ -1,3 +1,4 @@
+import {artistClientsReady} from '@/packages/studio/artist-clients.server';
 import {NextRequest,NextResponse} from 'next/server';
 import {identity,protectedRoute} from '@/packages/auth/server';
 import {db} from '@/packages/db/src';
@@ -14,6 +15,7 @@ async function post(request:NextRequest){
  const input=parsed.data;
  const linkedArtists=await db.select({id:artists.id}).from(artists).where(and(eq(artists.organizationId,user.organization_id),eq(artists.userId,user.id)));
  if(linkedArtists.length!==1)return NextResponse.json({error:'Link your account to one artist profile before adding clients.'},{status:409});
+ if(!await artistClientsReady())return NextResponse.json({error:'Adding clients is temporarily unavailable until the artist-client database update is applied.'},{status:503});
  const artistId=linkedArtists[0].id;
  const result=await db.transaction(async tx=>{
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`client-create:${user.organization_id}`},0))`);

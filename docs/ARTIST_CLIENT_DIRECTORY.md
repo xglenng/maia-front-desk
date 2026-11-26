@@ -13,3 +13,7 @@ Apply reviewed additive migration `0039_artist_clients.sql` before deploying the
 Rollback application code first. Preserve/export the relationship table; dropping it would lose assignments for manually created clients. Leaving this additive table in place is the safer rollback. Existing relationships through appointment/message/invoice history require no backfill.
 
 Validation: the opt-in PostgreSQL route test applies the migration on an isolated schema, checks manual assignment visibility, peer-only exclusion for owners, artist separation, missing-profile refusal, cross-organization FK rejection, and existing invoice workflows using synthetic providers.
+
+## Deployment-order compatibility
+
+If migration 0039 has not yet been applied, directory reads use only existing appointment/conversation/invoice associations. They never fall back to the entire studio list. Invoice client selection uses the same compatibility check. Manual client creation returns a clear 503 before any insert until explicit artist assignments can be persisted. The readiness check runs per request so applying the migration needs no process restart. The PostgreSQL integration test temporarily removes the table name to exercise these paths and confirms no client is inserted and peer-only clients remain hidden.

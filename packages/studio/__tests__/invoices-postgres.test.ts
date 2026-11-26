@@ -104,6 +104,20 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const linkedPeerDirectory=await (await newClientDashboard(request('/api/dashboard?view=Clients','c'),undefined)).json();
   assert.equal(linkedPeerDirectory.clients.some((client:any)=>client.id===linkedPeerClient),true);
   assert.equal(linkedPeerDirectory.clients.some((client:any)=>client.id===addedBody.client.id),false);
+  await local.query('ALTER TABLE artist_clients RENAME TO artist_clients_not_migrated');
+  try{
+   const fallbackResponse=await newClientDashboard(request('/api/dashboard?view=Clients','a'),undefined);
+   assert.equal(fallbackResponse.status,200,'Clients view must survive a missing additive migration');
+   const fallback=await fallbackResponse.json();
+   assert.equal(fallback.clients.some((client:any)=>client.id===linkedPeerClient),false,'Missing table must never widen access');
+   assert.equal((await addClient(request('/api/clients','a',{name:'Must not be inserted'}),undefined)).status,503);
+   assert.equal((await local.query("SELECT count(*)::int n FROM clients WHERE first_name='Must not be inserted'")).rows[0].n,0);
+   const {GET:invoicePicker}=await import('../../../app/api/invoices/clients/route');
+   assert.equal((await invoicePicker(request('/api/invoices/clients?artistId='+artist,'b'),undefined)).status,200);
+   const {invoiceClient}=await import('../../invoices/sms.server');
+   assert.equal(await invoiceClient(org,artist,linkedPeerClient),false);
+  }finally{await local.query('ALTER TABLE artist_clients_not_migrated RENAME TO artist_clients');}
+
 
   const ownerDirectory=await (await newClientDashboard(request('/api/dashboard?artistId='+artist,'a'),undefined)).json();
   assert.equal(ownerDirectory.clients.some((client:any)=>client.id===addedBody.client.id),true);

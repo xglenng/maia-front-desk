@@ -1,3 +1,4 @@
+import {artistClientsReady} from '@/packages/studio/artist-clients.server';
 import { identity, protectedRoute } from '@/packages/auth/server';
 import { NextRequest, NextResponse } from "next/server";
 import { sql, and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or } from "drizzle-orm";
@@ -85,8 +86,9 @@ async function handleGET(request: NextRequest) {
       conversationId: messages.conversationId, content: messages.content, createdAt: messages.createdAt,
     }).from(messages).where(inArray(messages.conversationId, conversationIds)) : [];
 
+    const hasArtistClients = await artistClientsReady();
     const clientScope = and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)), user.role==='OWNER' && !clientsView ? undefined : sql`(
-      EXISTS (SELECT 1 FROM artist_clients ac WHERE ac.client_id = ${clients.id} AND ac.organization_id = ${organizationId} AND ac.artist_id = ${artist.id})
+      ${hasArtistClients ? sql`EXISTS (SELECT 1 FROM artist_clients ac WHERE ac.client_id = ${clients.id} AND ac.organization_id = ${organizationId} AND ac.artist_id = ${artist.id})` : sql`false`}
       OR
       EXISTS (SELECT 1 FROM conversations c WHERE c.client_id = ${clients.id} AND c.organization_id = ${organizationId} AND c.artist_id = ${artist.id} AND c.channel <> 'WEB_TEST')
       OR EXISTS (SELECT 1 FROM appointments a WHERE a.client_id = ${clients.id} AND a.organization_id = ${organizationId} AND a.artist_id = ${artist.id})
