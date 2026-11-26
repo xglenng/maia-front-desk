@@ -64,3 +64,8 @@
 .invoice-detail-summary{margin:24px 0;padding-bottom:20px;border-bottom:1px solid #c9b9aa}.invoice-detail-summary>strong{font-size:24px}.invoice-detail-summary dl>div{display:flex;justify-content:space-between;gap:16px;margin-top:18px}.invoice-detail-summary dd{margin:0;text-align:right}.invoice-detail-summary dt{color:#82776d}@media(max-width:600px){.invoice-page .invoice-review-heading{font-size:23px}.invoice-page:has(.invoice-detail-summary)>header{display:none}.invoice-page:has(.invoice-detail-summary)>.checkout-cart{border:0;border-radius:0;padding:20px}.invoice-simple-actions{position:sticky;bottom:84px;background:var(--app-bg,#fff);padding:14px 0;z-index:10}}
 .invoice-expanded-details{padding:18px 0}.invoice-expanded-details>summary{font-weight:650;cursor:pointer;min-height:44px}.invoice-detail-summary+details{margin-top:8px}
 .invoice-detail-summary dl{display:block!important}.invoice-detail-summary dl>div{width:100%;display:flex!important}.invoice-detail-summary dl dt,.invoice-detail-summary dl dd{flex:0 1 auto}
+
+/* Keep the action sheet above navigation and separate from the primary action. */
+.invoice-menu{z-index:200;background:var(--app-bg,#fff);color:var(--app-text,inherit)}
+.invoice-simple-actions>button{white-space:nowrap}
+@media(max-width:600px){.invoice-menu{left:16px;right:16px;bottom:calc(90px + env(safe-area-inset-bottom));border:1px solid #888;border-radius:16px}.invoice-simple-actions{position:static;z-index:auto}.invoice-menu button{min-height:48px}.invoice-link-row{flex-wrap:wrap;min-width:0}.invoice-link-row label{min-width:0;flex:1}.invoice-link-row input{width:100%;min-width:0}}

@@ -421,6 +421,12 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   await local.query("UPDATE messages SET metadata=jsonb_set(metadata,'{status}','\"delivered\"') WHERE external_message_id='SM_synthetic'");
   assert.equal((await (await details(request('/api/invoices/details?invoiceId='+own.id),undefined)).json()).delivery,'delivered');
   await sendInvoiceSms(sent.invoice,sender,delivery);assert.equal(sends,1);
+  let resends=0;
+  const resendSender:typeof sender=async value=>{resends++;return {sid:'SM_resend_test',status:'queued',studioPhone:'+15555550100',to:value.to,from:'+15555550100'};};
+  const resent=await sendInvoiceSms(sent.invoice,resendSender,delivery,'synthetic-resend-request');
+  await sendInvoiceSms(resent.invoice,resendSender,delivery,'synthetic-resend-request');
+  assert.equal(resends,1,'retrying the same resend request must not send twice');
+
   await assert.rejects(sendInvoiceSms(smsInvoice,sender,delivery),/already started/);assert.equal(sends,1);
   assert.equal((await local.query("SELECT count(*)::int AS n FROM messages WHERE external_message_id='SM_synthetic'")).rows[0].n,1);
   await assert.rejects(sendInvoiceSms({...sent.invoice,smsStatus:'UNKNOWN'},sender,delivery),/review/);

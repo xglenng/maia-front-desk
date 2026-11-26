@@ -1,3 +1,4 @@
+import {sendInvoiceChannels} from '@/packages/invoices/send-channels';
 import type Stripe from 'stripe';
 import {markInvoicePaidOutsideStripe} from '@/packages/invoices/manual-payment';
 import {invoicePaymentsReady} from '@/packages/invoices/readiness.server';
@@ -83,9 +84,12 @@ async function post(request:NextRequest){
  let authorized=false;
  try{
   await lock.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[`${user.organization_id}:invoice:${action.data.invoiceId}`]);
-  const [row]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,action.data.invoiceId)));
+  let [row]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,action.data.invoiceId)));
   if(!row||!await allowedInvoiceArtist(user,row.artistId))return NextResponse.json({error:'Invoice not found.'},{status:404,headers});
   authorized=true;
+  const combined=action.data.action==='SEND_INVOICE'||action.data.action==='RESEND_INVOICE';
+  if(action.data.action==='RESEND_INVOICE'&&row.status!=='OPEN')return NextResponse.json({error:'Only open invoices can be resent.'},{status:409,headers});
+  if(action.data.action==='SEND_INVOICE'&&(['DRAFT','ISSUING'].includes(row.status)||(row.status==='OPEN'&&!row.hostedUrl)))row=await issueInvoice(row,undefined,action.data.customerEmail);
   if(action.data.action==='ISSUE'){
    if(!['DRAFT','ISSUING'].includes(row.status)&&!(row.status==='OPEN'&&!row.hostedUrl&&row.stripeInvoiceId))return NextResponse.json({invoice:row},{headers});
    return NextResponse.json({invoice:await issueInvoice(row,undefined,action.data.customerEmail)},{headers});
@@ -94,6 +98,13 @@ async function post(request:NextRequest){
   const stripe=getStripe();
   let remote:Stripe.Invoice=await stripe.invoices.retrieve(row.stripeInvoiceId,{stripeAccount:row.stripeAccountId});
   if(remote.livemode!==counterCardConfiguration().livemode||remote.currency!=='usd'||remote.metadata?.artistId!==row.artistId||remote.metadata?.maiaInvoiceId!==row.id||remote.metadata?.organizationId!==user.organization_id||remote.total!==row.totalCents)throw Error('Invoice reference mismatch.');
+  if(combined){
+   if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.',invoice:row},{status:409,headers});
+   const delivery=invoiceDelivery(remote),resend=action.data.action==='RESEND_INVOICE'?action.data.requestId:undefined;
+   const deliveryResults=await sendInvoiceChannels(()=>sendInvoiceEmail(row,undefined,delivery,resend),()=>sendInvoiceSms(row,undefined,delivery,resend));
+   const [invoice]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.id,row.id),eq(studioInvoices.organizationId,user.organization_id)));
+   return NextResponse.json({invoice,deliveryResults,message:'Invoice delivery attempted. Review the email and SMS results.'},{headers});
+  }
   if(action.data.action==='SEND_SMS'){
    if(remote.status!=='open')return NextResponse.json({error:'Only open invoices can be sent.'},{status:409,headers});
    try{return NextResponse.json(await sendInvoiceSms(row,undefined,invoiceDelivery(remote)),{headers});}catch(error){const [updated]=await db.select(invoiceFields).from(studioInvoices).where(and(eq(studioInvoices.organizationId,user.organization_id),eq(studioInvoices.id,row.id)));return NextResponse.json({error:error instanceof Error?error.message:'Unable to send invoice SMS.',invoice:updated},{status:409,headers});}

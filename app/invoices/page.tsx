@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/session-gate";
-import { selectedArtistId } from "@/packages/studio/artist-selection";
 import { invoiceEmail } from "@/packages/invoices/action-input";
 import UiIcon from "@/components/ui-icon";
 import "../checkout/checkout.css";
@@ -234,7 +233,7 @@ export default function Invoices() {
       .then(read)
       .then((data) => {
         setArtists(data.artists);
-        setArtistId(selectedArtistId(data.artists, data.defaultArtistId));
+        setArtistId(data.artists.some((artist: {id: string}) => artist.id === data.defaultArtistId) ? data.defaultArtistId : "");
       })
       .catch((error) => setError(error.message));
   }, [user]);
@@ -330,9 +329,9 @@ export default function Invoices() {
       setBusy(false);
     }
   }
-  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL" | "VOID" | "MARK_PAID" | "RESEND_EMAIL") {
+  async function action(action: "ISSUE" | "SYNC" | "SEND_SMS" | "SEND_EMAIL" | "VOID" | "MARK_PAID" | "RESEND_EMAIL" | "SEND_INVOICE" | "RESEND_INVOICE") {
     if (!selected || actionRunning.current) return;
-    if (action === "ISSUE" && !selected.clientEmail && !selected.stripeInvoiceId && issueEmail.trim()) {
+    if (["ISSUE", "SEND_INVOICE"].includes(action) && !selected.clientEmail && !selected.stripeInvoiceId && issueEmail.trim()) {
       if (!invoiceEmail.safeParse(issueEmail).success) {
         setError('Enter a valid customer email address.');
         return;
@@ -351,12 +350,12 @@ export default function Invoices() {
         body: JSON.stringify({
           action,
           invoiceId: selected.id,
-          ...(action === "ISSUE" &&
+          ...(["ISSUE", "SEND_INVOICE"].includes(action) &&
           !selected.clientEmail &&
           !selected.stripeInvoiceId && issueEmail.trim()
             ? { customerEmail: issueEmail.trim() }
             : {}),
-          ...(action === "RESEND_EMAIL"?{requestId:resendRequest.current}:{}),
+          ...(["RESEND_EMAIL", "SEND_INVOICE", "RESEND_INVOICE"].includes(action)?{requestId:resendRequest.current}:{}),
           ...(action === "SEND_EMAIL" && emailForm.address
             ? { recipientEmail: emailForm.address.trim() }
             : {}),
@@ -365,7 +364,15 @@ export default function Invoices() {
       const data = await response.json();
       if (data.invoice) setSelected(data.invoice);
       if (!response.ok) throw Error(data.error || "Unable to update invoice.");
-      if (action === "SEND_SMS") {
+      if (action === "SEND_INVOICE" || action === "RESEND_INVOICE") {
+        const results = data.deliveryResults;
+        setMessage(`Email: ${results.email.message} SMS: ${results.sms.message}`);
+        if (results.email.status === 'FAILED' || results.sms.status === 'FAILED') {
+          setError('Some delivery attempts could not be completed. Review the results before retrying.');
+        }
+        // Keep the request key after a partial failure so retrying cannot duplicate a successful resend.
+        if (results.email.status !== 'FAILED' && results.sms.status !== 'FAILED') resendRequest.current = crypto.randomUUID();
+      } else if (action === "SEND_SMS") {
         setSmsSendFeedback({
           invoiceId: selected.id,
           type: "success",
@@ -583,21 +590,8 @@ export default function Invoices() {
             disabled={busy}
             style={{ border: 0, padding: 0, minWidth: 0 }}
           >
-            <label>
-              Artist
-              <select
-                required
-                value={artistId}
-                onChange={(event) => setArtistId(event.target.value)}
-              >
-                <option value="">Choose an artist</option>
-                {artists.map((artist) => (
-                  <option key={artist.id} value={artist.id}>
-                    {artist.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <p>From {artists.find(artist => artist.id === artistId)?.displayName || 'your artist profile'}</p>
+            {!artistId && <p role="alert">Link your signed-in account to an artist profile in Settings before creating an invoice.</p>}
             <section className="invoice-section">
               <h2>Customer information</h2>
               {name ? (
@@ -630,7 +624,7 @@ export default function Invoices() {
                   Select customer
                 </button>
               )}
-              {!artistId && <p>Choose an artist to select a customer.</p>}
+              {!artistId && <p>Set up your artist profile to select a customer.</p>}
             </section>
             <section className="invoice-section">
               <h2>Line items</h2>
@@ -845,23 +839,14 @@ export default function Invoices() {
                 className="invoice-menu-button"
                 onClick={() => setMenuOpen(!menuOpen)}
                 disabled={busy}
-                title="Invoice actions"
+                title="Invoice actions" aria-label="Invoice actions" aria-expanded={menuOpen} onKeyDown={event => {if(event.key === "Escape") setMenuOpen(false);}}
               >
                 ···
               </button>
               {menuOpen && selected && (
                 <div className="invoice-menu">
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void sendReminder();
-                    }}
-                    disabled={
-                      selected.status !== "OPEN" || selected.smsStatus === "SENT"
-                    }
-                  >
-                    Send reminder
-                  </button>
+                  <button disabled={busy || selected.status !== "OPEN"} onClick={() => {setMenuOpen(false);if(window.confirm('Confirm you received the full amount outside Stripe. This marks the invoice paid without charging the client.')) void action('MARK_PAID');}}>Mark as paid</button>
+                  <button disabled={busy || selected.status === "DRAFT"} onClick={() => {setMenuOpen(false);void action('SYNC');}}>Refresh payment status</button>
                   <button
                     onClick={() => {
                       setMenuOpen(false);
@@ -961,8 +946,7 @@ export default function Invoices() {
             (selected.status === "OPEN" && !selected.hostedUrl)) && (
             <>
               <p>
-                Creating the link issues this invoice through the studio’s
-                Stripe account. It does not charge the client or send a message.
+                Send this invoice by email and eligible SMS. SMS requires the client’s consent and an approved sending number. Sending an invoice does not charge the client.
               </p>
               {!selected.clientEmail && !selected.stripeInvoiceId && (
                 <label>
@@ -976,232 +960,26 @@ export default function Invoices() {
                     placeholder="name@example.com"
                   />
                   <small>
-                    Leave blank to create a shareable payment link. Creating the
-                    link does not send an email or charge the client.
+                    Email is sent when an address is available. SMS is attempted separately.
                   </small>
                 </label>
               )}
               <button
                 className="checkout-primary"
                 disabled={busy}
-                onClick={() => void action("ISSUE")}
+                onClick={() => void action("SEND_INVOICE")}
               >
                 {busy
                   ? "Working…"
-                  : selected.status !== "DRAFT" || error
-                    ? "Retry creating payment link"
-                    : "Create payment link"}
+                  : "Send Invoice"}
               </button>
             </>
           )}
-          {selected.status !== "VOID" && selected.hostedUrl &&
-            /^https:\/\/(?:invoice|pay)\.stripe\.com\//.test(
-              selected.hostedUrl,
-            ) && (
-              <>
-                <h3>Payment link ready</h3>
-                <div className="invoice-link-row">
-                  <label>
-                    Client payment link
-                    <input
-                      readOnly
-                      value={shareUrl}
-                      placeholder="Preparing branded link…"
-                      onFocus={(event) => event.currentTarget.select()}
-                    />
-                  </label>
-                  <button
-                    className="invoice-copy-button"
-                    disabled={busy || !shareUrl}
-                    onClick={() => void copyPaymentLink(selected.id, shareUrl)}
-                    aria-label="Copy payment link"
-                    title="Copy payment link"
-                  >
-                    <UiIcon name="copy" />
-                  </button>
-                </div>
-                {shareError && <p role="alert" className="checkout-error">{shareError}</p>}
-                {copyFeedback?.invoiceId === selected.id && (
-                  <p
-                    className={
-                      copyFeedback.message.includes("Unable")
-                        ? "checkout-error"
-                        : "checkout-receipt"
-                    }
-                    role={
-                      copyFeedback.message.includes("Unable")
-                        ? "alert"
-                        : "status"
-                    }
-                  >
-                    {copyFeedback.message}
-                  </p>
-                )}
-                <a href={selected.hostedUrl} target="_blank" rel="noreferrer">
-                  Open invoice
-                </a>
-              </>
-            )}
-          {(selected.status === "OPEN" ||
-            selected.smsStatus !== "NOT_SENT") && (
-            <>
-              <p>
-                SMS status:{" "}
-                {invoiceDeliveryLabel(
-                  selected.smsStatus,
-                  smsDetails?.delivery || null,
-                )}
-              </p>
-              {selected.clientId && (
-                <button
-                  type="button"
-                  disabled={smsLoading || busy}
-                  onClick={() => setSmsVersion((current) => current + 1)}
-                >
-                  Refresh SMS status
-                </button>
-              )}
-              {smsLoading && (
-                <p role="status">Checking client phone and consent…</p>
-              )}
-              {smsError && <p role="alert">{smsError}</p>}
-              {selected.status === "OPEN" && (
-                <>
-                  {!selected.clientId && <p>Create an invoice for an existing client with SMS consent to send by SMS. You can still copy this payment link.</p>}
-                  {selected.clientId && smsDetails && (
-                    <>
-                      <p>
-                        Client phone: {smsDetails.phone || "Not on file"}.
-                        {smsDetails.reason && ` ${smsDetails.reason}`}
-                      </p>
-                      {!smsDetails.phone && !phoneOpen && (
-                        <button type="button" onClick={() => setPhoneOpen(true)}>Add phone number</button>
-                      )}
-                      {phoneOpen && (
-                        <form onSubmit={savePhone}>
-                          <label>
-                            Client phone number
-                            <input
-                              type="tel"
-                              autoComplete="tel"
-                              value={phoneInput}
-                              onChange={(event) =>
-                                setPhoneInput(event.target.value)
-                              }
-                              required
-                            />
-                          </label>
-                          <button disabled={busy}>Save phone number</button>
-                        </form>
-                      )}
-                    </>
-                  )}
-                  <button
-                    ref={sendButtonRef}
-                    disabled={
-                      busy ||
-                      !selected.clientId ||
-                      selected.smsStatus !== "NOT_SENT" ||
-                      smsLoading ||
-                      !smsDetails ||
-                      !smsDetails.eligible
-                    }
-                    onClick={() => {
-                      void action("SEND_SMS");
-                    }}
-                  >
-                    Send invoice by SMS
-                  </button>
-                  {smsSendFeedback?.invoiceId === selected.id && (
-                    <p
-                      className={
-                        smsSendFeedback.type === "error"
-                          ? "checkout-error"
-                          : "checkout-receipt"
-                      }
-                      role={smsSendFeedback.type === "error" ? "alert" : "status"}
-                    >
-                      {smsSendFeedback.message}
-                    </p>
-                  )}
-                  <button
-                    disabled={
-                      busy || 
-                      emailSending ||
-                      !selected.stripeInvoiceId ||
-                      selected.emailStatus === "SENT"
-                    }
-                    onClick={() => {
-                      if (!emailForm.address && !selected.clientEmail) {
-                        setEmailForm({ ...emailForm, open: true });
-                      } else {
-                        setEmailForm({ ...emailForm, address: selected.clientEmail, confirmed: true });
-                        void action("SEND_EMAIL");
-                      }
-                    }}
-                  >
-                    Send invoice by email
-                  </button>
-                  {emailForm.open && !emailForm.confirmed && (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        setEmailForm({ ...emailForm, confirmed: true });
-                        void action("SEND_EMAIL");
-                      }}
-                    >
-                      <label>
-                        Recipient email
-                        <input
-                          type="email"
-                          value={emailForm.address}
-                          onChange={(e) =>
-                            setEmailForm({ ...emailForm, address: e.target.value })
-                          }
-                          required
-                        />
-                      </label>
-                      <button disabled={busy || emailSending}>Send</button>
-                      <button
-                        type="button"
-                        disabled={busy || emailSending}
-                        onClick={() =>
-                          setEmailForm({ open: false, address: "", confirmed: false })
-                        }
-                      >
-                        Cancel
-                      </button>
-                    </form>
-                  )}
-                  {emailFeedback?.invoiceId === selected.id && (
-                    <p
-                      className={
-                        emailFeedback.type === "error"
-                          ? "checkout-error"
-                          : "checkout-receipt"
-                      }
-                      role={emailFeedback.type === "error" ? "alert" : "status"}
-                    >
-                      {emailFeedback.message}
-                    </p>
-                  )}
-                  {!selected.clientId && (
-                    <p>
-                      This invoice has no linked client. Copy and share the link
-                      instead.
-                    </p>
-                  )}
-                </>
-              )}
-            </>
-          )}
           </details>
-          {selected.status === "OPEN" && <div className="invoice-simple-actions"><button disabled={busy||!selected.clientEmail} onClick={()=>{if(window.confirm('Resend this invoice to the client’s saved email address?'))void action('RESEND_EMAIL');}}>Resend invoice by email</button><details><summary>More options</summary><button disabled={busy} onClick={()=>{if(window.confirm('Confirm that you received the full invoice amount outside Stripe. This permanently marks the invoice paid without charging the client.'))void action('MARK_PAID');}}>Mark as paid</button></details></div>}
-          {selected.status !== "DRAFT" && (
-            <button disabled={busy} onClick={() => void action("SYNC")}>
-              Refresh payment status
-            </button>
-          )}
+          {selected.status !== "VOID" && shareUrl && <div className="invoice-link-row"><label>Invoice link<input readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} /></label><button className="invoice-copy-button" onClick={() => void copyPaymentLink(selected.id, shareUrl)} aria-label="Copy invoice link"><UiIcon name="copy" /></button><a href={shareUrl} target="_blank" rel="noreferrer">Open invoice</a></div>}
+          {shareError && <p role="alert">{shareError}</p>}
+          {copyFeedback?.invoiceId === selected.id && <p role="status">{copyFeedback.message}</p>}
+          {selected.status === "OPEN" && <div className="invoice-simple-actions"><button disabled={busy} onClick={()=>void action('RESEND_INVOICE')}>{busy ? 'Sending…' : 'Resend invoice'}</button></div>}
         </section>
       )}
       {!creating && !selected && (
