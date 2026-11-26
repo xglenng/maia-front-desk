@@ -68,7 +68,7 @@ export default function StudioPayments({embedded=false}:{embedded?:boolean}={}){
   <p className="payments-lede">Manage the studio’s Stripe connection and review payment activity.</p>
   <section aria-label="Planned Maia pricing">
    <h2>Planned Maia pricing</h2>
-   <p>Maia Studio starts with a 30-day free trial, then costs $69 USD per month. A 1.5% platform fee applies to every payment the studio processes through Stripe, online or in person, including during the trial. Stripe processing fees are separate.</p>
+   <p>Maia Studio starts with a 30-day free trial, then costs $69 USD per month. Stripe processing fees are separate. Maia’s planned 1.5% platform fee is payable to Gavakata Software LLC; it is not currently enabled for live transactions. When enabled in test mode, it is a simulation only.</p>
    {fromTrial&&trialEnabled&&<p>Your studio is created. Open Stripe to start the test trial, or <a href="/onboarding">continue studio setup</a>.</p>}
    {trialEnabled&&<button type="button" className="payments-button" disabled={trialBusy} onClick={()=>void openBilling()}>{trialBusy?'Opening Stripe…':'Open test trial or manage billing'}</button>}
   </section>

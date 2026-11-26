@@ -36,7 +36,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
       setMessages([{
         id: '1',
         role: 'assistant',
-        content: `Hi ${firstName}! I'm your Maia Business Manager. I can walk you through setup or help you check your bookings, unpaid invoices, and revenue. If you're still setting up, I'll show you what's next and take you to the right screen.`,
+        content: `Hi ${firstName}! I'm your Maia Receptionist. I can walk you through setup or help you check your bookings, unpaid invoices, and revenue. If you're still setting up, I'll show you what's next and take you to the right screen.`,
         timestamp: new Date(),
       }]);
     }
@@ -132,7 +132,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
             minHeight: 56,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Business Manager</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Maia Receptionist</h2>
           <button
             onClick={() => {
               setIsOpen(false);
@@ -148,7 +148,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
               color: '#111',
               padding: '4px 8px',
             }}
-            aria-label="Close Business Manager"
+            aria-label="Close Maia Receptionist"
           >
             ×
           </button>
@@ -332,7 +332,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           zIndex: 100,
         }}
-        aria-label="Open Business Manager"
+        aria-label="Open Maia Receptionist"
       >
         ✦
       </button>
@@ -369,7 +369,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
           justifyContent: 'space-between',
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Business Manager</h2>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Maia Receptionist</h2>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
@@ -400,7 +400,7 @@ export function BusinessManagerPanel({ firstName = 'there', onOpenChange, launch
               color: '#999',
               padding: '4px 6px',
             }}
-            aria-label="Close Business Manager"
+            aria-label="Close Maia Receptionist"
           >
             ×
           </button>

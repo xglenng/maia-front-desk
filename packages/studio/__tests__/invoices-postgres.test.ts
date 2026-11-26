@@ -113,7 +113,7 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   assert.equal((await (await GET(request('/api/invoices'),undefined)).json()).rows.length,1);
   assert.equal((await (await GET(request('/api/invoices','a'),undefined)).json()).rows.length,2);
   // Test provider behavior entirely through a synthetic Stripe double.
-  const keys=['MAIA_COUNTER_CARD_ENABLED','STRIPE_SECRET_KEY','STRIPE_COUNTER_WEBHOOK_SECRET','NEXT_PUBLIC_APP_URL'];const previous=keys.map(key=>process.env[key]);
+  const keys=['MAIA_COUNTER_CARD_ENABLED','STRIPE_SECRET_KEY','STRIPE_COUNTER_WEBHOOK_SECRET','NEXT_PUBLIC_APP_URL','MAIA_INVOICE_EMBEDDED_ENABLED','STRIPE_PUBLISHABLE_KEY'];const previous=keys.map(key=>process.env[key]);
   Object.assign(process.env,{MAIA_COUNTER_CARD_ENABLED:'true',STRIPE_SECRET_KEY:'sk_test_synthetic',STRIPE_COUNTER_WEBHOOK_SECRET:'whsec_synthetic',NEXT_PUBLIC_APP_URL:'http://localhost'});
   try{
    await local.query("INSERT INTO studio_payment_accounts(organization_id,stripe_account_id,livemode,charges_enabled,payouts_enabled,details_submitted) VALUES($1,'acct_synthetic',false,true,true,true) ON CONFLICT (organization_id) DO NOTHING",[org]);
@@ -127,6 +127,30 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
    [draft]=await db.select().from(studioInvoices).where(eq(studioInvoices.id,own.id));
    assert.equal(draft.status,'ISSUING');assert.equal(draft.stripeInvoiceId,'in_synthetic');
    const issued=await issueInvoice(draft,stripe);assert.equal(issued.status,'OPEN');assert.equal(creates,1);assert.equal(customerCreates,1);assert.equal(items.length,1);assert.equal(items[0].amount,2000);
+
+   process.env.MAIA_INVOICE_EMBEDDED_ENABLED='true';process.env.STRIPE_PUBLISHABLE_KEY='pk_test_synthetic';
+   const {embeddedInvoicePayment}=await import('../../invoices/embedded.server');
+   const {createInvoiceShareUrl:embeddedShareUrl}=await import('../../invoices/share-token.server');
+   const embeddedToken=new URL(embeddedShareUrl(issued)).pathname.split('/').at(-1)!;
+   remote.amount_remaining=2000;remote.confirmation_secret={type:'payment_intent',client_secret:'pi_synthetic_secret_synthetic'};
+   const originalRetrieve=stripe.invoices.retrieve;let embeddedRetrieves=0;
+   stripe.invoices.retrieve=async(id:string,params:any,options:any)=>{embeddedRetrieves++;assert.equal(id,issued.stripeInvoiceId);assert.deepEqual(params,{expand:['confirmation_secret']});assert.equal(options.stripeAccount,'acct_synthetic');return remote;};
+   const embeddedPayment=await embeddedInvoicePayment(embeddedToken,stripe);
+   assert.equal(embeddedPayment?.state,'OPEN');assert.equal(embeddedPayment&&'clientSecret' in embeddedPayment?embeddedPayment.clientSecret:null,'pi_synthetic_secret_synthetic');
+   assert.equal(creates,1);assert.equal(customerCreates,1); // Reuses the issued invoice: no duplicate payment request.
+   assert.equal(await embeddedInvoicePayment('invalid',stripe),null);assert.equal(embeddedRetrieves,1);
+   const wrongTenantToken=new URL(embeddedShareUrl({...issued,organizationId:other})).pathname.split('/').at(-1)!;
+   assert.equal(await embeddedInvoicePayment(wrongTenantToken,stripe),null);assert.equal(embeddedRetrieves,1);
+   remote.total=2001;await assert.rejects(embeddedInvoicePayment(embeddedToken,stripe),/reference mismatch/);remote.total=2000;
+   remote.metadata.organizationId=other;await assert.rejects(embeddedInvoicePayment(embeddedToken,stripe),/reference mismatch/);remote.metadata.organizationId=org;
+   process.env.STRIPE_PUBLISHABLE_KEY='pk_live_synthetic';await assert.rejects(embeddedInvoicePayment(embeddedToken,stripe),/configuration/);process.env.STRIPE_PUBLISHABLE_KEY='pk_test_synthetic';
+   const {GET:embeddedPage}=await import('../../../app/pay/invoice/[token]/route');
+   const page=await embeddedPage(request('/pay/invoice/'+embeddedToken),{params:Promise.resolve({token:embeddedToken})});const html=await page.text();
+   assert.match(html,/stripe-payment-element/);assert.match(html,/invoice-payment.js/);assert.doesNotMatch(html,/pi_synthetic_secret/);assert.match(page.headers.get('content-security-policy')!,/frame-ancestors 'none'/);assert.equal(page.headers.get('cache-control'),'private, no-store');
+   const {POST:publicPayment}=await import('../../../app/api/public/invoice-payment/route');
+   assert.equal((await publicPayment(new NextRequest('http://localhost/api/public/invoice-payment',{method:'POST',headers:{origin:'https://evil.example'},body:JSON.stringify({token:embeddedToken})}))).status,403);
+   assert.equal((await publicPayment(new NextRequest('http://localhost/api/public/invoice-payment',{method:'POST',headers:{origin:'http://localhost'},body:JSON.stringify({token:'invalid'})}))).status,404);
+   stripe.invoices.retrieve=originalRetrieve;delete process.env.MAIA_INVOICE_EMBEDDED_ENABLED;delete process.env.STRIPE_PUBLISHABLE_KEY;
 
    const missingEmail=(await (await POST(request('/api/invoices','b',{...input,requestId:randomUUID(),clientEmail:'',dueDays:1,lines:[{name:'Service',quantity:1,unitCents:6500}]}),undefined)).json()).invoice;
    delete process.env.STRIPE_SECRET_KEY; // Route validation only; never contact Stripe.

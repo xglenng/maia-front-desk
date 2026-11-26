@@ -1,11 +1,11 @@
-# AI Business Manager & Continue Setup Banner
+# Maia Receptionist & Continue Setup Banner
 
 ## Overview
 
 This implementation adds two connected features to the Maia Front Desk dashboard:
 
 1. **Continue Setup Banner** - A dismissible banner on the Overview dashboard that guides users through incomplete onboarding steps
-2. **AI Business Manager** - An internal AI assistant accessible via a floating button that helps users understand their business performance and navigate setup
+2. **Maia Receptionist** - An internal AI assistant accessible via a floating button that helps users understand their business performance and navigate setup
 
 Both features share the same onboarding state and respond consistently to setup progress.
 
@@ -23,11 +23,11 @@ Both features share the same onboarding state and respond consistently to setup 
   - "X" button dismisses the banner (localStorage would be needed to persist dismissal across sessions)
 - **Styling:** Dark banner with Maia branding (✦ sparkle icon) and contrasting buttons
 
-### Business Manager Panel (`components/business-manager-panel.tsx`)
+### Maia Receptionist Panel (`components/business-manager-panel.tsx`)
 
 - **Button:** ✦ icon button, fixed to bottom-right corner
 - **Desktop Mode:** 360px × 520px panel with header, message area, and composer
-  - Header shows "Business Manager" with Expand/Minimize and Close controls
+  - Header shows "Maia Receptionist" with Expand/Minimize and Close controls
   - Messages scroll with auto-scroll to latest
   - Composer with textarea and Send button
   - Starter chips appear below the greeting message
@@ -92,9 +92,9 @@ Both features share the same onboarding state and respond consistently to setup 
 1. **On Page Load:**
    - Dashboard fetches `/api/dashboard` for daily activity
    - Banner fetches `/api/onboarding/readiness` for setup progress
-   - Business Manager initializes with closed state
+   - Maia Receptionist initializes with closed state
 
-2. **When User Opens Business Manager:**
+2. **When User Opens Maia Receptionist:**
    - Panel renders greeting message with user's first name
    - Starter chips become interactive
 
@@ -105,7 +105,7 @@ Both features share the same onboarding state and respond consistently to setup 
    - Response is streamed back and displayed in conversation
 
 4. **When User Asks to Walk Through Setup:**
-   - Business Manager explains the current step
+   - Maia Receptionist explains the current step
    - Links point to the relevant Maia screen (e.g., `/settings/studio` for profile)
    - Links include the `onboardingStep` query parameter to maintain wizard state
 
@@ -148,7 +148,7 @@ Tests the component rendering and interaction:
 - [ ] Banner shows correct next step
 - [ ] "Continue setup" button opens wizard at correct step
 - [ ] Dismiss button hides banner
-- [ ] Business Manager button (✦) appears in bottom-right
+- [ ] Maia Receptionist button (✦) appears in bottom-right
 - [ ] Clicking button opens 360×520 panel
 - [ ] Panel shows greeting with user's first name
 - [ ] Starter chips are clickable
@@ -157,7 +157,7 @@ Tests the component rendering and interaction:
 - [ ] Close button closes panel
 
 #### Mobile Browser
-- [ ] Business Manager button (✦) appears
+- [ ] Maia Receptionist button (✦) appears
 - [ ] Clicking button opens full-screen overlay
 - [ ] Header stays fixed at top
 - [ ] Messages scroll independently
@@ -180,12 +180,12 @@ Tests the component rendering and interaction:
 - [ ] Only data for the signed-in user's organization appears
 - [ ] ARTIST role users only see their own artists' data
 - [ ] OWNER role users see all artists' data
-- [ ] Business Manager responses respect the same isolation
+- [ ] Maia Receptionist responses respect the same isolation
 
 ## Edge Cases & Error Handling
 
 1. **No Organization:** Gracefully returns 404 from API
-2. **No Artists:** API returns error; Business Manager can still explain setup
+2. **No Artists:** API returns error; Maia Receptionist can still explain setup
 3. **No Onboarding Data:** Banner doesn't render
 4. **API Failure:** Chat endpoint returns error response; UI shows "Sorry, I encountered an error"
 5. **Empty Bookings/Revenue:** Chat endpoint provides "No appointments scheduled" context
@@ -199,7 +199,7 @@ Tests the component rendering and interaction:
 3. **Usage Counter:** Show token/API call usage if Maia has an allowance system
 4. **Context Awareness:** AI could remember conversation history within a session
 5. **Links to Settings:** Starter chips like "This week's bookings" could link directly to calendar view
-6. **Help Desk Integration:** "Help Desk" link in Business Manager header to contact support
+6. **Help Desk Integration:** "Help Desk" link in Maia Receptionist header to contact support
 7. **Streaming Responses:** Use ReadableStream for longer responses instead of waiting for full completion
 8. **Training Data:** Collect anonymized feedback on responses to improve future interactions
 
@@ -228,9 +228,9 @@ maia-front-desk/
 
 ## Notes
 
-- The Business Manager uses the `ai` package (v4.3.19) and existing `configuredLanguageModel()` function
+- The Maia Receptionist uses the `ai` package (v4.3.19) and existing `configuredLanguageModel()` function
 - All database queries use Drizzle ORM with proper type safety
 - The feature respects existing auth middleware and permission checks
 - Mobile detection uses window resize listener with cleanup
 - Component state is local (no Redux/Context needed at this stage)
-- Business Manager is always rendered to dashboard page but only visible when opened
+- Maia Receptionist is always rendered to dashboard page but only visible when opened

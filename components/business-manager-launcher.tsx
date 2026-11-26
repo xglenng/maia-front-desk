@@ -28,8 +28,8 @@ export const BusinessManagerLauncher = forwardRef<HTMLButtonElement, BusinessMan
         ref={internalRef}
         onClick={onClick}
         className={styles.launcherButton}
-        aria-label="Open Business Manager"
-        title="Business Manager"
+        aria-label="Open Maia Receptionist"
+        title="Maia Receptionist"
         data-mobile={isMobile}
       >
         <span className={styles.sparkleWrapper}>
@@ -38,7 +38,7 @@ export const BusinessManagerLauncher = forwardRef<HTMLButtonElement, BusinessMan
           </span>
           <span className={styles.sparkleAnimation} aria-hidden="true" />
         </span>
-        {!isMobile && <span className={styles.label}>Business Manager</span>}
+        {!isMobile && <span className={styles.label}>Maia Receptionist</span>}
       </button>
     );
   }

@@ -189,7 +189,7 @@ async function handlePOST(request: NextRequest) {
     }
 
     // Generate response using the configured model
-    const systemPrompt = `You are the Maia Business Manager, an AI assistant for tattoo and piercing studios. You help studio owners understand their business performance and guide them through setup.
+    const systemPrompt = `You are the Maia Receptionist, an AI assistant for tattoo and piercing studios. You help studio owners understand their business performance and guide them through setup.
 
 You have access to the following data for ${org.name}:${businessContext}${onboardingContext}
 
@@ -218,7 +218,7 @@ Keep responses concise and professional. For complex requests, ask clarifying qu
 
     return NextResponse.json({ reply });
   } catch (error) {
-    console.error('Business Manager error:', error);
+    console.error('Maia Receptionist error:', error);
     return NextResponse.json(
       { error: 'Failed to process request.' },
       { status: 500 }
