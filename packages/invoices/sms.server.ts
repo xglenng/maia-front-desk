@@ -9,7 +9,7 @@ import {createInvoiceShareUrl} from './share-token.server';
 import {type InvoiceDelivery} from './delivery';
 export async function invoiceClient(organizationId:string,artistId:string,clientId:string,studioWide=false){
  // The caller authorizes the artist; clients remain isolated to this studio.
- const found=await pool.query(`SELECT c.id FROM clients c WHERE c.id=$1 AND c.organization_id=$2 AND ($4::boolean OR EXISTS(SELECT 1 FROM appointments a WHERE a.client_id=c.id AND a.organization_id=c.organization_id AND a.artist_id=$3) OR EXISTS(SELECT 1 FROM conversations v WHERE v.client_id=c.id AND v.organization_id=c.organization_id AND v.artist_id=$3 AND v.channel<>'WEB_TEST') OR EXISTS(SELECT 1 FROM studio_invoices i WHERE i.client_id=c.id AND i.organization_id=c.organization_id AND i.artist_id=$3))`,[clientId,organizationId,artistId,studioWide]);
+ const found=await pool.query(`SELECT c.id FROM clients c WHERE c.id=$1 AND c.organization_id=$2 AND ($4::boolean OR EXISTS(SELECT 1 FROM artist_clients ac WHERE ac.client_id=c.id AND ac.organization_id=c.organization_id AND ac.artist_id=$3) OR EXISTS(SELECT 1 FROM appointments a WHERE a.client_id=c.id AND a.organization_id=c.organization_id AND a.artist_id=$3) OR EXISTS(SELECT 1 FROM conversations v WHERE v.client_id=c.id AND v.organization_id=c.organization_id AND v.artist_id=$3 AND v.channel<>'WEB_TEST') OR EXISTS(SELECT 1 FROM studio_invoices i WHERE i.client_id=c.id AND i.organization_id=c.organization_id AND i.artist_id=$3))`,[clientId,organizationId,artistId,studioWide]);
  return Boolean(found.rowCount);
 }
 export async function invoiceSmsEligibility(row:typeof studioInvoices.$inferSelect,allowPreviouslySent=false){

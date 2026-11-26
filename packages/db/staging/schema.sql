@@ -1,5 +1,5 @@
 -- Synthetic staging bootstrap only; not a production migration.
--- schema-source-sha256: c64268d841c4d080f520b492858e87d0dac4abc727d242596d6452989ca32419
+-- schema-source-sha256: d270dd2efb620f1e6f52acf8c0ff3b93e06bc4431f7ac9989a1a1292a217643a
 CREATE TABLE "a2p_campaigns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
@@ -65,6 +65,13 @@ CREATE TABLE "appointments" (
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "appointments_schedule_revision_check" CHECK ("appointments"."schedule_revision" >= 0)
+);
+--> statement-breakpoint
+CREATE TABLE "artist_clients" (
+	"organization_id" uuid NOT NULL,
+	"artist_id" uuid NOT NULL,
+	"client_id" uuid NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "artist_consent_forms" (
@@ -1224,6 +1231,8 @@ CREATE TABLE "waiver_templates" (
 --> statement-breakpoint
 CREATE UNIQUE INDEX "appointments_id_organization_uidx" ON "appointments" USING btree ("id","organization_id");
 --> statement-breakpoint
+CREATE UNIQUE INDEX "artist_clients_artist_client_uidx" ON "artist_clients" USING btree ("artist_id","client_id");
+--> statement-breakpoint
 CREATE UNIQUE INDEX "artist_consent_forms_id_organization_uidx" ON "artist_consent_forms" USING btree ("id","organization_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "artists_id_organization_uidx" ON "artists" USING btree ("id","organization_id");
@@ -1385,6 +1394,12 @@ ALTER TABLE "appointments" ADD CONSTRAINT "appointments_client_id_tenant_fk" FOR
 ALTER TABLE "appointments" ADD CONSTRAINT "appointments_service_id_tenant_fk" FOREIGN KEY ("service_id","organization_id") REFERENCES "public"."services"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "appointments" ADD CONSTRAINT "appointments_location_id_tenant_fk" FOREIGN KEY ("location_id","organization_id") REFERENCES "public"."studio_locations"("id","organization_id") ON DELETE set null ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "artist_clients" ADD CONSTRAINT "artist_clients_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "artist_clients" ADD CONSTRAINT "artist_clients_artist_tenant_fk" FOREIGN KEY ("artist_id","organization_id") REFERENCES "public"."artists"("id","organization_id") ON DELETE no action ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "artist_clients" ADD CONSTRAINT "artist_clients_client_tenant_fk" FOREIGN KEY ("client_id","organization_id") REFERENCES "public"."clients"("id","organization_id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "artist_consent_forms" ADD CONSTRAINT "artist_consent_forms_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
 --> statement-breakpoint

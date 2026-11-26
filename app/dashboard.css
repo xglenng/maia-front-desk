@@ -13,3 +13,8 @@
 /* Topbar launcher styles - only inside dashboard */
 .app-shell .topbar{display:grid;grid-template-columns:1fr auto;align-items:center;gap:16px}
 .app-shell .topbar>div:first-child{display:flex;flex-direction:column}
+
+/* Center the add-client link and keep its mobile target compact. */
+.clients-panel .client-add-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;flex-shrink:0;line-height:1}
+.client-add-icon{font-size:22px;font-weight:400;line-height:1}
+@media(max-width:700px){.clients-panel .client-add-button{width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border-radius:50%;gap:0}.client-add-button .client-add-label{display:none}.client-add-button .client-add-icon{font-size:28px}}

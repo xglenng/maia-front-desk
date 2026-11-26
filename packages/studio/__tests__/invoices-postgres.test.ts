@@ -29,6 +29,8 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   assert.equal((await local.query('SHOW data_directory')).rows[0].data_directory,container?'/var/lib/postgresql/data':`${socket}/data`);
   await local.query(`CREATE SCHEMA ${schema}`);
   await local.query(readFileSync('packages/db/staging/schema.sql','utf8').replaceAll('"public".',`"${schema}".`));
+  await local.query('DROP TABLE artist_clients');
+  await local.query(readFileSync('packages/db/drizzle/0039_artist_clients.sql','utf8'));
   const snapshotColumns=(await local.query("SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name='studio_invoices' ORDER BY column_name",[schema])).rows;
   const snapshotChecks=(await local.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='studio_invoices'::regclass ORDER BY definition")).rows;
   await local.query('DROP TABLE invoice_notifications; DROP TABLE studio_invoices');
@@ -79,10 +81,30 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   const {POST:addClient}=await import('../../../app/api/clients/route');
   const clientBody={name:'Synthetic New Client',email:'new@example.test',phone:'3035550160',dateOfBirth:'1995-03-01'};
   assert.equal((await addClient(request('/api/clients','b',clientBody),undefined)).status,403);
+  const {GET:newClientDashboard}=await import('../../../app/api/dashboard/route');
+  assert.equal((await addClient(request('/api/clients','a',clientBody),undefined)).status,409,'Unlinked owners cannot assign clients to another artist');
+  assert.equal((await newClientDashboard(request('/api/dashboard?view=Clients','a'),undefined)).status,404);
+  const ownerArtist=randomUUID();
+  await local.query("INSERT INTO artists(id,organization_id,user_id,display_name) VALUES($1,$2,$3,'Owner artist')",[ownerArtist,org,owner]);
   const added=await addClient(request('/api/clients','a',clientBody),undefined);assert.equal(added.status,201,added.status!==201?await added.clone().text():'');
   const addedBody=await added.json();const savedClient=(await local.query('SELECT organization_id,date_of_birth::text,sms_opt_in FROM clients WHERE id=$1',[addedBody.client.id])).rows[0];
   assert.equal(savedClient.organization_id,org);assert.equal(savedClient.date_of_birth,'1995-03-01');assert.equal(savedClient.sms_opt_in,false);
-  const {GET:newClientDashboard}=await import('../../../app/api/dashboard/route');
+
+  const selfDirectory=await (await newClientDashboard(request('/api/dashboard?view=Clients','b'),undefined)).json();
+  assert.equal(selfDirectory.artist.id,artist,'Clients view uses the signed-in artist');
+  assert.equal((await newClientDashboard(request('/api/dashboard?view=Clients&artistId='+peer,'b'),undefined)).status,404,'Another artist remains hidden by authorization');
+  const linkedPeerClient=randomUUID();
+  await local.query("INSERT INTO clients(id,organization_id,first_name) VALUES($1,$2,'Peer-only client')",[linkedPeerClient,org]);
+  await local.query('INSERT INTO artist_clients(organization_id,artist_id,client_id) VALUES($1,$2,$3)',[org,peer,linkedPeerClient]);
+  await assert.rejects(local.query('INSERT INTO artist_clients(organization_id,artist_id,client_id) VALUES($1,$2,$3)',[other,foreign,addedBody.client.id]),/foreign key/);
+  const ownClients=await (await newClientDashboard(request('/api/dashboard?view=Clients&artistId='+peer,'a'),undefined)).json();
+  assert.equal(ownClients.artist.id,ownerArtist);
+  assert.equal(ownClients.clients.some((client:any)=>client.id===addedBody.client.id),true,'New clients belong to the logged-in creator artist');
+  assert.equal(ownClients.clients.some((client:any)=>client.id===linkedPeerClient),false,'Peer-only clients are hidden even from owners on Clients view');
+  const linkedPeerDirectory=await (await newClientDashboard(request('/api/dashboard?view=Clients','c'),undefined)).json();
+  assert.equal(linkedPeerDirectory.clients.some((client:any)=>client.id===linkedPeerClient),true);
+  assert.equal(linkedPeerDirectory.clients.some((client:any)=>client.id===addedBody.client.id),false);
+
   const ownerDirectory=await (await newClientDashboard(request('/api/dashboard?artistId='+artist,'a'),undefined)).json();
   assert.equal(ownerDirectory.clients.some((client:any)=>client.id===addedBody.client.id),true);
   const artistDirectory=await (await newClientDashboard(request('/api/dashboard?artistId='+artist,'b'),undefined)).json();
@@ -422,7 +444,7 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   assert.equal((await (await details(request('/api/invoices/details?invoiceId='+own.id),undefined)).json()).delivery,'delivered');
   await sendInvoiceSms(sent.invoice,sender,delivery);assert.equal(sends,1);
   let resends=0;
-  const resendSender:typeof sender=async value=>{resends++;return {sid:'SM_resend_test',status:'queued',studioPhone:'+15555550100',to:value.to,from:'+15555550100'};};
+  const resendSender:typeof sender=async (value:{to:string})=>{resends++;return {sid:'SM_resend_test',status:'queued',studioPhone:'+15555550100',to:value.to,from:'+15555550100'};};
   const resent=await sendInvoiceSms(sent.invoice,resendSender,delivery,'synthetic-resend-request');
   await sendInvoiceSms(resent.invoice,resendSender,delivery,'synthetic-resend-request');
   assert.equal(resends,1,'retrying the same resend request must not send twice');

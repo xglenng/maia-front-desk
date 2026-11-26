@@ -28,13 +28,15 @@ async function handleGET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const organizationId = searchParams.get('organizationId');
-    const requestedArtistId = searchParams.get('artistId');
+    const clientsView = searchParams.get('view') === 'Clients';
+    const requestedArtistId = clientsView ? null : searchParams.get('artistId');
     if (!organizationId) return NextResponse.json({ error: 'Organization context is required.' }, { status: 400 });
     const user = await identity(request);
     if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
     const availableArtists = await db.select({ id: artists.id, displayName: artists.displayName, calendarColor: artists.calendarColor, requiresSupervisorApproval: artists.requiresSupervisorApproval }).from(artists).where(and(eq(artists.organizationId, organizationId), ...(user.role === 'ARTIST' ? [eq(artists.userId, user.id)] : []))).orderBy(asc(artists.displayName));
     const linkedArtists = await db.select({ id: artists.id, displayName: artists.displayName }).from(artists).where(and(eq(artists.organizationId, organizationId), eq(artists.userId, user.id)));
     const signedInArtist = linkedArtists.length === 1 ? linkedArtists[0] : null;
+    if (clientsView && !signedInArtist) return NextResponse.json({error:'Link your account to an artist profile in Settings to open your Clients page.',setupUrl:'/settings/studio'},{status:404});
     const artistConditions = [eq(artists.organizationId, organizationId)];
     if (requestedArtistId) artistConditions.push(eq(artists.id, requestedArtistId));
     else if (signedInArtist) artistConditions.push(eq(artists.id, signedInArtist.id));
@@ -83,7 +85,9 @@ async function handleGET(request: NextRequest) {
       conversationId: messages.conversationId, content: messages.content, createdAt: messages.createdAt,
     }).from(messages).where(inArray(messages.conversationId, conversationIds)) : [];
 
-    const clientScope = and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)), user.role==='OWNER'?undefined:sql`(
+    const clientScope = and(eq(clients.organizationId, artist.organizationId), or(isNull(clients.notes), ne(clients.notes, ONBOARDING_PREVIEW_CLIENT_NOTE)), user.role==='OWNER' && !clientsView ? undefined : sql`(
+      EXISTS (SELECT 1 FROM artist_clients ac WHERE ac.client_id = ${clients.id} AND ac.organization_id = ${organizationId} AND ac.artist_id = ${artist.id})
+      OR
       EXISTS (SELECT 1 FROM conversations c WHERE c.client_id = ${clients.id} AND c.organization_id = ${organizationId} AND c.artist_id = ${artist.id} AND c.channel <> 'WEB_TEST')
       OR EXISTS (SELECT 1 FROM appointments a WHERE a.client_id = ${clients.id} AND a.organization_id = ${organizationId} AND a.artist_id = ${artist.id})
       OR EXISTS (SELECT 1 FROM studio_invoices i WHERE i.client_id = ${clients.id} AND i.organization_id = ${organizationId} AND i.artist_id = ${artist.id})

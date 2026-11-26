@@ -1,7 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {identity,protectedRoute} from '@/packages/auth/server';
 import {db} from '@/packages/db/src';
-import {clients} from '@/packages/db/src/schema';
+import {clients, artists, artistClients} from '@/packages/db/src/schema';
 import {and,eq,sql} from 'drizzle-orm';
 import {newClientInput} from '@/packages/studio/client-input';
 async function post(request:NextRequest){
@@ -12,10 +12,15 @@ async function post(request:NextRequest){
  const parsed=newClientInput.safeParse(body);
  if(!parsed.success)return NextResponse.json({error:parsed.error.issues[0]?.message||'Check client details.'},{status:400});
  const input=parsed.data;
+ const linkedArtists=await db.select({id:artists.id}).from(artists).where(and(eq(artists.organizationId,user.organization_id),eq(artists.userId,user.id)));
+ if(linkedArtists.length!==1)return NextResponse.json({error:'Link your account to one artist profile before adding clients.'},{status:409});
+ const artistId=linkedArtists[0].id;
  const result=await db.transaction(async tx=>{
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`client-create:${user.organization_id}`},0))`);
   if(input.phone){const [prior]=await tx.select({id:clients.id}).from(clients).where(and(eq(clients.organizationId,user.organization_id),eq(clients.phone,input.phone))).limit(1);if(prior)return {duplicate:true};}
-  const [client]=await tx.insert(clients).values({organizationId:user.organization_id,firstName:input.name,phone:input.phone||null,email:input.email||null,dateOfBirth:input.dateOfBirth||null,smsOptIn:false,smsConsentStatus:'NOT_REQUESTED'}).returning({id:clients.id});return {client};
+  const [client]=await tx.insert(clients).values({organizationId:user.organization_id,firstName:input.name,phone:input.phone||null,email:input.email||null,dateOfBirth:input.dateOfBirth||null,smsOptIn:false,smsConsentStatus:'NOT_REQUESTED'}).returning({id:clients.id});
+  await tx.insert(artistClients).values({organizationId:user.organization_id,artistId,clientId:client.id});
+  return {client};
  });
  return result.duplicate?NextResponse.json({error:'A client with that phone number already exists.'},{status:409}):NextResponse.json(result,{status:201,headers:{'Cache-Control':'private, no-store'}});
 }

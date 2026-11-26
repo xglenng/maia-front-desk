@@ -197,6 +197,18 @@ export const clients = pgTable("clients", {
   tenantIdentityUnique: uniqueIndex("clients_id_organization_uidx").on(table.id, table.organizationId),
 }));
 
+// Explicit ownership for manually added clients without appointment/message history.
+export const artistClients = pgTable('artist_clients', {
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  artistId: uuid('artist_id').notNull(),
+  clientId: uuid('client_id').notNull(),
+  createdAt: timestamp('created_at', {withTimezone:true}).notNull().defaultNow(),
+}, table => ({
+  artistClientUnique: uniqueIndex('artist_clients_artist_client_uidx').on(table.artistId, table.clientId),
+  tenantArtistReference: foreignKey({name:'artist_clients_artist_tenant_fk',columns:[table.artistId,table.organizationId],foreignColumns:[artists.id,artists.organizationId]}),
+  tenantClientReference: foreignKey({name:'artist_clients_client_tenant_fk',columns:[table.clientId,table.organizationId],foreignColumns:[clients.id,clients.organizationId]}),
+}));
+
 // One public SMS-consent surface per artist. Hosted forms are rendered by this
 // application; external forms must be explicitly attested by the studio owner.
 export const artistConsentForms = pgTable("artist_consent_forms", {

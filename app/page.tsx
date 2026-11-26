@@ -81,13 +81,13 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null); setData(null);
-    fetch(`/api/dashboard?date=${selectedDate}${selectedArtistId ? `&artistId=${encodeURIComponent(selectedArtistId)}` : ''}`)
+    fetch(`/api/dashboard?date=${selectedDate}${view === "Clients" ? "&view=Clients" : ""}${view !== "Clients" && selectedArtistId ? `&artistId=${encodeURIComponent(selectedArtistId)}` : ''}`)
       .then(async r => { if (!r.ok) throw new Error((await r.json()).error || "Failed to load dashboard"); return r.json(); })
       .then(json => { if (!cancelled) { setData(json); setArtistOptions(json.artists); setError(null); } })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedDate, selectedArtistId, user?.organization_id]);
+  }, [selectedDate, selectedArtistId, user?.organization_id, view]);
 
   const dateLabel = useMemo(() => {
     return weekDates[selectedDay].toLocaleDateString("en-US", {
@@ -143,7 +143,8 @@ export default function Home() {
           />
         </header>
 
-        {artistOptions.length>0&&<div className="artist-legend" aria-label="Studio team filter">{artistOptions.map(artist=><button key={artist.id} aria-pressed={(selectedArtistId||data?.artist.id)===artist.id} disabled={loading} onClick={()=>setSelectedArtistId(artist.id)}><span className="artist-dot" style={{'--artist-color':artistColor(artist.id,artist.calendarColor)} as CSSProperties}/>{artist.displayName}<small>{artist.requiresSupervisorApproval?'Apprentice':'Artist'}</small></button>)}</div>}
+        {view !== "Clients" && artistOptions.length>0&&<div className="artist-legend" aria-label="Studio team filter">{artistOptions.map(artist=><button key={artist.id} aria-pressed={(selectedArtistId||data?.artist.id)===artist.id} disabled={loading} onClick={()=>setSelectedArtistId(artist.id)}><span className="artist-dot" style={{'--artist-color':artistColor(artist.id,artist.calendarColor)} as CSSProperties}/>{artist.displayName}<small>{artist.requiresSupervisorApproval?'Apprentice':'Artist'}</small></button>)}</div>}
+        {view === "Clients" && data?.signedInArtist && <div className="artist-legend" aria-label="Signed-in artist"><span>{data.signedInArtist.displayName}</span></div>}
         {loading && !data ? <div className="content"><div className="panel"><h2>Loading dashboard…</h2><p>Loading your studio’s latest activity.</p></div></div> : error ? <div className="content"><div className="panel"><h2>Dashboard unavailable</h2><p>{error}</p><p>Please try again. If the problem continues, contact support.</p></div></div> : data ? <>
           {view === "Overview" && <Overview data={data} onNavigate={setView} />}
           {view === "Calendar" && <CalendarView
@@ -223,4 +224,4 @@ function CalendarView({data}: {data:DashboardData;[key:string]:unknown}) {
 
 function Inbox({ conversations }: { conversations: ConversationData[] }) { return <div className="content"><div className="inbox-layout"><div className="panel inbox-full"><div className="panel-head"><div><h2>AI inbox</h2><p>{conversations.length} conversations</p></div><button className="secondary-btn">Filter ▾</button></div>{conversations.map(c => <Conversation key={c.id} {...c} />)}</div><div className="panel conversation-detail"><div className="detail-head"><div className="avatar">{conversations[0]?.name.split(" ").map(x => x[0]).join("") ?? "AI"}</div><div><strong>{conversations[0]?.name ?? "No conversations"}</strong><span>{conversations[0] ? "Conversation" : ""}</span></div></div><div className="messages"><div className="message client">{conversations[0]?.preview ?? "No messages yet."}</div></div><div className="reply-box"><input placeholder="Reply to client..." /><button>Send</button></div></div></div></div>; }
 
-function Clients({ clients }: { clients: ClientData[] }) { const user=useSession(); return <div className="content"><div className="panel clients-panel"><div className="panel-head"><div><h2>Clients</h2><p>{clients.length} clients</p></div>{user?.role==='OWNER'&&<a className="primary-btn" href="/clients/new">+ Add client</a>}</div><div className="client-search">⌕ <input placeholder="Search clients by name, phone, or email" /></div><table><thead><tr><th>Client</th><th>Created</th><th>Phone</th><th>Status</th></tr></thead><tbody>{clients.map(c => <tr key={c.id}><td><div className="table-client"><div className="avatar small">{c.name.split(" ").map(x => x[0]).join("")}</div><strong>{c.name}</strong></div></td><td>{formatDate(c.createdAt)}</td><td>{c.phone ?? "—"}</td><td><span className="pill confirmed">Active</span></td></tr>)}</tbody></table></div></div>; }
+function Clients({ clients }: { clients: ClientData[] }) { const user=useSession(); return <div className="content"><div className="panel clients-panel"><div className="panel-head"><div><h2>Clients</h2><p>{clients.length} clients</p></div>{user?.role==='OWNER'&&<a className="primary-btn client-add-button" href="/clients/new" aria-label="Add client" title="Add client"><span className="client-add-icon" aria-hidden="true">+</span><span className="client-add-label">Add client</span></a>}</div><div className="client-search">⌕ <input placeholder="Search clients by name, phone, or email" /></div><table><thead><tr><th>Client</th><th>Created</th><th>Phone</th><th>Status</th></tr></thead><tbody>{clients.map(c => <tr key={c.id}><td><div className="table-client"><div className="avatar small">{c.name.split(" ").map(x => x[0]).join("")}</div><strong>{c.name}</strong></div></td><td>{formatDate(c.createdAt)}</td><td>{c.phone ?? "—"}</td><td><span className="pill confirmed">Active</span></td></tr>)}</tbody></table></div></div>; }
