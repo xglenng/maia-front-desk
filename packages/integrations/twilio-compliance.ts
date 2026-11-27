@@ -4,11 +4,14 @@ function auth(accountSid: string, authToken: string) {
   return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`;
 }
 
-async function request<T>(input: { base: string; path: string; accountSid: string; authToken: string; method?: string; form?: Record<string, string>; apiVersion?: string }) {
+async function request<T>(input: { base: string; path: string; accountSid: string; authToken: string; method?: string; form?: Record<string, string | string[]>; apiVersion?: string }) {
   const headers: Record<string, string> = { Authorization: auth(input.accountSid, input.authToken) };
   if (input.apiVersion) headers["X-Twilio-Api-Version"] = input.apiVersion;
   let body: URLSearchParams | undefined;
-  if (input.form) { headers["Content-Type"] = "application/x-www-form-urlencoded"; body = new URLSearchParams(input.form); }
+  if (input.form) { headers["Content-Type"] = "application/x-www-form-urlencoded"; body = new URLSearchParams();
+    for (const [key, value] of Object.entries(input.form)) {
+      for (const entry of Array.isArray(value) ? value : [value]) body.append(key, entry);
+    } }
   const response = await fetch(`${input.base}${input.path}`, { method: input.method || "GET", headers, body });
   const text = await response.text();
   let data: unknown;
@@ -102,8 +105,7 @@ export function getBrand(credentials: TwilioCredentials, sid: string) {
 }
 
 export function createCampaign(credentials: TwilioCredentials, input: { serviceSid: string; brandSid: string; description: string; messageFlow: string; samples: string[]; useCase: string; hasLinks: boolean; hasPhoneNumbers: boolean; privacyUrl: string; termsUrl: string }) {
-  const form: Record<string, string> = { BrandRegistrationSid: input.brandSid, Description: input.description, MessageFlow: input.messageFlow, UsAppToPersonUsecase: input.useCase, HasEmbeddedLinks: String(input.hasLinks), HasEmbeddedPhone: String(input.hasPhoneNumbers), PrivacyPolicyUrl: input.privacyUrl, TermsAndConditionsUrl: input.termsUrl };
-  input.samples.forEach((sample, index) => { form[`MessageSamples[${index}]`] = sample; });
+  const form: Record<string, string | string[]> = { MessageSamples: input.samples, BrandRegistrationSid: input.brandSid, Description: input.description, MessageFlow: input.messageFlow, UsAppToPersonUsecase: input.useCase, HasEmbeddedLinks: String(input.hasLinks), HasEmbeddedPhone: String(input.hasPhoneNumbers), PrivacyPolicyUrl: input.privacyUrl, TermsAndConditionsUrl: input.termsUrl };
   return request<TwilioObject>({ base: messaging, path: `/v1/Services/${encodeURIComponent(input.serviceSid)}/Compliance/Usa2p`, ...credentials, method: "POST", form, apiVersion: "v1.2" });
 }
 

@@ -133,7 +133,7 @@ test("campaign submission validates every referenced URL together", () => {
 test("createCampaign sends the exact previewed fields and public consent URL", async t => {
   const profile = {
     businessName: "Maia Test Tattoo", campaignDescription: "Saved description for this studio.",
-    sampleMessages: ["Sample one with STOP instructions.", "Sample two with HELP instructions."],
+    sampleMessages: ["Studio’s invoice: \"Piercing & jewelry\". Reply STOP.\nPay securely.", "Sample two with HELP instructions."],
     campaignUseCase: "CUSTOMER_CARE", hasEmbeddedLinks: true, hasEmbeddedPhoneNumbers: false,
     contactEmail: "support@example.com", websiteUrl: "https://studio.example.com",
     privacyPolicyUrl: "https://studio.example.com/privacy", termsUrl: "https://studio.example.com/terms"
@@ -142,6 +142,7 @@ test("createCampaign sends the exact previewed fields and public consent URL", a
   let requestUrl = "";
   let form = new URLSearchParams();
   t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    assert.equal((init?.headers as Record<string,string>)["Content-Type"], "application/x-www-form-urlencoded");
     requestUrl = String(input);
     form = new URLSearchParams(String(init?.body || ""));
     return new Response(JSON.stringify({ sid: "QE_TEST" }), { status: 201, headers: { "Content-Type": "application/json" } });
@@ -154,7 +155,11 @@ test("createCampaign sends the exact previewed fields and public consent URL", a
   });
 
   assert.equal(requestUrl, "https://messaging.twilio.com/v1/Services/MG_TEST/Compliance/Usa2p");
-  assert.deepEqual(Object.fromEntries(form), {
+  const scalarFields = new URLSearchParams(form);
+  scalarFields.delete("MessageSamples");
+  assert.deepEqual(form.getAll("MessageSamples"), preview.samples);
+  assert.equal([...form.keys()].some(key => key.startsWith("MessageSamples[")), false);
+  assert.deepEqual(Object.fromEntries(scalarFields), {
     BrandRegistrationSid: "BN_TEST",
     Description: preview.description,
     MessageFlow: preview.messageFlow,
@@ -162,9 +167,7 @@ test("createCampaign sends the exact previewed fields and public consent URL", a
     HasEmbeddedLinks: "true",
     HasEmbeddedPhone: "false",
     PrivacyPolicyUrl: "https://studio.example.com/privacy",
-    TermsAndConditionsUrl: "https://studio.example.com/terms",
-    "MessageSamples[0]": preview.samples[0],
-    "MessageSamples[1]": preview.samples[1]
+    TermsAndConditionsUrl: "https://studio.example.com/terms"
   });
   assert.match(form.get("MessageFlow") || "", /https:\/\/maia\.example\.com\/book\/studio\/artist/);
 });
