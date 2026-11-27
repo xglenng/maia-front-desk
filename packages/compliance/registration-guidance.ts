@@ -1,3 +1,9 @@
+/** Render a bounded provider reason without credentials or long token-like values. */
+export function registrationDiagnostic(value:unknown):string{
+ if(typeof value!=='string')return '';
+ return value.replace(/[\u0000-\u001f]/g,' ').replace(/(?:Bearer|Basic)\s+\S+/gi,'[redacted authorization]').replace(/((?:auth[_ -]?token|api[_ -]?key|password|secret)\s*[:=]\s*)\S+/gi,'$1[redacted]').replace(/[A-Za-z0-9_-]{32,}/g,'[redacted identifier]').trim().slice(0,800);
+}
+
 export function registrationStatus(profile: { status: string; readiness: { ready: boolean }; customerProfileStatus?: unknown }) {
   const { status } = profile;
   if (status === "APPROVED") return { title: "Registration approved", detail: "Twilio approved your SMS campaign.", error: false };
@@ -27,7 +33,8 @@ export function registrationStatus(profile: { status: string; readiness: { ready
   if (status === "CUSTOMER_PROFILE_REJECTED") {
     return { title: "Business details need attention", detail: "Twilio could not validate your business profile. Review your business and representative details, then submit again.", error: true };
   }
-  if (status.endsWith("REJECTED") || status === "SUBMISSION_ERROR") {
+  if (status === "SUBMISSION_ERROR") return {title:"Registration sync failed",detail:"Maia could not complete the last registration request. This does not mean Twilio rejected your business. Review the last error below before retrying.",error:true};
+  if (status.endsWith("REJECTED")) {
     return { title: "Registration needs attention", detail: "Twilio registration could not advance. Check your registration status and contact Maia support if you need help.", error: true };
   }
   return profile.readiness.ready

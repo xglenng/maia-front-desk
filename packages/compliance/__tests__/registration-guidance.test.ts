@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { registrationStatus } from "../registration-guidance";
+import { registrationStatus, registrationDiagnostic } from "../registration-guidance";
 
 test("pending SMS registration identifies the current stage and next action", () => {
   const readiness = { ready: true, missing: [], completed: 1, total: 1 };
@@ -27,4 +27,18 @@ test("business approval calls for submission and explains why texting is off", (
   assert.equal(result.title, "Action required to enable texting");
   assert.equal(result.actionLabel, "Continue SMS registration");
   assert.match(result.detail, /Texting is off.*submit your A2P Messaging Profile/);
+});
+
+test('failed API requests are distinguished from provider rejection',()=>{
+ const failure=registrationStatus({status:'SUBMISSION_ERROR',readiness:{ready:true}});
+ assert.equal(failure.title,'Registration sync failed');assert.match(failure.detail,/does not mean Twilio rejected/);
+ const rejection=registrationStatus({status:'CAMPAIGN_REJECTED',readiness:{ready:true}});
+ assert.equal(rejection.title,'Registration needs attention');
+});
+
+test('saved error reasons remain actionable without exposing token-like values',()=>{
+ assert.equal(registrationDiagnostic('Unable to process JSON'),'Unable to process JSON');
+ const result=registrationDiagnostic('AuthToken=synthetic-secret-value Basic c3ludGhldGljOnRva2Vu Account AC'+ 'a'.repeat(32));
+ assert.doesNotMatch(result,/synthetic-secret-value|c3ludGhldGlj|ACa{32}/);
+ assert.equal(registrationDiagnostic(null),'');assert.ok(registrationDiagnostic('x '.repeat(1000)).length<=800);
 });
