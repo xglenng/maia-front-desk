@@ -128,3 +128,14 @@ export function listMessagingServicePhoneNumbers(credentials: TwilioCredentials,
 export function listCampaigns(credentials: TwilioCredentials, serviceSid: string) {
   return request<{ compliance?: TwilioObject[] }>({ base: messaging, path: `/v1/Services/${encodeURIComponent(serviceSid)}/Compliance/Usa2p?PageSize=100`, ...credentials, apiVersion: "v1.2" });
 }
+
+export type TollFreeVerification={sid:string;account_sid:string;tollfree_phone_number_sid:string;status:string;rejection_reasons?:unknown};
+export function listTollFreeVerifications(credentials:TwilioCredentials,numberSid:string){
+ return request<{verifications:TollFreeVerification[];meta?:{next_page_url?:string|null}}>({base:messaging,path:`/v1/Tollfree/Verifications?TollfreePhoneNumberSid=${encodeURIComponent(numberSid)}&PageSize=100`,...credentials});
+}
+export function createTollFreeVerification(credentials:TwilioCredentials,form:Record<string,string|string[]>){
+ return request<TollFreeVerification>({base:messaging,path:'/v1/Tollfree/Verifications',...credentials,method:'POST',form});
+}
+export function getIncomingPhoneNumber(credentials:TwilioCredentials,sid:string){
+ return request<{sid:string;account_sid:string;phone_number:string}>({base:api,path:`/2010-04-01/Accounts/${encodeURIComponent(credentials.accountSid)}/IncomingPhoneNumbers/${encodeURIComponent(sid)}.json`,...credentials});
+}

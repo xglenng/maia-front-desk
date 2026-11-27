@@ -1,3 +1,4 @@
+import {isUsTollFreeNumber} from './phone-number-type';
 import crypto from 'node:crypto';
 
 function required(name: string) {
@@ -83,6 +84,14 @@ export async function findAvailableLocalNumber(accountSid: string, authToken: st
   const number = data.available_phone_numbers?.[0]?.phone_number;
   if (!number) throw new Error(areaCode ? `No SMS-capable Twilio number is available for area code ${areaCode}. Try leaving the area code blank to search all available US local numbers.` : 'No SMS-capable Twilio number is currently available.');
   return number;
+}
+
+export async function findAvailableTollFreeNumber(accountSid:string,authToken:string){
+ const data=await twilioRequest<{available_phone_numbers?:Array<{phone_number:string}>}>({baseUrl:'https://api.twilio.com',path:`/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/AvailablePhoneNumbers/US/TollFree.json?SmsEnabled=true&PageSize=20`,accountSid,authToken});
+ const number=data.available_phone_numbers?.[0]?.phone_number;
+ if(!number)throw Error('No SMS-capable Twilio toll-free number is currently available.');
+ if(!isUsTollFreeNumber(number))throw Error('Twilio inventory did not return a US toll-free number.');
+ return number;
 }
 
 export async function purchasePhoneNumber(accountSid: string, authToken: string, phoneNumber: string, inboundUrl: string) {

@@ -436,7 +436,7 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
   await local.query("INSERT INTO phone_numbers(organization_id,artist_id,phone_number,provider,compliance_status) VALUES($1,$2,'+15555550100','twilio','APPROVED')",[org,artist]);
   eligibility=await (await details(request('/api/invoices/details?invoiceId='+own.id),undefined)).json();assert.equal(eligibility.eligible,true);
   await local.query("UPDATE phone_numbers SET compliance_status='NOT_REGISTERED' WHERE organization_id=$1 AND artist_id=$2",[org,artist]);
-  eligibility=await (await details(request('/api/invoices/details?invoiceId='+own.id),undefined)).json();assert.equal(eligibility.eligible,false);assert.match(eligibility.reason,/A2P-approved/);
+  eligibility=await (await details(request('/api/invoices/details?invoiceId='+own.id),undefined)).json();assert.equal(eligibility.eligible,false);assert.match(eligibility.reason,/approved for messaging/);
   await local.query("UPDATE phone_numbers SET compliance_status='APPROVED' WHERE organization_id=$1 AND artist_id=$2",[org,artist]);
   const brokenAccount=randomUUID();
   await local.query("INSERT INTO twilio_accounts(id,organization_id,artist_id,account_sid,auth_token_encrypted) VALUES($1,$2,$3,'AC_broken','invalid')",[brokenAccount,org,artist]);
@@ -524,5 +524,7 @@ test('invoice migration and routes isolate tenants/artists, deduplicate drafts, 
    if(previousKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=previousKey;
    if(previousModel===undefined)delete process.env.OPENAI_MODEL;else process.env.OPENAI_MODEL=previousModel;
   }
+  const {runTollFreeChecks}=await import('./toll-free-postgres-checks');
+  await runTollFreeChecks({local,request,org,other,owner,artist});
  }finally{await local.query(`DROP SCHEMA ${schema} CASCADE`);await local.end();await pool.end();}
 });

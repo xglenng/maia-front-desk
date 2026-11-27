@@ -1,3 +1,4 @@
+import {isUsTollFreeNumber} from '@/packages/integrations/phone-number-type';
 import { protectedSettingsRoute as protectedRoute } from "@/packages/auth/server";
 import { NextResponse } from "next/server";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -113,6 +114,7 @@ async function handlePOST(req: Request) {
       for (const sender of senders) {
         const number = value(sender, "phone_number", "phoneNumber");
         if (!number || !/^\+[1-9]\d{7,14}$/.test(number) || !sender.sid) throw new AdoptionConflict("The sender pool contains an invalid phone number.");
+        if(isUsTollFreeNumber(number))throw new AdoptionConflict('Toll-free senders require their own toll-free verification, not A2P campaign adoption.');
         const rows = await tx.select().from(phoneNumbers).where(or(eq(phoneNumbers.phoneNumber, number), eq(phoneNumbers.twilioPhoneNumberSid, sender.sid)));
         for (const row of rows) {
           assertAdoptionOwnership(scope, row);

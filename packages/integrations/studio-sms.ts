@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@db/index";
 import { clients, phoneNumbers, twilioAccounts } from "@db/schema";
 import { decryptSecret, sendSms } from "./twilio";
@@ -20,9 +20,9 @@ async function studioSmsSender(input: { organizationId: string; artistId: string
     ...(input.useAssignedNumber ? [eq(phoneNumbers.provider, "twilio")] : []),
   )).limit(1);
   if (!number) throw new StudioSmsUnavailableError("The artist's primary Twilio SMS number is not active.");
-  if (!input.allowCustomerCareReply && !maySendStudioSms(number.complianceStatus)) throw new StudioSmsUnavailableError("The artist's primary SMS number is not A2P-approved for this environment.");
+  if (!input.allowCustomerCareReply && !maySendStudioSms(number.complianceStatus)) throw new StudioSmsUnavailableError("The artist's primary SMS number is not approved for messaging in this environment.");
   const [account] = number.twilioAccountId ? await db.select().from(twilioAccounts).where(and(
-    eq(twilioAccounts.id, number.twilioAccountId), eq(twilioAccounts.organizationId, input.organizationId), ...(input.useAssignedNumber ? [eq(twilioAccounts.artistId, input.artistId)] : []), eq(twilioAccounts.status, "ACTIVE"),
+    eq(twilioAccounts.id, number.twilioAccountId), eq(twilioAccounts.organizationId, input.organizationId), ...(input.useAssignedNumber ? [sql`(${twilioAccounts.artistId} = ${input.artistId} OR EXISTS(SELECT 1 FROM legal_customer_accounts lca WHERE lca.organization_id=${input.organizationId} AND lca.twilio_account_id=${twilioAccounts.id}))`] : []), eq(twilioAccounts.status, "ACTIVE"),
   )) : [];
   if (input.useAssignedNumber && number.twilioAccountId && !account) throw new StudioSmsUnavailableError("The artist's Twilio account is not active.");
   const accountSid = account?.accountSid || process.env.TWILIO_ACCOUNT_SID;

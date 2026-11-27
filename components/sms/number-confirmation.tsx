@@ -1,3 +1,4 @@
+import {isUsTollFreeNumber} from '@/packages/integrations/phone-number-type';
 import React from "react";
 type Props = { artistName: string; phoneNumber: string; complianceStatus: string };
 function displayPhone(value: string) {
@@ -15,7 +16,7 @@ export function NumberConfirmation({artistName,phoneNumber,complianceStatus}:Pro
       ? 'This is a test number. It cannot send or receive real messages. Complete live business setup to get a real number.'
       : approved
         ? 'Messaging registration is approved. Review your client SMS consent settings before sending messages.'
-        : 'Your number is saved, but texting is not active yet. Complete your business information and submit messaging registration. Texting becomes available after approval.'}</p>
-    <a href={mock?'/settings/sms?tab=business':approved?'/settings/sms?tab=consent':'/compliance'} style={{display:'inline-flex',justifyContent:'center',alignItems:'center',boxSizing:'border-box',maxWidth:'100%',padding:'14px 18px',borderRadius:8,background:'#181716',color:'#fff',fontWeight:700,textDecoration:'none',lineHeight:1.4}}>{mock?'Continue live business setup →':approved?'Next: review SMS consent →':'Next: complete SMS registration →'}</a>
+        : isUsTollFreeNumber(phoneNumber) ? 'Your toll-free number is saved. Submit toll-free verification to Twilio; texting stays off until approval.' : 'Your number is saved, but texting is not active yet. Complete your business information and submit messaging registration. Texting becomes available after approval.'}</p>
+    <a href={mock?'/settings/sms?tab=business':approved?'/settings/sms?tab=consent':'/settings/sms?tab=campaign'} style={{display:'inline-flex',justifyContent:'center',alignItems:'center',boxSizing:'border-box',maxWidth:'100%',padding:'14px 18px',borderRadius:8,background:'#181716',color:'#fff',fontWeight:700,textDecoration:'none',lineHeight:1.4}}>{mock?'Continue live business setup →':approved?'Next: review SMS consent →':'Next: complete SMS registration →'}</a>
   </section>;
 }

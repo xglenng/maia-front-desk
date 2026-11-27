@@ -28,3 +28,7 @@ test('opens consent only when approved registration lacks consent, or registrati
   assert.equal(resolveSmsStep(withRegistration({ status: 'NOT_STARTED', readiness: { ready: false }, consentFormsReady: false })), 'consent');
   assert.equal(resolveSmsStep(withRegistration({ status: 'APPROVED' })), 'campaign');
 });
+
+test('toll-free senders route to verification without requiring an A2P profile',()=>{
+ assert.equal(resolveSmsStep({...base,registration:null,phones:[{provisioned:true,phoneNumber:{phoneNumber:'+18885550123',complianceStatus:'TOLL_FREE_NOT_SUBMITTED'}}]}),'campaign');
+});

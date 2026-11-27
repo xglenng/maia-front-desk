@@ -17,9 +17,9 @@ async function handleGET(req: NextRequest) {
   const artistsRows=await db.select({id:artists.id,displayName:artists.displayName,userId:artists.userId}).from(artists).where(and(...conditions));
   const results = [];
   for (const artist of artistsRows) {
-    const [account] = await db.select({ sid: twilioAccounts.accountSid, status: twilioAccounts.status }).from(twilioAccounts).where(and(eq(twilioAccounts.organizationId, organizationId), eq(twilioAccounts.artistId, artist.id))).limit(1);
     const [service] = await db.select({ sid: twilioMessagingServices.serviceSid, status: twilioMessagingServices.status }).from(twilioMessagingServices).where(and(eq(twilioMessagingServices.organizationId, organizationId), eq(twilioMessagingServices.artistId, artist.id))).limit(1);
-    const [number] = await db.select({ phoneNumber: phoneNumbers.phoneNumber, sid: phoneNumbers.twilioPhoneNumberSid, provider: phoneNumbers.provider, active: phoneNumbers.active, complianceStatus: phoneNumbers.complianceStatus, lifecycleRole: phoneNumbers.lifecycleRole }).from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, organizationId), eq(phoneNumbers.artistId, artist.id), eq(phoneNumbers.isPrimary, true))).limit(1);
+    const [number] = await db.select({ phoneNumber: phoneNumbers.phoneNumber, sid: phoneNumbers.twilioPhoneNumberSid, twilioAccountId:phoneNumbers.twilioAccountId, provider: phoneNumbers.provider, active: phoneNumbers.active, complianceStatus: phoneNumbers.complianceStatus, lifecycleRole: phoneNumbers.lifecycleRole }).from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, organizationId), eq(phoneNumbers.artistId, artist.id), eq(phoneNumbers.isPrimary, true))).limit(1);
+    const [account] = await db.select({ sid: twilioAccounts.accountSid, status: twilioAccounts.status }).from(twilioAccounts).where(and(eq(twilioAccounts.organizationId, organizationId),number?.twilioAccountId?eq(twilioAccounts.id,number.twilioAccountId):eq(twilioAccounts.artistId, artist.id))).limit(1);
     results.push({ artist: {id:artist.id,displayName:artist.displayName}, account: account ?? null, messagingService: service ?? null, phoneNumber: number ?? null, provisioned: Boolean(account && service && number) });
   }
   const ownArtists=artistsRows.filter(artist=>artist.userId===user.id);

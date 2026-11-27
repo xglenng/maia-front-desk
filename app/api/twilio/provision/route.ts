@@ -1,21 +1,22 @@
+import {isUsTollFreeNumber} from '@/packages/integrations/phone-number-type';
 import { protectedSettingsRoute as protectedRoute } from '@/packages/auth/server';
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@db';
 import { artists, organizations, phoneNumbers, twilioAccounts, twilioMessagingServices } from '@db/schema';
-import { addNumberToMessagingService, createMessagingService, decryptSecret, encryptSecret, findAvailableLocalNumber, purchasePhoneNumber } from '@integrations/twilio';
+import { addNumberToMessagingService, createMessagingService, decryptSecret, encryptSecret, findAvailableTollFreeNumber, purchasePhoneNumber } from '@integrations/twilio';
 import { TwilioProvisionConfigurationError, twilioProvisionPreflight } from '@integrations/twilio-provision-preflight';
 import { resolveLegalCustomerAccount, LegalCustomerConflict } from '@/packages/compliance/legal-customer.server';
 import { provisionOperation, ProvisionReconciliationRequired } from '@integrations/provision-operation';
 import { isE164PhoneNumber, mockPhoneNumber } from '@integrations/mock-twilio';
 
-const schema = z.object({ organizationId: z.string().uuid(), artistId: z.string().uuid(), areaCode: z.string().regex(/^\d{3}$/).optional() });
+const schema = z.object({ organizationId: z.string().uuid(), artistId: z.string().uuid(), areaCode: z.never().optional(), numberType:z.literal('TOLL_FREE').optional() });
 
 async function handlePOST(req: Request) {
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { organizationId, artistId, areaCode } = parsed.data;
+  const { organizationId, artistId } = parsed.data;
   try {
     const [org] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
     const [artist] = await db.select().from(artists).where(and(eq(artists.id, artistId), eq(artists.organizationId, organizationId)));
@@ -64,15 +65,16 @@ async function handlePOST(req: Request) {
     }
 
     const row = await operation('NUMBER', async () => {
-      const phone = await findAvailableLocalNumber(account.accountSid, authToken, areaCode);
+      const phone = await findAvailableTollFreeNumber(account.accountSid, authToken);
       const purchased = await purchasePhoneNumber(account.accountSid, authToken, phone, inboundUrl);
-      return (await db.insert(phoneNumbers).values({ organizationId, artistId, phoneNumber: purchased.phone_number, provider: 'twilio', twilioAccountId: account.id, twilioPhoneNumberSid: purchased.sid, complianceStatus: 'NOT_REGISTERED', lifecycleRole: 'TEMPORARY', isPrimary: true, active: false }).returning())[0];
+      if(purchased.phone_number!==phone||!isUsTollFreeNumber(purchased.phone_number))throw Error('Purchased number needs reconciliation before activation.');
+      return (await db.insert(phoneNumbers).values({ organizationId, artistId, phoneNumber: purchased.phone_number, provider: 'twilio', twilioAccountId: account.id, twilioPhoneNumberSid: purchased.sid, complianceStatus: 'TOLL_FREE_NOT_SUBMITTED', lifecycleRole: 'TEMPORARY', isPrimary: true, active: false }).returning())[0];
     });
     await operation('ASSOCIATE', async () => {
         await addNumberToMessagingService(account.accountSid, authToken, service.serviceSid, row.twilioPhoneNumberSid!);
         await db.update(phoneNumbers).set({ twilioMessagingServiceSid: service.serviceSid, updatedAt: new Date() }).where(and(eq(phoneNumbers.id, row.id), eq(phoneNumbers.organizationId, organizationId)));
     });
-    return NextResponse.json({ status: 'provisioned_pending_compliance', phoneNumber: row.phoneNumber, phoneNumberSid: row.twilioPhoneNumberSid, messagingServiceSid: service.serviceSid, twilioAccountSid: account.accountSid, message: 'Number purchased. Outbound SMS remains disabled until A2P campaign approval.' });
+    return NextResponse.json({ status: 'provisioned_pending_compliance', numberType:'TOLL_FREE', phoneNumber: row.phoneNumber, phoneNumberSid: row.twilioPhoneNumberSid, messagingServiceSid: service.serviceSid, twilioAccountSid: account.accountSid, message: 'Toll-free number purchased. Submit toll-free verification before sending SMS.' });
   } catch (error) {
     if (error instanceof LegalCustomerConflict || error instanceof ProvisionReconciliationRequired || error instanceof TwilioProvisionConfigurationError) return NextResponse.json({ error: error.message }, { status: 409 });
     if (error instanceof Error && (error.message.startsWith('Twilio API ') || error.message.startsWith('No SMS-capable Twilio number'))) {

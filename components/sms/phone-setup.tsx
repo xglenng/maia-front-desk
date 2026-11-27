@@ -23,7 +23,6 @@ export default function TwilioSetupPage({embedded=false,onArtistChange}:{embedde
   const [artistId, setArtistId] = useState("");
   const [artists, setArtists] = useState<ArtistStatus[]>([]);
   const [choice, setChoice] = useState<"new" | "port">("new");
-  const [areaCode, setAreaCode] = useState("");
   const [existingNumber, setExistingNumber] = useState("");
   const [portability, setPortability] = useState<Portability | null>(null);
   const [requests, setRequests] = useState<PortRequest[]>([]);
@@ -66,7 +65,7 @@ export default function TwilioSetupPage({embedded=false,onArtistChange}:{embedde
   async function provision(event: FormEvent) {
     event.preventDefault(); setLoading(true); setMessage(""); setResult(null);
     try {
-      const res = await fetch("/api/twilio/provision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, ...(areaCode ? { areaCode } : {}) }) });
+      const res = await fetch("/api/twilio/provision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, artistId, numberType:'TOLL_FREE' }) });
       const data = await res.json();
       setResult(data);
       setMessage(res.ok ? "" : data.error ?? "Unable to create the number.");
@@ -109,14 +108,14 @@ export default function TwilioSetupPage({embedded=false,onArtistChange}:{embedde
   return <Container style={{ maxWidth: 920, margin: "0 auto", padding: embedded ? "0" : "40px 20px 80px", fontFamily: "Arial, sans-serif", color: "#181716" }}>
     {!embedded&&<p><a href="/settings/sms">← SMS setup</a></p>}
     <Heading>Twilio phone setup</Heading>
-    <p>Create a new business number for this artist or move an existing business number into Maia.</p>
+    <p>New artists start with a toll-free business number. Local number purchase will be available later. Existing numbers stay unchanged.</p>
 
     <section style={card}>
       <label style={label}>Artist<select required value={artistId} onChange={e => { setArtistId(e.target.value); setPortability(null); }} style={field}>
         <option value="">Select an artist</option>{artists.map(row => <option key={row.artist.id} value={row.artist.id}>{row.artist.displayName}{row.phoneNumber ? ` — ${row.phoneNumber.phoneNumber}` : " — no number"}</option>)}
       </select></label>
       {selected?.phoneNumber && <p style={{fontSize:13}}>Primary number: <strong>{selected.phoneNumber.phoneNumber}</strong> · {selected.phoneNumber.lifecycleRole === "TEMPORARY" ? "New number" : selected.phoneNumber.lifecycleRole} · {selected.phoneNumber.complianceStatus}</p>}
-      <div role="group" aria-label="Phone number setup option" style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>setChoice("new")}>New number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} aria-pressed={choice === "port"} onClick={()=>setChoice("port")}>Port existing number</button></div>
+      <div role="group" aria-label="Phone number setup option" style={{display:"flex",gap:10,marginTop:16}}><button type="button" style={{...button,background:choice==="new"?"#181716":"#fff",color:choice==="new"?"#fff":"#181716"}} aria-pressed={choice === "new"} onClick={()=>setChoice("new")}>New toll-free number</button><button type="button" style={{...button,background:choice==="port"?"#181716":"#fff",color:choice==="port"?"#fff":"#181716"}} aria-pressed={choice === "port"} onClick={()=>setChoice("port")}>Port existing number</button></div>
     </section>
 
     {selected?.provisioned && selected.phoneNumber && <NumberConfirmation artistName={selected.artist.displayName} phoneNumber={selected.phoneNumber.phoneNumber} complianceStatus={selected.phoneNumber.complianceStatus} />}
@@ -127,9 +126,8 @@ export default function TwilioSetupPage({embedded=false,onArtistChange}:{embedde
     {!selected?.provisioned && <p>Before creating a number, complete <a href="/settings/sms?tab=business">Business setup</a> to connect your legal business to a live Twilio account.</p>}
 
     {choice === "new" && !selected?.provisioned && <form onSubmit={provision} style={card}>
-      <h2 style={{marginTop:0}}>New business number</h2><p>Keep this as your main business number, or use it while moving an existing number to Maia. SMS sending requires registration approval.</p>
-      <label style={label}>Preferred US area code (optional)<input value={areaCode} onChange={e => setAreaCode(e.target.value.replace(/\D/g, ""))} maxLength={3} inputMode="numeric" style={field} /></label>
-      <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>{loading ? "Checking phone setup…" : "Create number"}</button>
+      <h2 style={{marginTop:0}}>New toll-free business number</h2><p>Get a dedicated US toll-free number for this artist. Toll-free verification is required before texting. Number rental and messaging charges apply; no A2P Brand/Campaign registration is needed for this number.</p>
+      <button disabled={loading || !artistId || Boolean(selected?.provisioned)} style={{...button,marginTop:16}}>{loading ? "Checking phone setup…" : "Get toll-free number"}</button>
       {!artistId && <p>Select an artist above to continue.</p>}
       {selected?.provisioned && <p>This artist already has a number. Refresh phone status if it was recently removed.</p>}
     </form>}
@@ -137,7 +135,7 @@ export default function TwilioSetupPage({embedded=false,onArtistChange}:{embedde
     {choice === "port" && <>
       <section style={card}><h2 style={{marginTop:0}}>Move the existing business number</h2>
         {!selected?.provisioned && <p style={{color:"#8f2f22"}}>Create a new number first to use during the carrier transfer.</p>}
-        {selected?.provisioned && !["APPROVED","MOCK_APPROVED"].includes(selected.phoneNumber?.complianceStatus || "") && <p style={{color:"#8f2f22"}}>Complete A2P approval and test the new number before beginning the port.</p>}
+        {selected?.provisioned && !["APPROVED","MOCK_APPROVED"].includes(selected.phoneNumber?.complianceStatus || "") && <p style={{color:"#8f2f22"}}>Complete messaging verification and test the new number before beginning the port.</p>}
         <label style={label}>Existing US business number<input placeholder="+14355551212" value={existingNumber} onChange={e=>{setExistingNumber(e.target.value);setPortability(null);}} style={field} /></label>
         <button type="button" disabled={loading || !artistId || !selected?.provisioned || !["APPROVED","MOCK_APPROVED"].includes(selected.phoneNumber?.complianceStatus || "") || !existingNumber} onClick={checkNumber} style={{...button,marginTop:16}}>Check portability</button>
       </section>

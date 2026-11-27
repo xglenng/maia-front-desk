@@ -1,3 +1,4 @@
+import {isUsTollFreeNumber} from '@/packages/integrations/phone-number-type';
 import { resolveLegalCustomerAccount } from "./legal-customer.server";
 import { registrationAccountResources } from "./account-boundary";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -34,7 +35,10 @@ async function resources(organizationId: string) {
   const validated = registrationAccountResources(organizationId, rows);
   const binding = await resolveLegalCustomerAccount(organizationId);
   if (validated.some(row => row.account.id !== binding.accountId)) throw new Error("Registration services do not belong to the bound legal customer account.");
-  return validated.map(row => ({ ...row, credentials: { accountSid: row.account.accountSid, authToken: decryptSecret(row.account.authTokenEncrypted) } }));
+  const senders=await db.select({serviceSid:phoneNumbers.twilioMessagingServiceSid,phone:phoneNumbers.phoneNumber}).from(phoneNumbers).where(eq(phoneNumbers.organizationId,organizationId));
+  const localRows=validated.filter(row=>senders.some(sender=>sender.serviceSid===row.service.serviceSid&&!isUsTollFreeNumber(sender.phone)));
+  if(!localRows.length)throw Error('Toll-free numbers use toll-free verification. Open SMS setup → Messaging registration.');
+  return localRows.map(row => ({ ...row, credentials: { accountSid: row.account.accountSid, authToken: decryptSecret(row.account.authTokenEncrypted) } }));
 }
 
 async function saveProfile(organizationId: string, values: Partial<typeof complianceProfiles.$inferInsert>) {
@@ -268,7 +272,7 @@ export async function syncLiveRegistration(profile: Profile) {
         const isApproved = approved(objectStatus(remote));
         await db.update(a2pCampaigns).set({ status: campaignStatus, errors: providerErrors(remote) as object, approvedAt: isApproved ? new Date() : null, updatedAt: new Date() }).where(eq(a2pCampaigns.id, campaign.id));
         if (isApproved) {
-          await db.update(phoneNumbers).set({ active: true, complianceStatus: "APPROVED", updatedAt: new Date() }).where(and(eq(phoneNumbers.organizationId, profile.organizationId), eq(phoneNumbers.twilioMessagingServiceSid, resource.service.serviceSid)));
+          await db.update(phoneNumbers).set({ active: true, complianceStatus: "APPROVED", updatedAt: new Date() }).where(and(eq(phoneNumbers.organizationId, profile.organizationId), eq(phoneNumbers.twilioMessagingServiceSid, resource.service.serviceSid), sql`not (${phoneNumbers.phoneNumber} ~ '^[+]1(800|833|844|855|866|877|888)[0-9]{7}$')`));
           const [ported] = await db.select().from(phoneNumbers).where(and(eq(phoneNumbers.organizationId, profile.organizationId), eq(phoneNumbers.twilioMessagingServiceSid, resource.service.serviceSid), eq(phoneNumbers.lifecycleRole, "PORTED"))).limit(1);
           if (ported) {
             const retireAfter = new Date(); retireAfter.setUTCDate(retireAfter.getUTCDate() + 7);
